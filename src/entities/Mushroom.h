@@ -1,0 +1,37 @@
+#pragma once
+
+#include <SDL.h>
+
+#include "../render/SpriteSheet.h"
+#include "../world/Tilemap.h"
+
+// Super Mushroom (seccion 5.4): camina en linea recta a velocidad
+// constante, rebota al chocar una pared (invierte direccion), cae por
+// gravedad y sigue caminando aunque se quede sin piso debajo (a diferencia
+// de un Koopa, no le tiene miedo a los bordes).
+class Mushroom {
+public:
+    void spawn(float x, float y, bool movingRight);
+    void update(float dt, const Tilemap& level, int screenWidth);
+    // worldRow selecciona la variante de color segun el tipo de mundo (el
+    // sheet trae una fila por WorldType, en ese mismo orden).
+    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const;
+    bool isAlive() const { return alive_; }
+    void collect() { alive_ = false; }
+
+    float x() const { return x_; }
+    float y() const { return y_; }
+    static constexpr int kSize = 16;
+
+private:
+    static constexpr float kSpeed = 40.0f;         // px/s horizontal, constante
+    static constexpr float kGravity = 1000.0f;     // px/s^2
+    static constexpr float kMaxFallSpeed = 300.0f; // px/s
+    static constexpr float kEdgeEpsilon = 0.01f;
+
+    float x_ = 0.0f;
+    float y_ = 0.0f;
+    float velX_ = 0.0f;
+    float velY_ = 0.0f;
+    bool alive_ = false;
+};
