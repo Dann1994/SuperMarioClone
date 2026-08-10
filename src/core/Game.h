@@ -13,6 +13,7 @@
 #include "../entities/Koopa.h"
 #include "../entities/Mario.h"
 #include "../entities/Mushroom.h"
+#include "../entities/PiranhaPlant.h"
 #include "../entities/ScorePopup.h"
 #include "../entities/StarItem.h"
 #include "../render/SpriteSheet.h"
@@ -114,6 +115,16 @@ private:
     void checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy);
     void checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy);
     void checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy);
+    // Sin pisoton (ver PiranhaPlant.h): cualquier contacto mientras esta
+    // asomada hace dano, salvo estrella que la mata.
+    void checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant);
+    // Fuego si la mata (a diferencia del Buzzy Beetle): desaparece de una,
+    // sin parabola (no tiene adonde volar), y la bola explota ahi.
+    void checkFireballPiranhaPlantCollision(Fireball& fireball, PiranhaPlant& plant);
+    // No se asoma si algun personaje esta cerca del cano -- esta clase no
+    // conoce a Mario/Luigi, asi que Game.cpp resuelve la distancia cada
+    // frame y le pasa el resultado a PiranhaPlant::update().
+    bool isSafeForPiranhaPlant(const PiranhaPlant& plant) const;
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -210,6 +221,16 @@ private:
     // rojo) no encajan como una opcion mas de Koopa. Tecla B lo repone.
     SpriteSheet buzzyBeetleSprite_;
     BuzzyBeetle buzzyBeetle_;
+
+    // Pirana Plant de prueba (seccion 5.2, cuarto enemigo): sale de un tile
+    // solido angosto en test_enemies.json (no existe el objeto "tuberia"
+    // todavia, seccion 5.3) y cicla sola entre escondida y asomada -- no se
+    // asoma si algun personaje esta cerca (ver isSafeForPiranhaPlant). Sin
+    // caparazon ni pisoton: cualquier toque mientras esta asomada hace dano,
+    // solo estrella o fuego la matan (sin parabola, ver PiranhaPlant::kill).
+    // Tecla P la repone.
+    SpriteSheet piranhaPlantSprite_;
+    PiranhaPlant piranhaPlant_;
 
     // Pool de popups de puntaje (hongo/flor/estrella dan 1000, como en el
     // original; la moneda no muestra popup, solo suma al contador cuando

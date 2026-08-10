@@ -66,6 +66,7 @@ El `.exe` se genera junto con sus DLLs y las carpetas `assets/` y `levels/` copi
   - No existe variante roja (siempre se cae de los bordes, nunca les tiene miedo) ni Koopa Alado equivalente (no vuela ni salta, solo camina)
   - **Inmune al fuego**: una bola de fuego explota igual al tocarlo (mismo feedback visual que contra cualquier otro enemigo, `Game::checkFireballBuzzyBeetleCollision`), pero no le hace nada — sigue caminando o en el estado en que estaba. La estrella sí lo mata, igual que a cualquier otro enemigo
   - El sprite ya viene "metido" en su caparazón en las tres poses (a diferencia del Koopa no muestra piernas largas al caminar), así que el hitbox es 16x16 fijo en cualquier estado — no hace falta el ajuste de altura que hace el Koopa al esconderse. Solo hay un frame de caparazón en la hoja de referencia, así que a diferencia del Koopa no parpadea como aviso antes de despertar, se queda quieto todo el tiempo escondido
+- Cuarto enemigo: Pirana Plant (sección 5.2), solo en el escenario de enemigos, una instancia de prueba que sale de un tile angosto agregado a `test_enemies.json` (columna 12, filas 12-13) — el objeto "tubería" en sí todavía no existe (sección 5.3), así que es solo un tile sólido con esa forma para que se vea de dónde sale. No camina, no tiene caparazón ni estados compartidos con el resto del elenco (`PiranhaPlantState` propio): cicla sola entre escondida y asomada (`Hidden` → `Rising` → `Up` → `Descending` → `Hidden`...), y **no se asoma si Mario o Luigi están cerca del caño** (32px en X, 48px en Y) — se queda escondida reintentando cada 0.4s hasta que se alejan, igual que el original. Mientras está escondida no se puede tocar (está debajo del caño, fuera de alcance); asomando o asomada, cualquier contacto hace daño de un toque, sin distinguir de qué lado viene — a diferencia de todo el resto del elenco, **un pisotón no la mata** (no hay forma de pisarla desde arriba estando metida en el caño). Solo la matan la estrella o el fuego (ambos, a diferencia del Buzzy Beetle), y desaparece de una sin parábola de caída (no tiene adónde volar). Mientras asoma/se esconde, solo se dibuja la porción de arriba del sprite que ya salió del caño (`SpriteSheet::drawSlice`), para que se vea que sale de adentro en vez de superponerse como si el caño fuera transparente. Paleta propia por tipo de mundo (Underground y Castillo comparten el mismo arte fuente en la hoja de referencia, igual que pasa con otros enemigos)
 
 Desarrollo incremental siguiendo la sección 12 de la especificación: un elemento del elenco a la vez.
 
@@ -87,6 +88,7 @@ Todas provisorias, para probar mecánicas antes de tener sus disparadores reales
 | G *(Enemigos)* | Repone al Goomba de prueba |
 | K *(Enemigos)* | Repone los cinco Koopa de prueba (dos verdes de piso + saltarín verde + rojo de piso + volador rojo) |
 | B *(Enemigos)* | Repone al Buzzy Beetle de prueba |
+| P *(Enemigos)* | Repone a la Pirana Plant de prueba |
 | M | Cambia entre modo 1 jugador y 2 jugadores simultáneo |
 | ESC | Vuelve al selector de escenario (o cierra el juego si ya estás ahí) |
 

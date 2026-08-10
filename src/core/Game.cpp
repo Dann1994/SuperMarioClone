@@ -60,6 +60,16 @@ constexpr float kKoopaRedFlyingTestY = 170.0f;
 constexpr float kBuzzyBeetleTestX = 104.0f;
 constexpr float kBuzzyBeetleTestY = 190.0f;
 
+// Pirana Plant de prueba: sale del tile angosto agregado a test_enemies.json
+// (fila 12-13, columna 12) -- "Y" es el borde de arriba de ese tile (donde
+// apoya la planta bien asomada), no una posicion en el piso.
+constexpr float kPiranhaPlantTestX = 192.0f;
+constexpr float kPiranhaPlantTestPipeTopY = 192.0f;
+// Que tan cerca (en X e Y) puede estar un personaje del cano sin que la
+// planta se niegue a asomar (ver Game::isSafeForPiranhaPlant).
+constexpr float kPiranhaSafeDistanceX = 32.0f;
+constexpr float kPiranhaSafeDistanceY = 48.0f;
+
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
 // (hongo, flor de fuego) que los disparan en el juego.
@@ -196,6 +206,10 @@ bool Game::init() {
                                           BuzzyBeetle::kSize)) {
         return false;
     }
+    if (!piranhaPlantSprite_.loadFromFile(renderer_, "assets/sprites/piranha_plant.png", PiranhaPlant::kWidth,
+                                           PiranhaPlant::kHeight)) {
+        return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
@@ -230,6 +244,7 @@ void Game::startScenario(TestScenario scenario) {
     koopaRed_.reset();
     koopaRedFlying_.reset();
     buzzyBeetle_.reset();
+    piranhaPlant_.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -244,6 +259,7 @@ void Game::startScenario(TestScenario scenario) {
         koopaRed_.spawn(kKoopaRedTestX, kKoopaRedTestY, true);
         koopaRedFlying_.spawn(kKoopaRedFlyingTestX, kKoopaRedFlyingTestY, true, KoopaState::Flying);
         buzzyBeetle_.spawn(kBuzzyBeetleTestX, kBuzzyBeetleTestY, true);
+        piranhaPlant_.spawn(kPiranhaPlantTestX, kPiranhaPlantTestPipeTopY);
     }
 
     appState_ = AppState::Playing;
@@ -313,6 +329,8 @@ void Game::processEvents() {
                 koopaRedFlying_.spawn(kKoopaRedFlyingTestX, kKoopaRedFlyingTestY, true, KoopaState::Flying);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_B && scenario_ == TestScenario::Enemies) {
                 buzzyBeetle_.spawn(kBuzzyBeetleTestX, kBuzzyBeetleTestY, true);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_P && scenario_ == TestScenario::Enemies) {
+                piranhaPlant_.spawn(kPiranhaPlantTestX, kPiranhaPlantTestPipeTopY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -882,6 +900,55 @@ void Game::checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy) {
     buzzy.bounceOffEnemy(koopaOnLeft ? pushAmount : -pushAmount);
 }
 
+void Game::checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant) {
+    if (character.isInDeathSequence()) return;
+    if (!plant.isDangerous()) return;
+
+    const bool overlap =
+        character.x() < plant.x() + plant.width() && character.x() + character.width() > plant.x() &&
+        character.y() < plant.y() + plant.height() && character.y() + character.height() > plant.y();
+    if (!overlap) return;
+
+    if (character.isInvincible()) {
+        plant.kill();
+        return;
+    }
+
+    // Sin pisoton (ver PiranhaPlant.h): cualquier contacto hace dano, sin
+    // importar de que lado venga.
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballPiranhaPlantCollision(Fireball& fireball, PiranhaPlant& plant) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!plant.isDangerous()) return;
+
+    const bool overlap =
+        fireball.x() < plant.x() + plant.width() && fireball.x() + Fireball::kSize > plant.x() &&
+        fireball.y() < plant.y() + plant.height() && fireball.y() + Fireball::kSize > plant.y();
+    if (!overlap) return;
+
+    plant.kill();
+    fireball.explode();
+}
+
+bool Game::isSafeForPiranhaPlant(const PiranhaPlant& plant) const {
+    const float plantCenterX = plant.x() + static_cast<float>(plant.width()) / 2.0f;
+    auto tooClose = [&](const Mario& character) {
+        const float characterCenterX = character.x() + static_cast<float>(character.width()) / 2.0f;
+        const float dx = std::abs(characterCenterX - plantCenterX);
+        const float dy = std::abs(character.y() - plant.y());
+        return dx < kPiranhaSafeDistanceX && dy < kPiranhaSafeDistanceY;
+    };
+    if (tooClose(mario_)) return false;
+    if (twoPlayerMode_ && tooClose(luigi_)) return false;
+    return true;
+}
+
 void Game::spawnScorePopup(float x, float y, const std::string& text) {
     for (ScorePopup& popup : scorePopups_) {
         if (popup.isAlive()) continue;
@@ -1010,6 +1077,10 @@ void Game::update(float dt) {
     checkBuzzyShellVsGoomba(buzzyBeetle_);
     checkGoombaBuzzyBeetleBounce(goomba_, buzzyBeetle_);
 
+    piranhaPlant_.update(dt, isSafeForPiranhaPlant(piranhaPlant_));
+    checkPiranhaPlantCollision(mario_, piranhaPlant_);
+    if (twoPlayerMode_) checkPiranhaPlantCollision(luigi_, piranhaPlant_);
+
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
     // combinaciones de Alado existen en el juego original de 1985): en
@@ -1041,6 +1112,7 @@ void Game::update(float dt) {
         checkFireballGoombaCollision(fireball);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
         checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
+        checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
     }
 
     if (twoPlayerMode_) {
@@ -1050,6 +1122,7 @@ void Game::update(float dt) {
             checkFireballGoombaCollision(fireball);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
             checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
+            checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
         }
     }
 }
@@ -1078,6 +1151,7 @@ void Game::render() {
     koopaRed_.render(renderer_, koopaRedSprite_, worldRow);
     koopaRedFlying_.render(renderer_, koopaRedSprite_, worldRow);
     buzzyBeetle_.render(renderer_, buzzyBeetleSprite_, worldRow);
+    piranhaPlant_.render(renderer_, piranhaPlantSprite_, worldRow);
     mario_.render(renderer_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_);
     if (twoPlayerMode_) {
