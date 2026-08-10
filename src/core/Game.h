@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 
+#include "../entities/BuzzyBeetle.h"
 #include "../entities/Coin.h"
 #include "../entities/FireFlower.h"
 #include "../entities/Fireball.h"
@@ -96,6 +97,23 @@ private:
     // cuando haya mas de un Goomba, o mas tipos de enemigo.
     void checkGoombaKoopaBounce(Goomba& goomba, Koopa& koopa);
     void checkKoopaKoopaBounce(Koopa& a, Koopa& b);
+    // Buzzy Beetle: misma logica que checkKoopaCollision (incluida la regla
+    // estricta del caparazon en movimiento). El caso de fuego es aparte
+    // (ver checkFireballBuzzyBeetleCollision): es inmune, no hay pisoton por
+    // fuego.
+    void checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float prevY);
+    // Es inmune al fuego (ver BuzzyBeetle.h): la bola explota igual al
+    // tocarlo (mismo feedback visual que contra cualquier otro enemigo),
+    // pero no le hace nada -- sigue en el estado en el que estaba.
+    void checkFireballBuzzyBeetleCollision(Fireball& fireball, BuzzyBeetle& buzzy);
+    // Un caparazon en movimiento (de cualquiera de los dos) mata al otro;
+    // si los dos lo son, mueren ambos -- mismo criterio que checkShellVsKoopa.
+    void checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy);
+    // El caparazon del Buzzy Beetle contra el Goomba de prueba (Goomba no
+    // tiene caparazon propio para reciprocar, igual que en checkShellVsGoomba).
+    void checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy);
+    void checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy);
+    void checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy);
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -161,13 +179,37 @@ private:
     SpriteSheet goombaSprite_;
     Goomba goomba_;
 
-    // Koopa Troopa verde de prueba (seccion 5.2), dos instancias para poder
-    // probar que un caparazon en movimiento mate a otro (checkShellVsKoopa).
+    // Koopa Troopa verde de prueba (seccion 5.2), dos instancias en el piso
+    // para poder probar que un caparazon en movimiento mate a otro
+    // (checkShellVsKoopa), mas un "Koopa Alado" saltarin (KoopaState::Jumping)
+    // para probar que un pisoton lo deje caminando derecho. En el juego
+    // original de 1985 el color fija cual de los dos Alado le toca: el verde
+    // va a los saltos, el rojo se hamaca en un punto fijo (ver koopaRedFlying_
+    // mas abajo) -- no existe un verde volador ni un rojo saltarin.
     // Mismo criterio que el Goomba: solo en el escenario de enemigos, tecla
     // K los repone si mueren o se caen.
     SpriteSheet koopaSprite_;
     Koopa koopaA_;
     Koopa koopaB_;
+    Koopa koopaJumping_;
+    // Koopa rojo de prueba (ver KoopaColor): sprite propio (una sola
+    // paleta, no una fila por WorldType como el verde) y setColor(Red) se
+    // llama una sola vez en init(). Arranca sobre una plataforma angosta
+    // agregada a test_enemies.json para poder ver que da la vuelta en el
+    // borde en vez de caerse. Mas su Koopa Alado (volador, ver el comentario
+    // de koopaJumping_ arriba), comparte koopaRedSprite_.
+    SpriteSheet koopaRedSprite_;
+    Koopa koopaRed_;
+    Koopa koopaRedFlying_;
+
+    // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
+    // caparazon identicos al Koopa verde caminando (se cae de los bordes,
+    // no hay variante roja ni Alado para esta especie), salvo que es inmune
+    // al fuego (ver BuzzyBeetle.h). Clase aparte en vez de otra combinacion
+    // de KoopaColor/KoopaState porque esas dos diferencias (sin Alado, sin
+    // rojo) no encajan como una opcion mas de Koopa. Tecla B lo repone.
+    SpriteSheet buzzyBeetleSprite_;
+    BuzzyBeetle buzzyBeetle_;
 
     // Pool de popups de puntaje (hongo/flor/estrella dan 1000, como en el
     // original; la moneda no muestra popup, solo suma al contador cuando

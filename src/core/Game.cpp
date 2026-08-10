@@ -38,6 +38,27 @@ constexpr float kKoopaATestX = 64.0f;
 constexpr float kKoopaATestY = 190.0f;
 constexpr float kKoopaBTestX = 152.0f;
 constexpr float kKoopaBTestY = 190.0f;
+// Koopa Alado de prueba: en el juego original de 1985 el color fija el
+// comportamiento (no es libre como en Koopa::spawn) -- el verde va a los
+// saltos, el rojo se hamaca arriba y abajo en un punto fijo. Por eso aca
+// solo hay una instancia de cada combinacion, no las cuatro posibles (ver
+// el comentario de KoopaState en Koopa.h).
+// Saltarin verde: "Y" es solo la altura inicial, cae y arranca a los saltos
+// por su cuenta.
+constexpr float kKoopaJumpingTestX = 190.0f;
+constexpr float kKoopaJumpingTestY = 140.0f;
+// Koopa rojo de prueba: arranca sobre la plataforma angosta de
+// test_enemies.json (fila 9, columnas 2-5) caminando hacia la derecha, para
+// ver que da la vuelta antes de caerse por el borde en vez de tirarse.
+constexpr float kKoopaRedTestX = 48.0f;
+constexpr float kKoopaRedTestY = 100.0f;
+// Volador rojo: "Y" es la altura central del hamacado (ver
+// Koopa::kFlyHoverAmplitude), no una posicion en el piso.
+constexpr float kKoopaRedFlyingTestX = 130.0f;
+constexpr float kKoopaRedFlyingTestY = 170.0f;
+// Buzzy Beetle de prueba: mismo piso que el resto, entre koopaA y koopaB.
+constexpr float kBuzzyBeetleTestX = 104.0f;
+constexpr float kBuzzyBeetleTestY = 190.0f;
 
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
@@ -168,6 +189,17 @@ bool Game::init() {
     if (!koopaSprite_.loadFromFile(renderer_, "assets/sprites/koopa.png", Koopa::kFrameWidth, Koopa::kFrameHeight)) {
         return false;
     }
+    if (!koopaRedSprite_.loadFromFile(renderer_, "assets/sprites/koopa_red.png", Koopa::kFrameWidth, Koopa::kFrameHeight)) {
+        return false;
+    }
+    if (!buzzyBeetleSprite_.loadFromFile(renderer_, "assets/sprites/buzzy_beetle.png", BuzzyBeetle::kSize,
+                                          BuzzyBeetle::kSize)) {
+        return false;
+    }
+    // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
+    // se llama una sola vez aca en vez de en cada spawn()/reset().
+    koopaRed_.setColor(KoopaColor::Red);
+    koopaRedFlying_.setColor(KoopaColor::Red);
 
     // Arranca en el selector (ver renderScenarioSelect): recien se carga un
     // nivel y se ponen entidades en pie cuando se elige un escenario.
@@ -194,6 +226,10 @@ void Game::startScenario(TestScenario scenario) {
     goomba_.reset();
     koopaA_.reset();
     koopaB_.reset();
+    koopaJumping_.reset();
+    koopaRed_.reset();
+    koopaRedFlying_.reset();
+    buzzyBeetle_.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -204,6 +240,10 @@ void Game::startScenario(TestScenario scenario) {
         goomba_.spawn(kGoombaTestX, kGoombaTestY, true);
         koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
         koopaB_.spawn(kKoopaBTestX, kKoopaBTestY, false);
+        koopaJumping_.spawn(kKoopaJumpingTestX, kKoopaJumpingTestY, false, KoopaState::Jumping);
+        koopaRed_.spawn(kKoopaRedTestX, kKoopaRedTestY, true);
+        koopaRedFlying_.spawn(kKoopaRedFlyingTestX, kKoopaRedFlyingTestY, true, KoopaState::Flying);
+        buzzyBeetle_.spawn(kBuzzyBeetleTestX, kBuzzyBeetleTestY, true);
     }
 
     appState_ = AppState::Playing;
@@ -268,6 +308,11 @@ void Game::processEvents() {
             } else if (event.key.keysym.scancode == SDL_SCANCODE_K && scenario_ == TestScenario::Enemies) {
                 koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
                 koopaB_.spawn(kKoopaBTestX, kKoopaBTestY, false);
+                koopaJumping_.spawn(kKoopaJumpingTestX, kKoopaJumpingTestY, false, KoopaState::Jumping);
+                koopaRed_.spawn(kKoopaRedTestX, kKoopaRedTestY, true);
+                koopaRedFlying_.spawn(kKoopaRedFlyingTestX, kKoopaRedFlyingTestY, true, KoopaState::Flying);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_B && scenario_ == TestScenario::Enemies) {
+                buzzyBeetle_.spawn(kBuzzyBeetleTestX, kBuzzyBeetleTestY, true);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -690,6 +735,153 @@ void Game::checkKoopaKoopaBounce(Koopa& a, Koopa& b) {
     b.bounceOffEnemy(aOnLeft ? pushAmount : -pushAmount);
 }
 
+void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float prevY) {
+    // Identico a checkKoopaCollision salvo que no hay caso de fuego (ver el
+    // comentario de BuzzyBeetle.h) -- esa funcion ni se llama para este
+    // enemigo.
+    if (character.isInDeathSequence()) return;
+    if (!buzzy.isDangerous()) return;
+    if (buzzy.isImmuneTo(&character)) return;
+
+    const bool overlap =
+        character.x() < buzzy.x() + buzzy.width() && character.x() + character.width() > buzzy.x() &&
+        character.y() < buzzy.y() + buzzy.height() && character.y() + character.height() > buzzy.y();
+    if (!overlap) return;
+
+    // Con estrella: lo elimina en cualquier estado, igual que al Koopa.
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= buzzy.x();
+        buzzy.killFalling(flyRight);
+        return;
+    }
+
+    bool fromAbove;
+    if (buzzy.state() == BuzzyBeetleState::ShellMoving) {
+        // Misma regla estricta que Koopa::ShellMoving, ver ese comentario.
+        fromAbove = (character.y() + character.height()) <= (buzzy.y() + buzzy.height() / 2.0f);
+    } else {
+        fromAbove = (prevY + character.height()) <= buzzy.y() + kStompLeewayPx && character.velocityY() > 0.0f;
+    }
+
+    if (buzzy.state() == BuzzyBeetleState::ShellIdle) {
+        if (fromAbove) {
+            buzzy.kick(character.facingRight(), &character);
+            character.setVelocityY(0.0f);
+            character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
+        } else {
+            const bool kickRight = character.x() <= buzzy.x();
+            buzzy.kick(kickRight, &character);
+        }
+        return;
+    }
+
+    // Walking o ShellMoving: pisoton lo esconde/frena (con rebote); de
+    // costado hace dano como cualquier enemigo.
+    if (fromAbove) {
+        buzzy.stomp(&character);
+        character.setVelocityY(kKoopaStompBounce);
+        character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
+    } else if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballBuzzyBeetleCollision(Fireball& fireball, BuzzyBeetle& buzzy) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!buzzy.isDangerous()) return;
+
+    const bool overlap =
+        fireball.x() < buzzy.x() + buzzy.width() && fireball.x() + Fireball::kSize > buzzy.x() &&
+        fireball.y() < buzzy.y() + buzzy.height() && fireball.y() + Fireball::kSize > buzzy.y();
+    if (!overlap) return;
+
+    // Inmune (ver BuzzyBeetle.h): la bola explota igual, pero al Buzzy
+    // Beetle no le pasa nada -- sigue caminando/en su estado actual.
+    fireball.explode();
+}
+
+void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
+    if (!koopa.isAlive() || !buzzy.isAlive()) return;
+
+    const bool overlap =
+        koopa.x() < buzzy.x() + buzzy.width() && koopa.x() + koopa.width() > buzzy.x() &&
+        koopa.y() < buzzy.y() + buzzy.height() && koopa.y() + koopa.height() > buzzy.y();
+    if (!overlap) return;
+
+    const bool koopaMoving = koopa.isMovingShell();
+    const bool buzzyMoving = buzzy.isMovingShell();
+    if (!koopaMoving && !buzzyMoving) return;
+
+    if (koopaMoving && buzzyMoving) {
+        const bool koopaFliesRight = koopa.x() >= buzzy.x();
+        koopa.killFalling(koopaFliesRight);
+        buzzy.killFalling(!koopaFliesRight);
+    } else if (koopaMoving) {
+        const bool buzzyFliesRight = buzzy.x() >= koopa.x();
+        buzzy.killFalling(buzzyFliesRight);
+    } else {
+        const bool koopaFliesRight = koopa.x() >= buzzy.x();
+        koopa.killFalling(koopaFliesRight);
+    }
+}
+
+void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy) {
+    if (!buzzy.isMovingShell()) return;
+    if (!goomba_.isDangerous()) return;
+
+    const bool overlap =
+        buzzy.x() < goomba_.x() + Goomba::kSize && buzzy.x() + buzzy.width() > goomba_.x() &&
+        buzzy.y() < goomba_.y() + Goomba::kSize && buzzy.y() + buzzy.height() > goomba_.y();
+    if (!overlap) return;
+
+    const bool flyRight = goomba_.x() >= buzzy.x();
+    goomba_.killFalling(flyRight);
+}
+
+void Game::checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy) {
+    if (!goomba.isDangerous() || !buzzy.isDangerous()) return;
+    if (buzzy.isMovingShell()) return;  // eso lo mata, no lo rebota (ver checkBuzzyShellVsGoomba)
+
+    const float gx = goomba.x();
+    const float gw = static_cast<float>(Goomba::kSize);
+    const float bx = buzzy.x();
+    const float bw = static_cast<float>(buzzy.width());
+    const bool overlapX = gx < bx + bw && gx + gw > bx;
+    const bool overlapY = goomba.y() < buzzy.y() + buzzy.height() && goomba.y() + Goomba::kSize > buzzy.y();
+    if (!overlapX || !overlapY) return;
+
+    const float overlapLeft = (bx + bw) - gx;
+    const float overlapRight = (gx + gw) - bx;
+    const float pushAmount = std::min(overlapLeft, overlapRight) * 0.5f + 0.5f;
+
+    const bool goombaOnLeft = gx < bx;
+    goomba.bounceOffEnemy(goombaOnLeft ? -pushAmount : pushAmount);
+    buzzy.bounceOffEnemy(goombaOnLeft ? pushAmount : -pushAmount);
+}
+
+void Game::checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy) {
+    if (!koopa.isDangerous() || !buzzy.isDangerous()) return;
+    if (koopa.isMovingShell() || buzzy.isMovingShell()) return;  // eso los mata, no los rebota (ver checkShellVsBuzzyBeetle)
+
+    const float kx = koopa.x();
+    const float kw = static_cast<float>(koopa.width());
+    const float bx = buzzy.x();
+    const float bw = static_cast<float>(buzzy.width());
+    const bool overlapX = kx < bx + bw && kx + kw > bx;
+    const bool overlapY = koopa.y() < buzzy.y() + buzzy.height() && koopa.y() + koopa.height() > buzzy.y();
+    if (!overlapX || !overlapY) return;
+
+    const float overlapLeft = (bx + bw) - kx;
+    const float overlapRight = (kx + kw) - bx;
+    const float pushAmount = std::min(overlapLeft, overlapRight) * 0.5f + 0.5f;
+
+    const bool koopaOnLeft = kx < bx;
+    koopa.bounceOffEnemy(koopaOnLeft ? -pushAmount : pushAmount);
+    buzzy.bounceOffEnemy(koopaOnLeft ? pushAmount : -pushAmount);
+}
+
 void Game::spawnScorePopup(float x, float y, const std::string& text) {
     for (ScorePopup& popup : scorePopups_) {
         if (popup.isAlive()) continue;
@@ -812,20 +1004,34 @@ void Game::update(float dt) {
     checkGoombaCollision(mario_, marioPrevY);
     if (twoPlayerMode_) checkGoombaCollision(luigi_, luigiPrevY);
 
-    koopaA_.update(dt, level_, kLogicalHeight);
-    koopaB_.update(dt, level_, kLogicalHeight);
-    checkKoopaCollision(mario_, koopaA_, marioPrevY);
-    checkKoopaCollision(mario_, koopaB_, marioPrevY);
-    if (twoPlayerMode_) {
-        checkKoopaCollision(luigi_, koopaA_, luigiPrevY);
-        checkKoopaCollision(luigi_, koopaB_, luigiPrevY);
+    buzzyBeetle_.update(dt, level_, kLogicalHeight);
+    checkBuzzyBeetleCollision(mario_, buzzyBeetle_, marioPrevY);
+    if (twoPlayerMode_) checkBuzzyBeetleCollision(luigi_, buzzyBeetle_, luigiPrevY);
+    checkBuzzyShellVsGoomba(buzzyBeetle_);
+    checkGoombaBuzzyBeetleBounce(goomba_, buzzyBeetle_);
+
+    // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
+    // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
+    // combinaciones de Alado existen en el juego original de 1985): en
+    // array solo para no tener que escribir a mano todas las combinaciones
+    // de cada chequeo de a pares (caparazon-vs-caparazon, rebote-vs-Goomba)
+    // cada vez que se agrega una instancia de prueba mas.
+    const std::array<Koopa*, 5> koopas{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
+    for (Koopa* koopa : koopas) {
+        koopa->update(dt, level_, kLogicalHeight);
+        checkKoopaCollision(mario_, *koopa, marioPrevY);
+        if (twoPlayerMode_) checkKoopaCollision(luigi_, *koopa, luigiPrevY);
+        checkShellVsGoomba(*koopa);
+        checkGoombaKoopaBounce(goomba_, *koopa);
+        checkShellVsBuzzyBeetle(*koopa, buzzyBeetle_);
+        checkKoopaBuzzyBeetleBounce(*koopa, buzzyBeetle_);
     }
-    checkShellVsGoomba(koopaA_);
-    checkShellVsGoomba(koopaB_);
-    checkShellVsKoopa(koopaA_, koopaB_);
-    checkGoombaKoopaBounce(goomba_, koopaA_);
-    checkGoombaKoopaBounce(goomba_, koopaB_);
-    checkKoopaKoopaBounce(koopaA_, koopaB_);
+    for (size_t i = 0; i < koopas.size(); ++i) {
+        for (size_t j = i + 1; j < koopas.size(); ++j) {
+            checkShellVsKoopa(*koopas[i], *koopas[j]);
+            checkKoopaKoopaBounce(*koopas[i], *koopas[j]);
+        }
+    }
 
     for (ScorePopup& popup : scorePopups_) popup.update(dt);
 
@@ -833,8 +1039,8 @@ void Game::update(float dt) {
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, kLogicalWidth);
         checkFireballGoombaCollision(fireball);
-        checkFireballKoopaCollision(fireball, koopaA_);
-        checkFireballKoopaCollision(fireball, koopaB_);
+        for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
+        checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
     }
 
     if (twoPlayerMode_) {
@@ -842,8 +1048,8 @@ void Game::update(float dt) {
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, kLogicalWidth);
             checkFireballGoombaCollision(fireball);
-            checkFireballKoopaCollision(fireball, koopaA_);
-            checkFireballKoopaCollision(fireball, koopaB_);
+            for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
+            checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
         }
     }
 }
@@ -868,6 +1074,10 @@ void Game::render() {
     goomba_.render(renderer_, goombaSprite_, worldRow);
     koopaA_.render(renderer_, koopaSprite_, worldRow);
     koopaB_.render(renderer_, koopaSprite_, worldRow);
+    koopaJumping_.render(renderer_, koopaSprite_, worldRow);
+    koopaRed_.render(renderer_, koopaRedSprite_, worldRow);
+    koopaRedFlying_.render(renderer_, koopaRedSprite_, worldRow);
+    buzzyBeetle_.render(renderer_, buzzyBeetleSprite_, worldRow);
     mario_.render(renderer_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_);
     if (twoPlayerMode_) {
