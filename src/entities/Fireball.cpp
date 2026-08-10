@@ -15,6 +15,12 @@ void Fireball::spawn(float x, float y, bool movingRight) {
     explosionTimer_ = 0.0f;
 }
 
+void Fireball::explode() {
+    if (!alive_ || exploding_) return;
+    exploding_ = true;
+    explosionTimer_ = kExplosionFrameDuration * kExplosionFrameCount;
+}
+
 void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
     if (!alive_) return;
 
@@ -54,8 +60,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         const int row1 = static_cast<int>(std::floor((y_ + kSize - kEdgeEpsilon) / ts));
         for (int row = row0; row <= row1; ++row) {
             if (level.isSolidTile(col, row)) {
-                exploding_ = true;
-                explosionTimer_ = kExplosionFrameDuration * kExplosionFrameCount;
+                explode();
                 return;
             }
         }

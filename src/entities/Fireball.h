@@ -18,6 +18,13 @@ public:
     // Sigue "viva" (ocupando uno de los 2 slots del jugador) mientras dura la
     // explosion, no solo mientras vuela.
     bool isAlive() const { return alive_; }
+    bool isExploding() const { return exploding_; }
+    // Hace estallar la bola ya (choco contra un enemigo, ver Game::checkFireballGoombaCollision),
+    // en vez de esperar a que choque contra un bloque por su cuenta.
+    void explode();
+
+    float x() const { return x_; }
+    float y() const { return y_; }
 
     static constexpr int kSize = 8;
 

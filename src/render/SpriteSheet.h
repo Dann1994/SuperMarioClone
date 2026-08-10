@@ -14,7 +14,8 @@ public:
     SpriteSheet& operator=(const SpriteSheet&) = delete;
 
     bool loadFromFile(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight);
-    void draw(SDL_Renderer* renderer, int row, int col, int destX, int destY, bool flipHorizontal) const;
+    void draw(SDL_Renderer* renderer, int row, int col, int destX, int destY, bool flipHorizontal,
+               bool flipVertical = false) const;
     // Dibuja solo una franja horizontal del frame (offsetY..offsetY+height dentro
     // del frame), en destX/destY + offsetY. Para componer sprites en capas, como
     // la pose de tirar fuego (torso propio + piernas del frame de movimiento actual).

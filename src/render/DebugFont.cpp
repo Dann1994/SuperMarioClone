@@ -22,6 +22,25 @@ const std::unordered_map<char, Glyph>& glyphTable() {
         {'F', {0b111, 0b100, 0b111, 0b100, 0b100}},
         {'P', {0b111, 0b101, 0b111, 0b100, 0b100}},
         {'S', {0b111, 0b100, 0b111, 0b001, 0b111}},
+        // Agregadas para el selector de escenario de prueba (Game::renderScenarioSelect):
+        // el resto del alfabeto se suma recien cuando haga falta, este font
+        // es un placeholder "hasta tener fuentes reales para los menus".
+        {'A', {0b010, 0b101, 0b111, 0b101, 0b101}},
+        {'E', {0b111, 0b100, 0b110, 0b100, 0b111}},
+        {'G', {0b111, 0b100, 0b101, 0b101, 0b111}},
+        {'I', {0b111, 0b010, 0b010, 0b010, 0b111}},
+        {'M', {0b101, 0b111, 0b111, 0b101, 0b101}},
+        {'N', {0b101, 0b111, 0b111, 0b111, 0b101}},
+        {'O', {0b111, 0b101, 0b101, 0b101, 0b111}},
+        {'R', {0b111, 0b101, 0b111, 0b110, 0b101}},
+        {'T', {0b111, 0b010, 0b010, 0b010, 0b010}},
+        {'U', {0b101, 0b101, 0b101, 0b101, 0b111}},
+        // Agregadas para el cartel de tipo de mundo (Game::render, cerca del FPS).
+        {'C', {0b111, 0b100, 0b100, 0b100, 0b111}},
+        {'D', {0b110, 0b101, 0b101, 0b101, 0b110}},
+        {'L', {0b100, 0b100, 0b100, 0b100, 0b111}},
+        {'V', {0b101, 0b101, 0b101, 0b101, 0b010}},
+        {'W', {0b101, 0b101, 0b101, 0b111, 0b101}},
         {':', {0b000, 0b010, 0b000, 0b010, 0b000}},
         {' ', {0b000, 0b000, 0b000, 0b000, 0b000}},
     };

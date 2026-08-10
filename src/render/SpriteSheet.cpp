@@ -20,11 +20,14 @@ bool SpriteSheet::loadFromFile(SDL_Renderer* renderer, const std::string& path, 
     return true;
 }
 
-void SpriteSheet::draw(SDL_Renderer* renderer, int row, int col, int destX, int destY, bool flipHorizontal) const {
+void SpriteSheet::draw(SDL_Renderer* renderer, int row, int col, int destX, int destY, bool flipHorizontal,
+                        bool flipVertical) const {
     SDL_Rect src{col * frameWidth_, row * frameHeight_, frameWidth_, frameHeight_};
     SDL_Rect dst{destX, destY, frameWidth_, frameHeight_};
-    SDL_RenderCopyEx(renderer, texture_, &src, &dst, 0.0, nullptr,
-                      flipHorizontal ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    int flip = SDL_FLIP_NONE;
+    if (flipHorizontal) flip |= SDL_FLIP_HORIZONTAL;
+    if (flipVertical) flip |= SDL_FLIP_VERTICAL;
+    SDL_RenderCopyEx(renderer, texture_, &src, &dst, 0.0, nullptr, static_cast<SDL_RendererFlip>(flip));
 }
 
 int SpriteSheet::rowCount() const {

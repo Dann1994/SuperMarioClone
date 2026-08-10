@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 project(SuperMarioClone CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -40,6 +40,18 @@ if(WIN32 AND MINGW)
             $<TARGET_FILE:SDL2_mixer::SDL2_mixer>
             $<TARGET_FILE:SDL2_ttf::SDL2_ttf>
             $<TARGET_FILE_DIR:mario>
+    )
+    # SDL2_image/mixer/ttf traen sus propias dependencias opcionales
+    # (avif, webp, tiff, mp3, ogg, freetype, etc.) que no estan linkeadas
+    # directo contra mario y por lo tanto no las cubre el copy de arriba.
+    # Sin esto el .exe corre bien desde una shell de MSYS2 (que tiene
+    # mingw64/bin en el PATH) pero falla al abrirlo directo en Windows.
+    add_custom_command(TARGET mario POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DTARGET_EXE=$<TARGET_FILE:mario>
+            -DOUT_DIR=$<TARGET_FILE_DIR:mario>
+            -DSEARCH_DIR=${_dll_dir}
+            -P ${CMAKE_SOURCE_DIR}/cmake/copy_runtime_deps.cmake
     )
 endif()
 
