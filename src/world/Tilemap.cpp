@@ -19,11 +19,13 @@ bool Tilemap::loadFromFile(const std::string& path) {
     height_ = static_cast<int>(rows.size());
     width_ = height_ > 0 ? static_cast<int>(rows[0].size()) : 0;
     solid_.assign(static_cast<size_t>(width_) * height_, 0);
+    platform_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             solid_[row * width_ + col] = (line[col] == '#') ? 1 : 0;
+            platform_[row * width_ + col] = (line[col] == '=') ? 1 : 0;
         }
     }
 
@@ -35,6 +37,13 @@ bool Tilemap::isSolidTile(int col, int row) const {
         return false;
     }
     return solid_[row * width_ + col] != 0;
+}
+
+bool Tilemap::isPlatformTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return platform_[row * width_ + col] != 0;
 }
 
 bool Tilemap::isSolidAtPixel(float x, float y) const {
@@ -56,6 +65,20 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor) const {
                 continue;
             }
             SDL_Rect tileRect{col * tileSize_, row * tileSize_, tileSize_, tileSize_};
+            SDL_RenderFillRect(renderer, &tileRect);
+        }
+    }
+
+    // Plataformas ('=', ver isPlatformTile): mas claras y mas finas que un
+    // tile solido, para que se distingan a simple vista de que se puede
+    // atravesar de un lado.
+    SDL_SetRenderDrawColor(renderer, 214, 168, 116, 255);
+    for (int row = 0; row < height_; ++row) {
+        for (int col = 0; col < width_; ++col) {
+            if (!isPlatformTile(col, row)) {
+                continue;
+            }
+            SDL_Rect tileRect{col * tileSize_, row * tileSize_ + tileSize_ / 2, tileSize_, tileSize_ / 2};
             SDL_RenderFillRect(renderer, &tileRect);
         }
     }

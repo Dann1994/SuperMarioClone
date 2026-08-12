@@ -10,6 +10,8 @@
 #include "../entities/FireFlower.h"
 #include "../entities/Fireball.h"
 #include "../entities/Goomba.h"
+#include "../entities/Hammer.h"
+#include "../entities/HammerBro.h"
 #include "../entities/Koopa.h"
 #include "../entities/Mario.h"
 #include "../entities/Mushroom.h"
@@ -31,12 +33,18 @@ constexpr int kLogicalHeight = 240;
 // Maximo de bolas de fuego en pantalla por personaje, como en el original.
 constexpr int kMaxFireballsPerPlayer = 2;
 
+// Maximo de martillos en pantalla a la vez (pool, mismo criterio que
+// Fireball): con un solo Hammer Bro de prueba y el intervalo entre tiros
+// (ver HammerBro::kThrowInterval), 2 alcanzan de sobra.
+constexpr int kMaxHammers = 2;
+
 // Escenarios de prueba (para no amontonar items y enemigos en un solo nivel
 // mientras no existe el editor de niveles real, seccion 7): se eligen desde
 // una pantalla simple al arrancar (ver Game::renderScenarioSelect).
 enum class TestScenario {
     Items,
     Enemies,
+    HammerBro,
 };
 
 enum class AppState {
@@ -125,6 +133,14 @@ private:
     // conoce a Mario/Luigi, asi que Game.cpp resuelve la distancia cada
     // frame y le pasa el resultado a PiranhaPlant::update().
     bool isSafeForPiranhaPlant(const PiranhaPlant& plant) const;
+    // Cualquier forma de morir lo mata igual (ver HammerBro.h): pisoton,
+    // estrella o fuego todos disparan la misma parabola de caida.
+    void checkHammerBroCollision(Mario& character, float prevY);
+    void checkFireballHammerBroCollision(Fireball& fireball);
+    // El martillo en vuelo hace dano a cualquier personaje que toque (sin
+    // pisoton, como la Pirana Plant); con estrella no lo mata -- no es un
+    // enemigo, solo desaparece sin hacer dano (ver Hammer::reset).
+    void checkHammerCollision(Mario& character, Hammer& hammer);
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -231,6 +247,18 @@ private:
     // Tecla P la repone.
     SpriteSheet piranhaPlantSprite_;
     PiranhaPlant piranhaPlant_;
+
+    // Hammer Bro de prueba (seccion 5.2, quinto enemigo): escenario de
+    // prueba propio (TestScenario::HammerBro, test_hammerbro.json) en vez
+    // de compartir el de Enemigos -- patrulla una plataforma angosta y
+    // flotante, mas facil de ver aislado que mezclado con el resto del
+    // elenco. El martillo que tira es una entidad separada (Hammer) para
+    // poder animar el giro independiente del estado del Bro, ver
+    // HammerBro::consumeThrowRequest(). Tecla H lo repone.
+    SpriteSheet hammerBroSprite_;
+    HammerBro hammerBro_;
+    SpriteSheet hammerSprite_;
+    std::array<Hammer, kMaxHammers> hammers_;
 
     // Pool de popups de puntaje (hongo/flor/estrella dan 1000, como en el
     // original; la moneda no muestra popup, solo suma al contador cuando
