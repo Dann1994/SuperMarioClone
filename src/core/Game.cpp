@@ -71,11 +71,11 @@ constexpr float kPiranhaPlantTestPipeTopY = 192.0f;
 constexpr float kPiranhaSafeDistanceX = 32.0f;
 constexpr float kPiranhaSafeDistanceY = 48.0f;
 
-// Hammer Bro de prueba: arranca sobre la plataforma angosta y flotante de
-// test_hammerbro.json (fila 9, columnas 5-10) para poder ver que le teme a
+// Hammer Bro de prueba: arranca sobre la plataforma de bloques de abajo de
+// test_hammerbro.json (fila 11, columnas 5-10) para poder ver que le teme a
 // los bordes en vez de tirarse, patrullando de punta a punta.
 constexpr float kHammerBroTestX = 88.0f;
-constexpr float kHammerBroTestY = 100.0f;
+constexpr float kHammerBroTestY = 140.0f;
 
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
@@ -222,6 +222,13 @@ bool Game::init() {
         return false;
     }
     if (!hammerSprite_.loadFromFile(renderer_, "assets/sprites/hammer.png", Hammer::kSize, Hammer::kSize)) {
+        return false;
+    }
+    if (!brickBlockSprite_.loadFromFile(renderer_, "assets/sprites/brick_block.png", 16, 16)) {
+        return false;
+    }
+    if (!brickDebrisSprite_.loadFromFile(renderer_, "assets/sprites/brick_debris.png", BrickDebris::kSize,
+                                          BrickDebris::kSize)) {
         return false;
     }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
@@ -1046,6 +1053,99 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     }
 }
 
+void Game::checkBrickBlockHit(Mario& character) {
+    int row = 0, col0 = 0, col1 = 0;
+    if (!character.headBumpedThisFrame(row, col0, col1)) return;
+
+    for (int col = col0; col <= col1; ++col) {
+        if (!level_.isBrickTile(col, row)) continue;
+        // Chico: el golpe ya freno el salto en moveAndCollide(); esto solo
+        // agrega la sacudida visual, no rompe el tile.
+        if (character.size() == MarioSize::Small) {
+            bumpBrickBlock(col, row);
+        } else {
+            breakBrickBlock(col, row);
+        }
+        return;
+    }
+}
+
+void Game::breakBrickBlock(int col, int row) {
+    level_.breakTile(col, row);
+
+    const int ts = level_.tileSize();
+    const float tileX = static_cast<float>(col * ts);
+    const float tileY = static_cast<float>(row * ts);
+    const float centerX = tileX + static_cast<float>(ts) / 2.0f - static_cast<float>(BrickDebris::kSize) / 2.0f;
+    const float centerY = tileY + static_cast<float>(ts) / 2.0f - static_cast<float>(BrickDebris::kSize) / 2.0f;
+
+    // Cuatro pedazos, uno por esquina: dos mas altos hacia arriba-adentro,
+    // dos mas bajos hacia arriba-afuera, como el clasico "estallido" en cruz.
+    const float velocities[4][2] = {
+        {-70.0f, -260.0f}, {70.0f, -260.0f}, {-40.0f, -180.0f}, {40.0f, -180.0f}};
+    int spawned = 0;
+    for (BrickDebris& debris : brickDebris_) {
+        if (debris.isAlive() || spawned >= 4) continue;
+        debris.spawn(centerX, centerY, velocities[spawned][0], velocities[spawned][1]);
+        ++spawned;
+    }
+
+    killEnemyOnTopOfTile(col, row);
+}
+
+void Game::killEnemyOnTopOfTile(int col, int row) {
+    // Cualquier golpe a un bloque (se rompa o no) mata al enemigo parado
+    // justo encima, igual que en el original -- por eso esto es comun a
+    // breakBrickBlock y bumpBrickBlock en vez de estar solo en uno.
+    const int ts = level_.tileSize();
+    const float tileTop = static_cast<float>(row * ts);
+    const float tileLeft = static_cast<float>(col * ts);
+    const float tileRight = tileLeft + static_cast<float>(ts);
+    auto onTop = [&](float x, float y, int width, int height) {
+        return x < tileRight && x + width > tileLeft && std::abs((y + height) - tileTop) < 4.0f;
+    };
+    if (goomba_.isDangerous() && onTop(goomba_.x(), goomba_.y(), Goomba::kSize, Goomba::kSize)) {
+        goomba_.killFalling(true);
+    }
+    const std::array<Koopa*, 5> koopasOnTop{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
+    for (Koopa* koopa : koopasOnTop) {
+        if (koopa->isDangerous() && onTop(koopa->x(), koopa->y(), koopa->width(), koopa->height())) {
+            koopa->killFalling(true);
+        }
+    }
+    if (buzzyBeetle_.isDangerous() &&
+        onTop(buzzyBeetle_.x(), buzzyBeetle_.y(), BuzzyBeetle::kSize, BuzzyBeetle::kSize)) {
+        buzzyBeetle_.killFalling(true);
+    }
+    if (hammerBro_.isDangerous() && onTop(hammerBro_.x(), hammerBro_.y(), HammerBro::kWidth, HammerBro::kHeight)) {
+        hammerBro_.killFalling(true);
+    }
+}
+
+void Game::bumpBrickBlock(int col, int row) {
+    killEnemyOnTopOfTile(col, row);
+
+    // Si esta misma celda ya esta sacudiendose, reinicia el timer en vez de
+    // agregar una segunda (un solo golpe a la vez tiene sentido visualmente).
+    for (BlockBump& bump : blockBumps_) {
+        if (bump.active && bump.col == col && bump.row == row) {
+            bump.timer = kBumpDuration;
+            return;
+        }
+    }
+    for (BlockBump& bump : blockBumps_) {
+        if (bump.active) continue;
+        bump.active = true;
+        bump.col = col;
+        bump.row = row;
+        bump.timer = kBumpDuration;
+        return;
+    }
+    // Pool lleno (con kMaxBlockBumps=2 y un solo Mario/Luigi a la vez
+    // golpeando bloques, no debería pasar): se pierde esta sacudida, no es
+    // grave, solo visual.
+}
+
 void Game::spawnScorePopup(float x, float y, const std::string& text) {
     for (ScorePopup& popup : scorePopups_) {
         if (popup.isAlive()) continue;
@@ -1133,6 +1233,7 @@ void Game::update(float dt) {
     const float luigiPrevY = luigi_.y();
 
     mario_.update(dt, input1_, level_);
+    checkBrickBlockHit(mario_);
     // Solo se llega aca muriendo en 2P con el otro todavia vivo (en 1P o en
     // "murieron los dos" ya se atendio arriba): reaparece en la plataforma
     // mas cercana en vez del spawn del nivel, sin pausar nada.
@@ -1142,6 +1243,7 @@ void Game::update(float dt) {
 
     if (twoPlayerMode_) {
         luigi_.update(dt, input2_, level_);
+        checkBrickBlockHit(luigi_);
         if (luigi_.consumeDeathFinished()) {
             respawnNearestPlatform(luigi_);
         }
@@ -1226,6 +1328,12 @@ void Game::update(float dt) {
     }
 
     for (ScorePopup& popup : scorePopups_) popup.update(dt);
+    for (BrickDebris& debris : brickDebris_) debris.update(dt, kLogicalWidth, kLogicalHeight);
+    for (BlockBump& bump : blockBumps_) {
+        if (!bump.active) continue;
+        bump.timer -= dt;
+        if (bump.timer <= 0.0f) bump.active = false;
+    }
 
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
@@ -1260,9 +1368,21 @@ void Game::render() {
         return;
     }
 
-    level_.render(renderer_, backgroundColorFor(worldType_));
-
     const int worldRow = static_cast<int>(worldType_);
+    std::vector<SDL_Point> bumpingTiles;
+    for (const BlockBump& bump : blockBumps_) {
+        if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
+    }
+    level_.render(renderer_, backgroundColorFor(worldType_), brickBlockSprite_, worldRow, bumpingTiles);
+    for (const BlockBump& bump : blockBumps_) {
+        if (!bump.active) continue;
+        // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
+        // pi): 0 al arrancar y al terminar, maximo a la mitad.
+        const float progress = 1.0f - bump.timer / kBumpDuration;
+        const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
+        brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize(),
+                                bump.row * level_.tileSize() + offsetY, false);
+    }
     mushroom_.render(renderer_, mushroomSprite_, worldRow);
     fireFlower_.render(renderer_, fireFlowerSprite_, worldRow);
     star_.render(renderer_, starSprite_, worldRow);
@@ -1295,6 +1415,7 @@ void Game::render() {
     // (personajes incluidos): que nunca queden tapados por nada mientras
     // vuelan.
     for (const Hammer& hammer : hammers_) hammer.render(renderer_, hammerSprite_, worldRow);
+    for (const BrickDebris& debris : brickDebris_) debris.render(renderer_, brickDebrisSprite_, worldRow);
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_);
 

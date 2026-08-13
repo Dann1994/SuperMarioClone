@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 
+#include "../entities/BrickDebris.h"
 #include "../entities/BuzzyBeetle.h"
 #include "../entities/Coin.h"
 #include "../entities/FireFlower.h"
@@ -37,6 +38,24 @@ constexpr int kMaxFireballsPerPlayer = 2;
 // Fireball): con un solo Hammer Bro de prueba y el intervalo entre tiros
 // (ver HammerBro::kThrowInterval), 2 alcanzan de sobra.
 constexpr int kMaxHammers = 2;
+
+// Pedazos volando a la vez (pool): 4 por ladrillo roto (una esquina cada
+// uno), con margen para dos roturas casi juntas sin robarse el pool.
+constexpr int kMaxBrickDebris = 8;
+
+// Sacudidas de ladrillo (chico golpeandolo sin romperlo) activas a la vez.
+constexpr int kMaxBlockBumps = 2;
+// Cuanto sube y cuanto dura la sacudida (sube y vuelve a bajar en este lapso).
+constexpr float kBumpDuration = 0.16f;
+constexpr float kBumpHeight = 4.0f;
+
+// Una sacudida en curso: que tile y cuanto le queda (ver Game::bumpBrickBlock).
+struct BlockBump {
+    bool active = false;
+    int col = 0;
+    int row = 0;
+    float timer = 0.0f;
+};
 
 // Escenarios de prueba (para no amontonar items y enemigos en un solo nivel
 // mientras no existe el editor de niveles real, seccion 7): se eligen desde
@@ -141,6 +160,24 @@ private:
     // pisoton, como la Pirana Plant); con estrella no lo mata -- no es un
     // enemigo, solo desaparece sin hacer dano (ver Hammer::reset).
     void checkHammerCollision(Mario& character, Hammer& hammer);
+    // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
+    // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
+    // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
+    // (bumpBrickBlock) -- moveAndCollide() ya se encarga de frenarle el
+    // salto, esta funcion decide cual de las dos reacciones toca.
+    void checkBrickBlockHit(Mario& character);
+    // Lo rompe de verdad: saca el tile y tira 4 BrickDebris desde el pool.
+    // El golpe en si (matar al enemigo de encima, si hay) es comun a este
+    // caso y al de bumpBrickBlock, ver killEnemyOnTopOfTile.
+    void breakBrickBlock(int col, int row);
+    // No lo rompe: arranca la animacion corta de "sacudida" (sube unos px y
+    // vuelve a bajar, ver blockBumps_/kBumpDuration) sin sacar el tile.
+    void bumpBrickBlock(int col, int row);
+    // Comun a romper y sacudir (en el original, CUALQUIER golpe a un bloque
+    // -- se rompa o no -- mata al enemigo que este parado justo encima):
+    // mata a cualquier enemigo de prueba parado justo encima del tile
+    // (col, row), con la misma parabola que usa el fuego/la estrella.
+    void killEnemyOnTopOfTile(int col, int row);
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -259,6 +296,16 @@ private:
     HammerBro hammerBro_;
     SpriteSheet hammerSprite_;
     std::array<Hammer, kMaxHammers> hammers_;
+
+    // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
+    // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza
+    // (Game::checkBrickBlockHit), chico solo lo golpea sin romperlo. El
+    // sprite del bloque en si lo dibuja el propio Tilemap::render(); estos
+    // dos son solo para los pedazos que salen volando al romperse.
+    SpriteSheet brickDebrisSprite_;
+    std::array<BrickDebris, kMaxBrickDebris> brickDebris_;
+    SpriteSheet brickBlockSprite_;
+    std::array<BlockBump, kMaxBlockBumps> blockBumps_;
 
     // Pool de popups de puntaje (hongo/flor/estrella dan 1000, como en el
     // original; la moneda no muestra popup, solo suma al contador cuando

@@ -57,6 +57,17 @@ public:
 
     // Info para instanciar una Fireball al lanzar (ver Game::update).
     bool consumeThrowRequest();
+    // Game la llama una vez por frame despues de update(): si devuelve
+    // true, este frame Mario choco de cabeza contra algo solido saltando
+    // (fila/columnas del tile, para que Game.cpp chequee si era un ladrillo
+    // rompible -- ver Game::checkBrickBlockHit). Se resetea solo, no hace
+    // falta "consumirlo" como consumeThrowRequest.
+    bool headBumpedThisFrame(int& row, int& col0, int& col1) const {
+        row = headBumpRow_;
+        col0 = headBumpCol0_;
+        col1 = headBumpCol1_;
+        return headBumped_;
+    }
     // Game la llama solo si realmente se pudo instanciar la bola de fuego
     // (si los 2 slots ya estaban ocupados, no se reproduce la pose de tirar).
     void playThrowAnimation();
@@ -205,6 +216,10 @@ private:
     MarioSize size_ = MarioSize::Small;
     bool wantsThrow_ = false;
     bool isDucking_ = false;
+    bool headBumped_ = false;
+    int headBumpRow_ = 0;
+    int headBumpCol0_ = 0;
+    int headBumpCol1_ = 0;
 
     SpriteSheet spriteSmall_;
     SpriteSheet spriteBig_;

@@ -366,6 +366,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
     const int height = currentHeight();
     float newY = y_ + velY_ * dt;
     grounded_ = false;
+    headBumped_ = false;
     {
         float top = newY;
         float bottom = newY + height;
@@ -396,6 +397,13 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
                 if (blocked) {
                     newY = static_cast<float>((row + 1) * ts);
                     velY_ = 0.0f;
+                    // Choco de cabeza saltando: Game.cpp chequea si alguna
+                    // de estas columnas era un ladrillo rompible (ver
+                    // headBumpedThisFrame() y Game::checkBrickBlockHit).
+                    headBumped_ = true;
+                    headBumpRow_ = row;
+                    headBumpCol0_ = col0;
+                    headBumpCol1_ = col1;
                     break;
                 }
             }

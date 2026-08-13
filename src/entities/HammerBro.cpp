@@ -128,7 +128,12 @@ void HammerBro::applyHorizontalWithWallBounce(float dt, const Tilemap& level) {
         const bool currentlyGrounded = level.isSolidTile(col0, floorRow) || level.isSolidTile(col1, floorRow) ||
                                         level.isPlatformTile(col0, floorRow) || level.isPlatformTile(col1, floorRow);
         const bool floorAhead = level.isSolidTile(col, floorRow) || level.isPlatformTile(col, floorRow);
-        if (currentlyGrounded && !floorAhead) {
+        // Si no hay piso adelante PERO ahi habia un ladrillo que se rompio
+        // (ver Tilemap::wasBrickTile), no es un borde de los que le dan
+        // miedo -- es un agujero hecho a proposito, lo cruza caminando y se
+        // cae, como pide el diseno del nivel de prueba.
+        const bool intentionalHole = !floorAhead && level.wasBrickTile(col, floorRow);
+        if (currentlyGrounded && !floorAhead && !intentionalHole) {
             blocked = true;
         }
     }
