@@ -18,9 +18,9 @@ void ScorePopup::update(float dt) {
     }
 }
 
-void ScorePopup::render(SDL_Renderer* renderer) const {
+void ScorePopup::render(SDL_Renderer* renderer, float cameraX) const {
     if (!alive_) return;
     const float progress = 1.0f - (timer_ / kDuration);
     const int y = static_cast<int>(startY_ - kRiseDistance * progress);
-    DebugFont::drawText(renderer, static_cast<int>(x_), y, text_, 1, SDL_Color{255, 255, 255, 255});
+    DebugFont::drawText(renderer, static_cast<int>(x_ - cameraX), y, text_, 1, SDL_Color{255, 255, 255, 255});
 }

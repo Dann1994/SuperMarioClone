@@ -60,7 +60,8 @@ public:
     // clase) -- no afecta hacia donde camina. Llamar una vez por frame con
     // la posicion en X del personaje mas cercano.
     void faceTowards(float targetX);
-    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const;
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
+    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
 
     bool isAlive() const { return alive_; }
     bool isFalling() const { return falling_; }

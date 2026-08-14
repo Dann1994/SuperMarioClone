@@ -47,7 +47,9 @@ public:
                          const std::string& bigStarPath = "", const std::string& fireStarPath = "");
     void spawn(float x, float y);
     void update(float dt, Input& input, const Tilemap& level);
-    void render(SDL_Renderer* renderer) const;
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de
+    // dibujar (mismo criterio que el resto del elenco).
+    void render(SDL_Renderer* renderer, float cameraX = 0.0f) const;
 
     MarioSize size() const { return size_; }
     // Cambia de tamano manteniendo los pies fijos. No hace nada si el

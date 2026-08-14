@@ -13,8 +13,9 @@ class Fireball {
 public:
     void spawn(float x, float y, bool movingRight);
     void update(float dt, const Tilemap& level, int screenWidth);
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
     void render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
-                const SpriteSheet& explosionSprite) const;
+                const SpriteSheet& explosionSprite, float cameraX = 0.0f) const;
     // Sigue "viva" (ocupando uno de los 2 slots del jugador) mientras dura la
     // explosion, no solo mientras vuela.
     bool isAlive() const { return alive_; }

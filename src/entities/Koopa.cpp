@@ -286,7 +286,7 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
     }
 }
 
-void Koopa::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void Koopa::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
 
     int col;
@@ -309,7 +309,7 @@ void Koopa::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldR
         hitboxHeight = kShellHeight;
     }
 
-    const int drawX = static_cast<int>(std::lround(x_)) - (kFrameWidth - kHitboxWidth) / 2;
+    const int drawX = static_cast<int>(std::lround(x_ - cameraX)) - (kFrameWidth - kHitboxWidth) / 2;
     const int drawY = static_cast<int>(std::lround(y_)) - (kFrameHeight - hitboxHeight);
     // El rojo tiene una unica paleta ("All Environments"), ignora worldRow.
     const int row = color_ == KoopaColor::Red ? 0 : worldRow;

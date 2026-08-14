@@ -1,5 +1,6 @@
 #include "Tilemap.h"
 
+#include <cmath>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -84,14 +85,18 @@ bool Tilemap::isSolidAtPixel(float x, float y) const {
 }
 
 void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& brickSprite,
-                      int worldRow, const std::vector<SDL_Point>& hiddenBrickTiles) const {
+                      int worldRow, float cameraX, const std::vector<SDL_Point>& hiddenBrickTiles) const {
     auto isHidden = [&](int col, int row) {
         for (const SDL_Point& p : hiddenBrickTiles) {
             if (p.x == col && p.y == row) return true;
         }
         return false;
     };
+    const int camOffset = static_cast<int>(std::lround(cameraX));
     SDL_SetRenderDrawColor(renderer, backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a);
+    // El fondo cubre todo el nivel (no solo la pantalla visible): es un
+    // color plano, no hace falta desplazarlo con la camara, con que cubra
+    // el nivel entero alcanza para cualquier cameraX valido.
     SDL_Rect background{0, 0, widthPixels(), heightPixels()};
     SDL_RenderFillRect(renderer, &background);
 
@@ -103,7 +108,7 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const Sp
             if (!isSolidTile(col, row) || isBrickTile(col, row)) {
                 continue;
             }
-            SDL_Rect tileRect{col * tileSize_, row * tileSize_, tileSize_, tileSize_};
+            SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_, tileSize_, tileSize_};
             SDL_RenderFillRect(renderer, &tileRect);
         }
     }
@@ -113,7 +118,7 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const Sp
             if (!isBrickTile(col, row) || isHidden(col, row)) {
                 continue;
             }
-            brickSprite.draw(renderer, worldRow, 0, col * tileSize_, row * tileSize_, false);
+            brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
         }
     }
 
@@ -126,7 +131,7 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const Sp
             if (!isPlatformTile(col, row)) {
                 continue;
             }
-            SDL_Rect tileRect{col * tileSize_, row * tileSize_ + tileSize_ / 2, tileSize_, tileSize_ / 2};
+            SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_ + tileSize_ / 2, tileSize_, tileSize_ / 2};
             SDL_RenderFillRect(renderer, &tileRect);
         }
     }

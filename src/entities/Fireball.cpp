@@ -92,7 +92,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
 }
 
 void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
-                       const SpriteSheet& explosionSprite) const {
+                       const SpriteSheet& explosionSprite, float cameraX) const {
     if (!alive_) return;
 
     if (exploding_) {
@@ -101,10 +101,10 @@ void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprit
         if (explosionFrame >= kExplosionFrameCount) explosionFrame = kExplosionFrameCount - 1;
         const int offset = (kExplosionSize - kSize) / 2;
         explosionSprite.draw(renderer, 0, explosionFrame,
-                              static_cast<int>(std::lround(x_)) - offset,
+                              static_cast<int>(std::lround(x_ - cameraX)) - offset,
                               static_cast<int>(std::lround(y_)) - offset, false);
         return;
     }
 
-    projectileSprite.draw(renderer, 0, frame_, static_cast<int>(std::lround(x_)), static_cast<int>(std::lround(y_)), false);
+    projectileSprite.draw(renderer, 0, frame_, static_cast<int>(std::lround(x_ - cameraX)), static_cast<int>(std::lround(y_)), false);
 }

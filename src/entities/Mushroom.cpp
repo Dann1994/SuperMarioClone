@@ -61,7 +61,7 @@ void Mushroom::update(float dt, const Tilemap& level, int screenWidth) {
     }
 }
 
-void Mushroom::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void Mushroom::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
-    sprite.draw(renderer, worldRow, 0, static_cast<int>(std::lround(x_)), static_cast<int>(std::lround(y_)), false);
+    sprite.draw(renderer, worldRow, 0, static_cast<int>(std::lround(x_ - cameraX)), static_cast<int>(std::lround(y_)), false);
 }

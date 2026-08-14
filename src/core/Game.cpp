@@ -77,6 +77,16 @@ constexpr float kPiranhaSafeDistanceY = 48.0f;
 constexpr float kHammerBroTestX = 88.0f;
 constexpr float kHammerBroTestY = 140.0f;
 
+// Lakitu de prueba: arranca arriba en el aire de test_lakitu.json (piso
+// solido recien en las filas 14-15), lejos de las cabezas de Mario/Luigi
+// para poder ver el hamacado y el seguimiento antes de que este cerca. La
+// tecla S tira un Spiny directo en ese mismo punto (sin esperar al timer
+// del Lakitu) para poder probarlo aislado.
+constexpr float kLakituTestX = 120.0f;
+constexpr float kLakituTestY = 40.0f;
+constexpr float kSpinyTestX = 120.0f;
+constexpr float kSpinyTestY = 40.0f;
+
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
 // (hongo, flor de fuego) que los disparan en el juego.
@@ -224,6 +234,12 @@ bool Game::init() {
     if (!hammerSprite_.loadFromFile(renderer_, "assets/sprites/hammer.png", Hammer::kSize, Hammer::kSize)) {
         return false;
     }
+    if (!lakituSprite_.loadFromFile(renderer_, "assets/sprites/lakitu.png", Lakitu::kWidth, Lakitu::kHeight)) {
+        return false;
+    }
+    if (!spinySprite_.loadFromFile(renderer_, "assets/sprites/spiny.png", Spiny::kSize, Spiny::kSize)) {
+        return false;
+    }
     if (!brickBlockSprite_.loadFromFile(renderer_, "assets/sprites/brick_block.png", 16, 16)) {
         return false;
     }
@@ -249,6 +265,8 @@ void Game::startScenario(TestScenario scenario) {
         path = "levels/world1/test_enemies.json";
     } else if (scenario == TestScenario::HammerBro) {
         path = "levels/world1/test_hammerbro.json";
+    } else if (scenario == TestScenario::LakituSpiny) {
+        path = "levels/world1/test_lakitu.json";
     }
     level_.loadFromFile(path);
 
@@ -271,6 +289,8 @@ void Game::startScenario(TestScenario scenario) {
     piranhaPlant_.reset();
     hammerBro_.reset();
     for (Hammer& hammer : hammers_) hammer.reset();
+    lakitu_.reset();
+    for (Spiny& spiny : spinies_) spiny.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -286,8 +306,10 @@ void Game::startScenario(TestScenario scenario) {
         koopaRedFlying_.spawn(kKoopaRedFlyingTestX, kKoopaRedFlyingTestY, true, KoopaState::Flying);
         buzzyBeetle_.spawn(kBuzzyBeetleTestX, kBuzzyBeetleTestY, true);
         piranhaPlant_.spawn(kPiranhaPlantTestX, kPiranhaPlantTestPipeTopY);
-    } else {
+    } else if (scenario == TestScenario::HammerBro) {
         hammerBro_.spawn(kHammerBroTestX, kHammerBroTestY, true);
+    } else {
+        lakitu_.spawn(kLakituTestX, kLakituTestY, true);
     }
 
     appState_ = AppState::Playing;
@@ -317,6 +339,8 @@ void Game::processEvents() {
                     startScenario(TestScenario::Enemies);
                 } else if (event.key.keysym.scancode == SDL_SCANCODE_3) {
                     startScenario(TestScenario::HammerBro);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_4) {
+                    startScenario(TestScenario::LakituSpiny);
                 }
                 continue;
             }
@@ -364,6 +388,14 @@ void Game::processEvents() {
             } else if (event.key.keysym.scancode == SDL_SCANCODE_H && scenario_ == TestScenario::HammerBro) {
                 hammerBro_.spawn(kHammerBroTestX, kHammerBroTestY, true);
                 for (Hammer& hammer : hammers_) hammer.reset();
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_L && scenario_ == TestScenario::LakituSpiny) {
+                lakitu_.spawn(kLakituTestX, kLakituTestY, true);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_S && scenario_ == TestScenario::LakituSpiny) {
+                for (Spiny& spiny : spinies_) {
+                    if (spiny.isAlive()) continue;
+                    spiny.spawn(kSpinyTestX, kSpinyTestY, 0.0f, 0.0f);
+                    break;
+                }
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -1053,6 +1085,120 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     }
 }
 
+void Game::checkLakituCollision(Mario& character, float prevY) {
+    if (character.isInDeathSequence()) return;
+    if (!lakitu_.isDangerous()) return;
+
+    const bool overlap = character.x() < lakitu_.x() + lakitu_.width() &&
+                          character.x() + character.width() > lakitu_.x() &&
+                          character.y() < lakitu_.y() + lakitu_.height() &&
+                          character.y() + character.height() > lakitu_.y();
+    if (!overlap) return;
+
+    // Cualquier forma de matarlo usa la misma parabola (ver Lakitu.h): a
+    // diferencia de la Pirana Plant, aca el pisoton SI lo mata (no hay
+    // razon para que un salto encima no lo tire de la nube).
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= lakitu_.x();
+        lakitu_.killFalling(flyRight);
+        return;
+    }
+
+    const bool fromAbove = (prevY + character.height()) <= lakitu_.y() + kStompLeewayPx &&
+                            character.velocityY() > 0.0f;
+    if (fromAbove) {
+        const bool flyRight = character.x() <= lakitu_.x();
+        lakitu_.killFalling(flyRight);
+        character.setVelocityY(kStompBounce);
+        return;
+    }
+
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballLakituCollision(Fireball& fireball) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!lakitu_.isDangerous()) return;
+
+    const bool overlap = fireball.x() < lakitu_.x() + lakitu_.width() &&
+                          fireball.x() + Fireball::kSize > lakitu_.x() &&
+                          fireball.y() < lakitu_.y() + lakitu_.height() &&
+                          fireball.y() + Fireball::kSize > lakitu_.y();
+    if (!overlap) return;
+
+    const bool flyRight = fireball.x() <= lakitu_.x();
+    lakitu_.killFalling(flyRight);
+    fireball.explode();
+}
+
+void Game::checkSpinyCollision(Mario& character, Spiny& spiny) {
+    if (character.isInDeathSequence()) return;
+    if (!spiny.isDangerous()) return;
+
+    const bool overlap =
+        character.x() < spiny.x() + Spiny::kSize && character.x() + character.width() > spiny.x() &&
+        character.y() < spiny.y() + Spiny::kSize && character.y() + character.height() > spiny.y();
+    if (!overlap) return;
+
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= spiny.x();
+        spiny.killFalling(flyRight);
+        return;
+    }
+
+    // Sin pisoton (ver Spiny.h): cualquier contacto hace dano, sin importar
+    // de que lado venga.
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballSpinyCollision(Fireball& fireball, Spiny& spiny) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!spiny.isDangerous()) return;
+
+    const bool overlap =
+        fireball.x() < spiny.x() + Spiny::kSize && fireball.x() + Fireball::kSize > spiny.x() &&
+        fireball.y() < spiny.y() + Spiny::kSize && fireball.y() + Fireball::kSize > spiny.y();
+    if (!overlap) return;
+
+    const bool flyRight = fireball.x() <= spiny.x();
+    spiny.killFalling(flyRight);
+    fireball.explode();
+}
+
+void Game::checkSpinyBounce(Spiny& a, Spiny& b) {
+    // Solo caminando: un huevo cayendo no tiene sentido que "rebote" contra
+    // otro (ver el comentario de checkSpinyBounce en Game.h).
+    if (a.state() != SpinyState::Walking || b.state() != SpinyState::Walking) return;
+    if (!a.isDangerous() || !b.isDangerous()) return;
+
+    const float ax = a.x();
+    const float aw = static_cast<float>(Spiny::kSize);
+    const float bx = b.x();
+    const float bw = static_cast<float>(Spiny::kSize);
+    const bool overlapX = ax < bx + bw && ax + aw > bx;
+    const bool overlapY = a.y() < b.y() + Spiny::kSize && a.y() + Spiny::kSize > b.y();
+    if (!overlapX || !overlapY) return;
+
+    // Empuje minimo para separarlos del todo (mas un margen chico), asi no
+    // se reevaluan como superpuestos el frame siguiente (ver el mismo
+    // criterio en checkGoombaKoopaBounce).
+    const float overlapLeft = (bx + bw) - ax;
+    const float overlapRight = (ax + aw) - bx;
+    const float pushAmount = std::min(overlapLeft, overlapRight) * 0.5f + 0.5f;
+
+    const bool aOnLeft = ax < bx;
+    a.bounceOffEnemy(aOnLeft ? -pushAmount : pushAmount);
+    b.bounceOffEnemy(aOnLeft ? pushAmount : -pushAmount);
+}
+
 void Game::checkBrickBlockHit(Mario& character) {
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
@@ -1119,6 +1265,11 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     }
     if (hammerBro_.isDangerous() && onTop(hammerBro_.x(), hammerBro_.y(), HammerBro::kWidth, HammerBro::kHeight)) {
         hammerBro_.killFalling(true);
+    }
+    for (Spiny& spiny : spinies_) {
+        if (spiny.isDangerous() && onTop(spiny.x(), spiny.y(), Spiny::kSize, Spiny::kSize)) {
+            spiny.killFalling(true);
+        }
     }
 }
 
@@ -1193,6 +1344,26 @@ void Game::respawnAtCheckpoint(Mario& character, float spawnX, float spawnY) {
     character.grantRespawnInvincibility();
 }
 
+void Game::updateCamera(float dt) {
+    // El de mas adelante (mayor X) es quien "empuja" la camara -- en 1P es
+    // directamente Mario. No sigue al que se quedo atras: asi no retrocede
+    // sola si un personaje se da vuelta, solo importa hasta donde llego el
+    // que mas avanzo.
+    const float leaderX = twoPlayerMode_ ? std::max(mario_.x(), luigi_.x()) : mario_.x();
+    // Centrada en el personaje, pero sin mostrar mas alla de los bordes del
+    // nivel -- si el nivel entero entra en una pantalla (los escenarios
+    // viejos, sin scroll), maxCameraX da <= 0 y se clampea a 0 siempre.
+    const float maxCameraX = std::max(0.0f, static_cast<float>(level_.widthPixels() - kLogicalWidth));
+    const float previousCameraX = cameraX_;
+    cameraX_ = std::clamp(leaderX - static_cast<float>(kLogicalWidth) / 2.0f, 0.0f, maxCameraX);
+    // Ver el comentario de cameraScrollSpeed_ en Game.h (equivalente a
+    // ScrollAmount en el original): 0 en vez de un valor real cuando la
+    // camara esta pegada a un borde del nivel (clampeada), aunque el
+    // personaje se siga moviendo -- ahi no esta "empujando" la camara de
+    // verdad aunque corra.
+    cameraScrollSpeed_ = dt > 0.0f ? (cameraX_ - previousCameraX) / dt : 0.0f;
+}
+
 void Game::update(float dt) {
     if (appState_ != AppState::Playing) return;
 
@@ -1250,6 +1421,8 @@ void Game::update(float dt) {
         resolveCharacterCollision();
     }
 
+    updateCamera(dt);
+
     mushroom_.update(dt, level_, kLogicalWidth);
     checkMushroomPickup(mario_);
     if (twoPlayerMode_) checkMushroomPickup(luigi_);
@@ -1304,6 +1477,33 @@ void Game::update(float dt) {
         if (twoPlayerMode_) checkHammerCollision(luigi_, hammer);
     }
 
+    // Mismo criterio que HammerBro::faceTowards: sigue/mira al personaje
+    // mas cercano, esta clase tampoco conoce a Mario/Luigi.
+    const float lakituTargetX = (twoPlayerMode_ && std::abs(luigi_.x() - lakitu_.x()) < std::abs(mario_.x() - lakitu_.x()))
+                                     ? luigi_.x()
+                                     : mario_.x();
+    lakitu_.update(dt, lakituTargetX, cameraScrollSpeed_, level_.widthPixels(), kLogicalHeight);
+    checkLakituCollision(mario_, marioPrevY);
+    if (twoPlayerMode_) checkLakituCollision(luigi_, luigiPrevY);
+    if (lakitu_.consumeThrowRequest()) {
+        for (Spiny& spiny : spinies_) {
+            if (spiny.isAlive()) continue;
+            spiny.spawn(lakitu_.throwOriginX(), lakitu_.throwOriginY(), lakitu_.throwVelocityX(),
+                        lakitu_.throwVelocityY());
+            break;
+        }
+    }
+    for (Spiny& spiny : spinies_) {
+        spiny.update(dt, level_, kLogicalHeight);
+        checkSpinyCollision(mario_, spiny);
+        if (twoPlayerMode_) checkSpinyCollision(luigi_, spiny);
+    }
+    for (size_t i = 0; i < spinies_.size(); ++i) {
+        for (size_t j = i + 1; j < spinies_.size(); ++j) {
+            checkSpinyBounce(spinies_[i], spinies_[j]);
+        }
+    }
+
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
     // combinaciones de Alado existen en el juego original de 1985): en
@@ -1343,6 +1543,8 @@ void Game::update(float dt) {
         checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
         checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
         checkFireballHammerBroCollision(fireball);
+        checkFireballLakituCollision(fireball);
+        for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
     }
 
     if (twoPlayerMode_) {
@@ -1354,6 +1556,8 @@ void Game::update(float dt) {
             checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
             checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
             checkFireballHammerBroCollision(fireball);
+            checkFireballLakituCollision(fireball);
+            for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
         }
     }
 }
@@ -1373,51 +1577,55 @@ void Game::render() {
     for (const BlockBump& bump : blockBumps_) {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
-    level_.render(renderer_, backgroundColorFor(worldType_), brickBlockSprite_, worldRow, bumpingTiles);
+    level_.render(renderer_, backgroundColorFor(worldType_), brickBlockSprite_, worldRow, cameraX_, bumpingTiles);
+    const int camOffset = static_cast<int>(std::lround(cameraX_));
     for (const BlockBump& bump : blockBumps_) {
         if (!bump.active) continue;
         // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
         // pi): 0 al arrancar y al terminar, maximo a la mitad.
         const float progress = 1.0f - bump.timer / kBumpDuration;
         const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
-        brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize(),
+        brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize() - camOffset,
                                 bump.row * level_.tileSize() + offsetY, false);
     }
-    mushroom_.render(renderer_, mushroomSprite_, worldRow);
-    fireFlower_.render(renderer_, fireFlowerSprite_, worldRow);
-    star_.render(renderer_, starSprite_, worldRow);
-    coin_.render(renderer_, coinSprite_, worldRow);
-    goomba_.render(renderer_, goombaSprite_, worldRow);
-    koopaA_.render(renderer_, koopaSprite_, worldRow);
-    koopaB_.render(renderer_, koopaSprite_, worldRow);
-    koopaJumping_.render(renderer_, koopaSprite_, worldRow);
-    koopaRed_.render(renderer_, koopaRedSprite_, worldRow);
-    koopaRedFlying_.render(renderer_, koopaRedSprite_, worldRow);
-    buzzyBeetle_.render(renderer_, buzzyBeetleSprite_, worldRow);
-    piranhaPlant_.render(renderer_, piranhaPlantSprite_, worldRow);
-    hammerBro_.render(renderer_, hammerBroSprite_, worldRow);
+    mushroom_.render(renderer_, mushroomSprite_, worldRow, cameraX_);
+    fireFlower_.render(renderer_, fireFlowerSprite_, worldRow, cameraX_);
+    star_.render(renderer_, starSprite_, worldRow, cameraX_);
+    coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
+    goomba_.render(renderer_, goombaSprite_, worldRow, cameraX_);
+    koopaA_.render(renderer_, koopaSprite_, worldRow, cameraX_);
+    koopaB_.render(renderer_, koopaSprite_, worldRow, cameraX_);
+    koopaJumping_.render(renderer_, koopaSprite_, worldRow, cameraX_);
+    koopaRed_.render(renderer_, koopaRedSprite_, worldRow, cameraX_);
+    koopaRedFlying_.render(renderer_, koopaRedSprite_, worldRow, cameraX_);
+    buzzyBeetle_.render(renderer_, buzzyBeetleSprite_, worldRow, cameraX_);
+    piranhaPlant_.render(renderer_, piranhaPlantSprite_, worldRow, cameraX_);
+    hammerBro_.render(renderer_, hammerBroSprite_, worldRow, cameraX_);
     if (hammerBro_.isWindingUp()) {
         // Amague antes de tirar (ver HammerBro::isWindingUp): el martillo
         // quieto sobre la cabeza un instante, reusando el sprite del
         // proyectil (frame 0, cualquiera sirve para la pose quieta) en vez
         // de necesitar un frame propio de HammerBro para esto.
-        const int drawX = static_cast<int>(std::lround(hammerBro_.throwOriginX())) - Hammer::kSize / 2;
+        const int drawX = static_cast<int>(std::lround(hammerBro_.throwOriginX())) - Hammer::kSize / 2 - camOffset;
         const int drawY = static_cast<int>(std::lround(hammerBro_.y())) - Hammer::kSize + 4;
         hammerSprite_.draw(renderer_, worldRow, 0, drawX, drawY, false);
     }
-    mario_.render(renderer_);
-    for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_);
+    lakitu_.render(renderer_, lakituSprite_, worldRow, cameraX_);
+    // Una sola paleta (ver el comentario de Spiny.h): fila 0 siempre, no worldRow.
+    for (const Spiny& spiny : spinies_) spiny.render(renderer_, spinySprite_, 0, cameraX_);
+    mario_.render(renderer_, cameraX_);
+    for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
-        luigi_.render(renderer_);
-        for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_);
+        luigi_.render(renderer_, cameraX_);
+        for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     }
     // Los martillos en vuelo van al final a proposito, adelante de todo
     // (personajes incluidos): que nunca queden tapados por nada mientras
     // vuelan.
-    for (const Hammer& hammer : hammers_) hammer.render(renderer_, hammerSprite_, worldRow);
-    for (const BrickDebris& debris : brickDebris_) debris.render(renderer_, brickDebrisSprite_, worldRow);
+    for (const Hammer& hammer : hammers_) hammer.render(renderer_, hammerSprite_, worldRow, cameraX_);
+    for (const BrickDebris& debris : brickDebris_) debris.render(renderer_, brickDebrisSprite_, worldRow, cameraX_);
 
-    for (const ScorePopup& popup : scorePopups_) popup.render(renderer_);
+    for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
     if (showDebugOverlay_) {
         char fpsText[32];
@@ -1444,10 +1652,11 @@ void Game::renderScenarioSelect() {
     DebugFont::drawText(renderer_, 84, 24, "TEST", 3, white);
 
     DebugFont::drawText(renderer_, 40, 90, "1 ITEMS", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 120, "2 ENEMIGOS", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 150, "3 HAMMER BRO", 2, yellow);
+    DebugFont::drawText(renderer_, 40, 115, "2 ENEMIGOS", 2, yellow);
+    DebugFont::drawText(renderer_, 40, 140, "3 HAMMER BRO", 2, yellow);
+    DebugFont::drawText(renderer_, 40, 165, "4 LAKITU", 2, yellow);
 
-    DebugFont::drawText(renderer_, 16, 190, "PRESIONA 1, 2 O 3", 1, white);
+    DebugFont::drawText(renderer_, 8, 200, "PRESIONA 1, 2, 3 O 4", 1, white);
 }
 
 void Game::run() {

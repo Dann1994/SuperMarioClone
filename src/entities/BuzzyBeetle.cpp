@@ -177,7 +177,7 @@ void BuzzyBeetle::update(float dt, const Tilemap& level, int screenHeight) {
     }
 }
 
-void BuzzyBeetle::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void BuzzyBeetle::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
 
     int col;
@@ -187,7 +187,7 @@ void BuzzyBeetle::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int 
         col = animFrame_;  // walk1/walk2
     }
 
-    const int drawX = static_cast<int>(std::lround(x_));
+    const int drawX = static_cast<int>(std::lround(x_ - cameraX));
     const int drawY = static_cast<int>(std::lround(y_));
     // El arte fuente mira a la izquierda por defecto (ver
     // Documentaciones/Enemigos.png, mismo criterio que el Koopa): se

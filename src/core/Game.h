@@ -14,10 +14,12 @@
 #include "../entities/Hammer.h"
 #include "../entities/HammerBro.h"
 #include "../entities/Koopa.h"
+#include "../entities/Lakitu.h"
 #include "../entities/Mario.h"
 #include "../entities/Mushroom.h"
 #include "../entities/PiranhaPlant.h"
 #include "../entities/ScorePopup.h"
+#include "../entities/Spiny.h"
 #include "../entities/StarItem.h"
 #include "../render/SpriteSheet.h"
 #include "../world/Tilemap.h"
@@ -38,6 +40,13 @@ constexpr int kMaxFireballsPerPlayer = 2;
 // Fireball): con un solo Hammer Bro de prueba y el intervalo entre tiros
 // (ver HammerBro::kThrowInterval), 2 alcanzan de sobra.
 constexpr int kMaxHammers = 2;
+
+// Huevos de Spiny en pantalla a la vez (pool, mismo criterio que Hammer):
+// a diferencia del martillo, el Spiny no desaparece solo al eclosionar y
+// puede quedar caminando bastante tiempo, asi que hace falta mas margen que
+// los 2 del Hammer Bro para que el Lakitu de prueba no se quede sin tirar
+// mientras los anteriores siguen vivos.
+constexpr int kMaxSpinies = 4;
 
 // Pedazos volando a la vez (pool): 4 por ladrillo roto (una esquina cada
 // uno), con margen para dos roturas casi juntas sin robarse el pool.
@@ -64,6 +73,7 @@ enum class TestScenario {
     Items,
     Enemies,
     HammerBro,
+    LakituSpiny,
 };
 
 enum class AppState {
@@ -160,6 +170,20 @@ private:
     // pisoton, como la Pirana Plant); con estrella no lo mata -- no es un
     // enemigo, solo desaparece sin hacer dano (ver Hammer::reset).
     void checkHammerCollision(Mario& character, Hammer& hammer);
+    // Cualquier forma de matarlo usa la misma parabola (ver Lakitu.h): a
+    // diferencia de la Pirana Plant, aca el pisoton SI lo mata.
+    void checkLakituCollision(Mario& character, float prevY);
+    void checkFireballLakituCollision(Fireball& fireball);
+    // Sin pisoton (ver Spiny.h): cualquier contacto hace dano, en Egg o en
+    // Walking por igual, sin importar de que lado venga -- solo estrella o
+    // fuego lo eliminan.
+    void checkSpinyCollision(Mario& character, Spiny& spiny);
+    void checkFireballSpinyCollision(Fireball& fireball, Spiny& spiny);
+    // Si los dos estan caminando (no huevo en el aire, ver SpinyState) y se
+    // cruzan, rebotan como si chocaran una pared -- mismo criterio que
+    // checkGoombaKoopaBounce, no se matan entre si (Spiny no tiene
+    // caparazon que pueda matar a otro enemigo).
+    void checkSpinyBounce(Spiny& a, Spiny& b);
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -190,6 +214,13 @@ private:
     // checkpoint" hasta que ese sistema exista -- por ahora vuelve al
     // spawn original del nivel.
     void respawnAtCheckpoint(Mario& character, float spawnX, float spawnY);
+    // Recalcula cameraX_ para que siga al personaje mas adelantado (el de
+    // mayor X; en 1P es directamente Mario), sin dejar ver mas alla de los
+    // bordes del nivel (se clampea a [0, ancho del nivel - pantalla] --
+    // 0 si el nivel entero entra en una pantalla, como los escenarios
+    // viejos que no scrollean). Tambien actualiza cameraScrollSpeed_ (por
+    // eso necesita dt). Ver el comentario de cameraX_/cameraScrollSpeed_.
+    void updateCamera(float dt);
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
@@ -200,6 +231,20 @@ private:
     TestScenario scenario_ = TestScenario::Items;
     WorldType worldType_ = WorldType::Overworld;
     bool characterCollisionEnabled_ = true;
+    // Desplazamiento horizontal de camara en px de nivel (seccion 3): se le
+    // resta a la X de todo lo que se dibuja (ver render() y
+    // updateCamera()), la logica de juego (fisica, colisiones) sigue
+    // trabajando siempre en coordenadas de nivel absolutas, esto es
+    // puramente de dibujado.
+    float cameraX_ = 0.0f;
+    // Cuanto se movio cameraX_ en el ultimo cuadro, en px/s (ver
+    // updateCamera()) -- el original de 1985 engancha la velocidad del
+    // Lakitu a esto (ScrollAmount en la disassembly, ver el comentario de
+    // Lakitu.h), no a la posicion cruda del personaje: mientras la camara
+    // esta scrolleando de verdad (el personaje ya empujo mas alla del
+    // centro/borde del nivel) el Lakitu acelera, si no, va lento aunque el
+    // personaje se mueva (todavia no llego a mover la camara).
+    float cameraScrollSpeed_ = 0.0f;
     // Modo 1 jugador (solo Mario) vs 2 jugadores simultaneos (ver seccion
     // "Ideas anotadas" del README): cambia como se maneja la muerte -- en 1P
     // Mario muriendo congela y vuelve al checkpoint (como el juego clasico,
@@ -296,6 +341,19 @@ private:
     HammerBro hammerBro_;
     SpriteSheet hammerSprite_;
     std::array<Hammer, kMaxHammers> hammers_;
+
+    // Lakitu de prueba (seccion 5.2, sexto enemigo): escenario propio
+    // (TestScenario::LakituSpiny, test_lakitu.json) igual que el Hammer
+    // Bro -- vuela siguiendo al personaje mas cercano y tira Spiny (Spiny.h,
+    // septimo enemigo) que eclosionan al tocar el piso. Tecla L lo repone.
+    SpriteSheet lakituSprite_;
+    Lakitu lakitu_;
+    // Los Spiny que tira (mismo criterio de pool que Hammer/hammers_): a
+    // diferencia del martillo, quedan caminando indefinidamente hasta que
+    // los maten, asi que el pool es mas grande (kMaxSpinies). Una sola
+    // paleta (ver Spiny.h), su sprite se dibuja siempre con la fila 0.
+    SpriteSheet spinySprite_;
+    std::array<Spiny, kMaxSpinies> spinies_;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

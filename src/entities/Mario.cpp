@@ -500,8 +500,8 @@ void Mario::updateAnimation(float dt, const Input& input) {
     }
 }
 
-void Mario::render(SDL_Renderer* renderer) const {
-    const int drawXBase = static_cast<int>(std::lround(x_)) - (kSpriteFrameWidth - kWidth) / 2;
+void Mario::render(SDL_Renderer* renderer, float cameraX) const {
+    const int drawXBase = static_cast<int>(std::lround(x_ - cameraX)) - (kSpriteFrameWidth - kWidth) / 2;
 
     // Se calcula antes de los casos especiales: la secuencia de crecer lo
     // reusa para animar "sobre" la pose que estaba jugando (caminar, salto,

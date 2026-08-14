@@ -106,9 +106,9 @@ void Goomba::update(float dt, const Tilemap& level, int screenHeight) {
     }
 }
 
-void Goomba::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void Goomba::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
-    const int drawX = static_cast<int>(std::lround(x_));
+    const int drawX = static_cast<int>(std::lround(x_ - cameraX));
     const int drawY = static_cast<int>(std::lround(y_));
     if (falling_) {
         // Boca abajo, frame de caminata quieto (no tiene un frame "muerto"

@@ -11,7 +11,8 @@ class Coin {
 public:
     void spawn(float x, float y);
     void update(float dt);
-    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const;
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
+    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
     bool isAlive() const { return alive_; }
     void collect() { alive_ = false; }
 

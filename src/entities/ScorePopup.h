@@ -11,7 +11,8 @@ class ScorePopup {
 public:
     void spawn(float x, float y, const std::string& text);
     void update(float dt);
-    void render(SDL_Renderer* renderer) const;
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
+    void render(SDL_Renderer* renderer, float cameraX = 0.0f) const;
     bool isAlive() const { return alive_; }
 
 private:

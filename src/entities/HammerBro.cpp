@@ -210,11 +210,11 @@ void HammerBro::update(float dt, const Tilemap& level, int screenHeight) {
     }
 }
 
-void HammerBro::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void HammerBro::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
 
     const int col = falling_ ? 0 : animFrame_;
-    const int drawX = static_cast<int>(std::lround(x_));
+    const int drawX = static_cast<int>(std::lround(x_ - cameraX));
     const int drawY = static_cast<int>(std::lround(y_));
     // El arte fuente mira a la izquierda por defecto (mismo criterio que
     // Koopa/Buzzy Beetle): se flipea al reves que Mario/Goomba, mirando a

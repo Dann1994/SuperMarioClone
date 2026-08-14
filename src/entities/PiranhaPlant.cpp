@@ -72,7 +72,7 @@ void PiranhaPlant::update(float dt, bool safeToRise) {
     }
 }
 
-void PiranhaPlant::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void PiranhaPlant::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_ || state_ == PiranhaPlantState::Hidden) return;
 
     // Cuanto del sprite queda por encima del borde del cano: 0 recien
@@ -82,7 +82,7 @@ void PiranhaPlant::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int
     const float visibleHeight = std::clamp(pipeTopY_ - y_, 0.0f, static_cast<float>(kHeight));
     if (visibleHeight <= 0.0f) return;
 
-    const int drawX = static_cast<int>(std::lround(x_));
+    const int drawX = static_cast<int>(std::lround(x_ - cameraX));
     const int drawY = static_cast<int>(std::lround(y_));
     sprite.drawSlice(renderer, worldRow, animFrame_, 0, static_cast<int>(std::lround(visibleHeight)), drawX, drawY,
                       false);

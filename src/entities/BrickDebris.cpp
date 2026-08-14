@@ -37,8 +37,8 @@ void BrickDebris::update(float dt, int screenWidth, int screenHeight) {
     }
 }
 
-void BrickDebris::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void BrickDebris::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
-    sprite.draw(renderer, worldRow, animFrame_, static_cast<int>(std::lround(x_)),
+    sprite.draw(renderer, worldRow, animFrame_, static_cast<int>(std::lround(x_ - cameraX)),
                 static_cast<int>(std::lround(y_)), false);
 }

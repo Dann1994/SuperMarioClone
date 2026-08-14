@@ -19,7 +19,7 @@ void Coin::update(float dt) {
     }
 }
 
-void Coin::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const {
+void Coin::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX) const {
     if (!alive_) return;
-    sprite.draw(renderer, worldRow, frame_, static_cast<int>(std::lround(x_)), static_cast<int>(std::lround(y_)), false);
+    sprite.draw(renderer, worldRow, frame_, static_cast<int>(std::lround(x_ - cameraX)), static_cast<int>(std::lround(y_)), false);
 }

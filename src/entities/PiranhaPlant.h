@@ -45,7 +45,8 @@ public:
     // sheet trae una fila por WorldType, mismo criterio que el resto del
     // elenco -- Underground y Castillo comparten el mismo arte fuente, ver
     // tools/asset_scripts).
-    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow) const;
+    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
+    void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
 
     bool isAlive() const { return alive_; }
     PiranhaPlantState state() const { return state_; }

@@ -54,13 +54,16 @@ public:
 
     // brickSprite/worldRow: los tiles de ladrillo se dibujan con sprite
     // propio (una fila por WorldType, mismo criterio que el resto del
-    // elenco) en vez del rectangulo plano que usan '#'/'='. hiddenBrickTiles:
-    // ladrillos que Game.cpp esta dibujando el sola aparte, desplazados
-    // (ver Game::checkBrickBlockHit, sacudida al golpearlo chico sin
-    // romperlo) -- esta funcion los salta aca para no dibujarlos dos veces
-    // (uno quieto atras y otro desplazado encima).
+    // elenco) en vez del rectangulo plano que usan '#'/'='. cameraX: cuanto
+    // se desplazo la camara (ver Game::cameraX_) -- se resta a la posicion
+    // en X de cada tile antes de dibujar, mismo criterio que el resto del
+    // elenco (entidades/render()). hiddenBrickTiles: ladrillos que Game.cpp
+    // esta dibujando el sola aparte, desplazados (ver Game::checkBrickBlockHit,
+    // sacudida al golpearlo chico sin romperlo) -- esta funcion los salta
+    // aca para no dibujarlos dos veces (uno quieto atras y otro desplazado
+    // encima).
     void render(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& brickSprite, int worldRow,
-                const std::vector<SDL_Point>& hiddenBrickTiles = {}) const;
+                float cameraX = 0.0f, const std::vector<SDL_Point>& hiddenBrickTiles = {}) const;
 
 private:
     int tileSize_ = 16;
