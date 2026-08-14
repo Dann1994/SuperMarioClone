@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 
+#include "../entities/Blooper.h"
 #include "../entities/BrickDebris.h"
 #include "../entities/BuzzyBeetle.h"
 #include "../entities/Coin.h"
@@ -74,6 +75,7 @@ enum class TestScenario {
     Enemies,
     HammerBro,
     LakituSpiny,
+    Blooper,
 };
 
 enum class AppState {
@@ -184,6 +186,10 @@ private:
     // checkGoombaKoopaBounce, no se matan entre si (Spiny no tiene
     // caparazon que pueda matar a otro enemigo).
     void checkSpinyBounce(Spiny& a, Spiny& b);
+    // Sin pisoton (ver Blooper.h): cualquier contacto hace dano, solo
+    // estrella o fuego lo matan.
+    void checkBlooperCollision(Mario& character, Blooper& blooper);
+    void checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper);
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -354,6 +360,14 @@ private:
     // paleta (ver Spiny.h), su sprite se dibuja siempre con la fila 0.
     SpriteSheet spinySprite_;
     std::array<Spiny, kMaxSpinies> spinies_;
+
+    // Blooper de prueba (seccion 5.2, octavo enemigo): escenario propio
+    // (TestScenario::Blooper, test_blooper.json) con worldType_ arrancando
+    // en Underwater (nivel de agua) -- flota sin piso, hundiendose despacio
+    // entre chorros hacia el personaje mas cercano (ver Blooper.h). Tecla O
+    // lo repone (B ya la usa Buzzy Beetle).
+    SpriteSheet blooperSprite_;
+    Blooper blooper_;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

@@ -77,6 +77,11 @@ public:
     float y() const { return y_; }
     int width() const { return kWidth; }
     int height() const { return currentHeight(); }
+    // Altura fija de Mario/Luigi chico (a diferencia de height(), que
+    // depende del tamano actual) -- publica porque Blooper.h la usa como
+    // distancia de referencia para frenar antes de tocar el piso (ver
+    // Blooper::kFloorAvoidDistance), sin necesitar una instancia de Mario.
+    static constexpr int kSmallHeight = 16;
     bool facingRight() const { return facingRight_; }
     void setFacingRight(bool right) { facingRight_ = right; }
     bool isGrounded() const { return grounded_; }
@@ -161,7 +166,6 @@ private:
     const SpriteSheet& currentStarSprite() const;
 
     static constexpr int kWidth = 12;
-    static constexpr int kSmallHeight = 16;
     static constexpr int kBigHeight = 32;
     static constexpr int kSpriteFrameWidth = 16;
 

@@ -87,6 +87,12 @@ constexpr float kLakituTestY = 40.0f;
 constexpr float kSpinyTestX = 120.0f;
 constexpr float kSpinyTestY = 40.0f;
 
+// Blooper de prueba: arranca en el medio del nivel de agua de
+// test_blooper.json, lejos de los bordes para poder ver el hundimiento y
+// los chorros antes de que llegue a la pared.
+constexpr float kBlooperTestX = 120.0f;
+constexpr float kBlooperTestY = 60.0f;
+
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
 // (hongo, flor de fuego) que los disparan en el juego.
@@ -247,6 +253,9 @@ bool Game::init() {
                                           BrickDebris::kSize)) {
         return false;
     }
+    if (!blooperSprite_.loadFromFile(renderer_, "assets/sprites/blooper.png", Blooper::kWidth, Blooper::kHeight)) {
+        return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
@@ -267,8 +276,17 @@ void Game::startScenario(TestScenario scenario) {
         path = "levels/world1/test_hammerbro.json";
     } else if (scenario == TestScenario::LakituSpiny) {
         path = "levels/world1/test_lakitu.json";
+    } else if (scenario == TestScenario::Blooper) {
+        path = "levels/world1/test_blooper.json";
     }
     level_.loadFromFile(path);
+
+    // Nivel de agua (seccion 5.5): arranca directo en Underwater en vez del
+    // Overworld por defecto -- F7 lo sigue pudiendo ciclar manualmente
+    // despues, pero no tendria sentido abrir este escenario a pie.
+    worldType_ = scenario == TestScenario::Blooper ? WorldType::Underwater : WorldType::Overworld;
+    mario_.setWorldType(worldType_);
+    luigi_.setWorldType(worldType_);
 
     mario_.spawn(kMarioSpawnX, kMarioSpawnY);
     luigi_.spawn(kLuigiSpawnX, kLuigiSpawnY);
@@ -291,6 +309,7 @@ void Game::startScenario(TestScenario scenario) {
     for (Hammer& hammer : hammers_) hammer.reset();
     lakitu_.reset();
     for (Spiny& spiny : spinies_) spiny.reset();
+    blooper_.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -308,8 +327,10 @@ void Game::startScenario(TestScenario scenario) {
         piranhaPlant_.spawn(kPiranhaPlantTestX, kPiranhaPlantTestPipeTopY);
     } else if (scenario == TestScenario::HammerBro) {
         hammerBro_.spawn(kHammerBroTestX, kHammerBroTestY, true);
-    } else {
+    } else if (scenario == TestScenario::LakituSpiny) {
         lakitu_.spawn(kLakituTestX, kLakituTestY, true);
+    } else {
+        blooper_.spawn(kBlooperTestX, kBlooperTestY);
     }
 
     appState_ = AppState::Playing;
@@ -341,6 +362,8 @@ void Game::processEvents() {
                     startScenario(TestScenario::HammerBro);
                 } else if (event.key.keysym.scancode == SDL_SCANCODE_4) {
                     startScenario(TestScenario::LakituSpiny);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_5) {
+                    startScenario(TestScenario::Blooper);
                 }
                 continue;
             }
@@ -396,6 +419,8 @@ void Game::processEvents() {
                     spiny.spawn(kSpinyTestX, kSpinyTestY, 0.0f, 0.0f);
                     break;
                 }
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_O && scenario_ == TestScenario::Blooper) {
+                blooper_.spawn(kBlooperTestX, kBlooperTestY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -1199,6 +1224,46 @@ void Game::checkSpinyBounce(Spiny& a, Spiny& b) {
     b.bounceOffEnemy(aOnLeft ? pushAmount : -pushAmount);
 }
 
+void Game::checkBlooperCollision(Mario& character, Blooper& blooper) {
+    if (character.isInDeathSequence()) return;
+    if (!blooper.isDangerous()) return;
+
+    const bool overlap = character.x() < blooper.x() + blooper.width() &&
+                          character.x() + character.width() > blooper.x() &&
+                          character.y() < blooper.y() + blooper.height() &&
+                          character.y() + character.height() > blooper.y();
+    if (!overlap) return;
+
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= blooper.x();
+        blooper.killFalling(flyRight);
+        return;
+    }
+
+    // Sin pisoton (ver Blooper.h): cualquier contacto hace dano, sin
+    // importar de que lado venga.
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!blooper.isDangerous()) return;
+
+    const bool overlap = fireball.x() < blooper.x() + blooper.width() &&
+                          fireball.x() + Fireball::kSize > blooper.x() &&
+                          fireball.y() < blooper.y() + blooper.height() &&
+                          fireball.y() + Fireball::kSize > blooper.y();
+    if (!overlap) return;
+
+    const bool flyRight = fireball.x() <= blooper.x();
+    blooper.killFalling(flyRight);
+    fireball.explode();
+}
+
 void Game::checkBrickBlockHit(Mario& character) {
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
@@ -1504,6 +1569,20 @@ void Game::update(float dt) {
         }
     }
 
+    // Mismo criterio que Lakitu (targetX): apunta al personaje mas cercano,
+    // esta clase tampoco conoce a Mario/Luigi. Ademas necesita Y (el chorro
+    // apunta en las dos direcciones, no solo en X).
+    {
+        const bool luigiCloser = twoPlayerMode_ &&
+            std::hypot(luigi_.x() - blooper_.x(), luigi_.y() - blooper_.y()) <
+                std::hypot(mario_.x() - blooper_.x(), mario_.y() - blooper_.y());
+        const float blooperTargetX = luigiCloser ? luigi_.x() : mario_.x();
+        const float blooperTargetY = luigiCloser ? luigi_.y() : mario_.y();
+        blooper_.update(dt, level_, blooperTargetX, blooperTargetY, kLogicalHeight);
+    }
+    checkBlooperCollision(mario_, blooper_);
+    if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper_);
+
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
     // combinaciones de Alado existen en el juego original de 1985): en
@@ -1545,6 +1624,7 @@ void Game::update(float dt) {
         checkFireballHammerBroCollision(fireball);
         checkFireballLakituCollision(fireball);
         for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
+        checkFireballBlooperCollision(fireball, blooper_);
     }
 
     if (twoPlayerMode_) {
@@ -1558,6 +1638,7 @@ void Game::update(float dt) {
             checkFireballHammerBroCollision(fireball);
             checkFireballLakituCollision(fireball);
             for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
+            checkFireballBlooperCollision(fireball, blooper_);
         }
     }
 }
@@ -1613,6 +1694,7 @@ void Game::render() {
     lakitu_.render(renderer_, lakituSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de Spiny.h): fila 0 siempre, no worldRow.
     for (const Spiny& spiny : spinies_) spiny.render(renderer_, spinySprite_, 0, cameraX_);
+    blooper_.render(renderer_, blooperSprite_, worldRow, cameraX_);
     mario_.render(renderer_, cameraX_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
@@ -1655,8 +1737,9 @@ void Game::renderScenarioSelect() {
     DebugFont::drawText(renderer_, 40, 115, "2 ENEMIGOS", 2, yellow);
     DebugFont::drawText(renderer_, 40, 140, "3 HAMMER BRO", 2, yellow);
     DebugFont::drawText(renderer_, 40, 165, "4 LAKITU", 2, yellow);
+    DebugFont::drawText(renderer_, 40, 190, "5 BLOOPER", 2, yellow);
 
-    DebugFont::drawText(renderer_, 8, 200, "PRESIONA 1, 2, 3 O 4", 1, white);
+    DebugFont::drawText(renderer_, 8, 215, "PRESIONA 1, 2, 3, 4 O 5", 1, white);
 }
 
 void Game::run() {
