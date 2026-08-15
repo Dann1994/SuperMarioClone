@@ -5,7 +5,10 @@
 #include <array>
 #include <string>
 
+#include "../entities/Axe.h"
 #include "../entities/Blooper.h"
+#include "../entities/Bowser.h"
+#include "../entities/BowserFire.h"
 #include "../entities/BrickDebris.h"
 #include "../entities/BulletBill.h"
 #include "../entities/BuzzyBeetle.h"
@@ -59,6 +62,11 @@ constexpr int kMaxSpinies = 4;
 // sin lugar en el pool.
 constexpr int kMaxCheepCheepJumps = 3;
 
+// Fuegos de Bowser en pantalla a la vez (pool, mismo criterio que
+// Hammer/hammers_): alcanza con 2 dado el intervalo entre ataques (ver
+// Bowser::kAttackIntervalMin/Max).
+constexpr int kMaxBowserFires = 2;
+
 // Pedazos volando a la vez (pool): 4 por ladrillo roto (una esquina cada
 // uno), con margen para dos roturas casi juntas sin robarse el pool.
 constexpr int kMaxBrickDebris = 8;
@@ -95,6 +103,7 @@ enum class TestScenario {
     // cheepCheepJumps_/cheepCheepJumpSpawnTimer_).
     CheepCheepJump,
     Podoboo,
+    Bowser,
 };
 
 enum class AppState {
@@ -245,6 +254,21 @@ private:
     // La bola explota igual al tocarlo (mismo feedback que contra Buzzy
     // Beetle), pero no le hace nada.
     void checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo);
+    // Sin pisoton, ni siquiera la estrella lo derrota (ver Bowser.h): la
+    // estrella sigue protegiendo del dano como siempre, pero a Bowser no le
+    // pasa nada -- solo killByFireball()/killByAxe() (ver mas abajo) lo
+    // matan de verdad.
+    void checkBowserCollision(Mario& character);
+    // A diferencia de checkFireballXCollision del resto del elenco: SI
+    // cuenta para derrotarlo (Bowser::killByFireball, cinco seguidas), en
+    // vez de matarlo de una.
+    void checkFireballBowserCollision(Fireball& fireball);
+    // El fuego que escupe: mismo criterio que Hammer/checkHammerCollision,
+    // sin pisoton y sigue de largo (no desaparece al tocar).
+    void checkBowserFireCollision(Mario& character, BowserFire& fire);
+    // Tocar el hacha derrota a Bowser de una sola vez (ver Axe.h) y hace
+    // desaparecer el hacha misma.
+    void checkAxeCollision(Mario& character, Axe& axe);
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -473,6 +497,20 @@ private:
     // agota, siempre el mismo). Tecla P lo repone.
     SpriteSheet podobooSprite_;
     Podoboo podoboo_;
+
+    // Bowser de prueba (seccion 5.2, jefe final): escenario propio
+    // (TestScenario::Bowser, test_bowser.json) con worldType_ arrancando en
+    // Castle (solo aparece ahi en el original, ver Bowser.h). Solo escupe
+    // fuego (a proposito no tira martillos, ver el comentario de Bowser.h):
+    // bowserFires_ es su pool propio (mismo criterio que hammers_/spinies_).
+    // El hacha (axe_) que lo derrota de una sola vez esta en el otro
+    // extremo del nivel de prueba. Tecla Y repone Bowser y el hacha juntos.
+    SpriteSheet bowserSprite_;
+    Bowser bowser_;
+    SpriteSheet bowserFireSprite_;
+    std::array<BowserFire, kMaxBowserFires> bowserFires_;
+    SpriteSheet axeSprite_;
+    Axe axe_;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

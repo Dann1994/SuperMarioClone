@@ -140,6 +140,19 @@ constexpr float kBulletBillTestY = 120.0f;
 constexpr float kPodobooTestX = 120.0f;
 constexpr float kPodobooTestY = 224.0f;
 
+// Bowser y el hacha de prueba: test_bowser.json es de una sola pantalla
+// (16 columnas, 256px, sin scroll -- a pedido del usuario, un nivel largo
+// dejaba a Bowser fuera de camara la mayor parte del tiempo mientras el
+// personaje seguia lejos, cerca de su spawn). Bowser patrulla centrado
+// (Bowser::kPatrolRange = 48, spans 92-188) dejando el hacha bien a la
+// derecha, del otro lado de la patrulla -- para tocarla hay que pasarlo,
+// como en el original ("run under or jump over Bowser"). Y = borde de
+// arriba del piso solido menos la altura de cada uno.
+constexpr float kBowserTestX = 140.0f;
+constexpr float kBowserTestY = 192.0f;  // 224 (piso) - 32 (Bowser::kHeight)
+constexpr float kAxeTestX = 210.0f;
+constexpr float kAxeTestY = 176.0f;  // 224 (piso) - 48 (Axe::kHeight)
+
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
 // (hongo, flor de fuego) que los disparan en el juego.
@@ -330,6 +343,16 @@ bool Game::init() {
     if (!podobooSprite_.loadFromFile(renderer_, "assets/sprites/podoboo.png", Podoboo::kSize, Podoboo::kSize)) {
         return false;
     }
+    if (!bowserSprite_.loadFromFile(renderer_, "assets/sprites/bowser.png", Bowser::kWidth, Bowser::kHeight)) {
+        return false;
+    }
+    if (!bowserFireSprite_.loadFromFile(renderer_, "assets/sprites/bowser_fire.png", BowserFire::kWidth,
+                                         BowserFire::kHeight)) {
+        return false;
+    }
+    if (!axeSprite_.loadFromFile(renderer_, "assets/sprites/axe.png", Axe::kWidth, Axe::kHeight)) {
+        return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
@@ -367,6 +390,8 @@ void Game::startScenario(TestScenario scenario) {
         path = "levels/world1/test_cheepcheep_jump.json";
     } else if (scenario == TestScenario::Podoboo) {
         path = "levels/world1/test_podoboo.json";
+    } else if (scenario == TestScenario::Bowser) {
+        path = "levels/world1/test_bowser.json";
     }
     level_.loadFromFile(path);
 
@@ -377,13 +402,15 @@ void Game::startScenario(TestScenario scenario) {
     // en paleta Castle (gris sobre negro) se notaba poco y quedaba dificil de
     // ver. La Jumping tiene su propio escenario (CheepCheepJump, mas abajo)
     // y SI necesita que el personaje camine, asi que ese cae en el else de
-    // Overworld como cualquier otro. Podoboo arranca en Castle: solo aparece
-    // ahi en el original (ver Podoboo.h).
+    // Overworld como cualquier otro. Podoboo y Bowser arrancan en Castle:
+    // solo aparecen ahi en el original (ver Podoboo.h/Bowser.h).
     if (scenario == TestScenario::Blooper) {
         worldType_ = WorldType::Underwater;
     } else if (scenario == TestScenario::CheepCheep) {
         worldType_ = WorldType::Underwater;
     } else if (scenario == TestScenario::Podoboo) {
+        worldType_ = WorldType::Castle;
+    } else if (scenario == TestScenario::Bowser) {
         worldType_ = WorldType::Castle;
     } else {
         worldType_ = WorldType::Overworld;
@@ -419,6 +446,9 @@ void Game::startScenario(TestScenario scenario) {
     bulletBillA_.reset();
     bulletBillB_.reset();
     podoboo_.reset();
+    bowser_.reset();
+    for (BowserFire& fire : bowserFires_) fire.reset();
+    axe_.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -453,6 +483,9 @@ void Game::startScenario(TestScenario scenario) {
         cheepCheepJumpSpawnTimer_ = randomRange(kCheepCheepJumpIntervalMin, kCheepCheepJumpIntervalMax);
     } else if (scenario == TestScenario::Podoboo) {
         podoboo_.spawn(kPodobooTestX, kPodobooTestY);
+    } else if (scenario == TestScenario::Bowser) {
+        bowser_.spawn(kBowserTestX, kBowserTestY, false);
+        axe_.spawn(kAxeTestX, kAxeTestY);
     }
 
     appState_ = AppState::Playing;
@@ -494,6 +527,8 @@ void Game::processEvents() {
                     startScenario(TestScenario::CheepCheepJump);
                 } else if (event.key.keysym.scancode == SDL_SCANCODE_9) {
                     startScenario(TestScenario::Podoboo);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_0) {
+                    startScenario(TestScenario::Bowser);
                 }
                 continue;
             }
@@ -563,6 +598,10 @@ void Game::processEvents() {
                 bulletBillB_.spawn(kBulletBillBTestX, kBulletBillTestY, false);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_P && scenario_ == TestScenario::Podoboo) {
                 podoboo_.spawn(kPodobooTestX, kPodobooTestY);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_Y && scenario_ == TestScenario::Bowser) {
+                bowser_.spawn(kBowserTestX, kBowserTestY, false);
+                axe_.spawn(kAxeTestX, kAxeTestY);
+                for (BowserFire& fire : bowserFires_) fire.reset();
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -1595,6 +1634,84 @@ void Game::checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo) {
     fireball.explode();
 }
 
+void Game::checkBowserCollision(Mario& character) {
+    if (character.isInDeathSequence()) return;
+    if (!bowser_.isDangerous()) return;
+
+    const bool overlap =
+        character.x() < bowser_.x() + bowser_.width() && character.x() + character.width() > bowser_.x() &&
+        character.y() < bowser_.y() + bowser_.height() && character.y() + character.height() > bowser_.y();
+    if (!overlap) return;
+
+    // Ni la estrella lo derrota (ver Bowser.h): protege del dano como
+    // siempre, pero a Bowser no le pasa nada -- solo killByFireball()
+    // (checkFireballBowserCollision) o killByAxe() (checkAxeCollision) lo
+    // matan de verdad.
+    if (character.isInvincible()) return;
+
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballBowserCollision(Fireball& fireball) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!bowser_.isDangerous()) return;
+
+    const bool overlap = fireball.x() < bowser_.x() + bowser_.width() &&
+                          fireball.x() + Fireball::kSize > bowser_.x() &&
+                          fireball.y() < bowser_.y() + bowser_.height() &&
+                          fireball.y() + Fireball::kSize > bowser_.y();
+    if (!overlap) return;
+
+    // A diferencia del resto del elenco: no lo mata de una, solo cuenta
+    // para las cinco que hacen falta (ver Bowser::killByFireball).
+    const bool flyRight = fireball.x() <= bowser_.x();
+    bowser_.killByFireball(flyRight);
+    fireball.explode();
+}
+
+void Game::checkBowserFireCollision(Mario& character, BowserFire& fire) {
+    if (character.isInDeathSequence()) return;
+    if (!fire.isAlive()) return;
+
+    const bool overlap =
+        character.x() < fire.x() + fire.width() && character.x() + character.width() > fire.x() &&
+        character.y() < fire.y() + fire.height() && character.y() + character.height() > fire.y();
+    if (!overlap) return;
+
+    // No es un enemigo (no hace falta pisarlo ni matarlo) y no desaparece
+    // al tocar a nadie (ver BowserFire.h): sigue de largo, mismo criterio
+    // que Hammer/checkHammerCollision. Con estrella no hace dano.
+    if (character.isInvincible()) return;
+
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkAxeCollision(Mario& character, Axe& axe) {
+    if (character.isInDeathSequence()) return;
+    if (!axe.isAlive()) return;
+
+    const bool overlap =
+        character.x() < axe.x() + axe.width() && character.x() + character.width() > axe.x() &&
+        character.y() < axe.y() + axe.height() && character.y() + character.height() > axe.y();
+    if (!overlap) return;
+
+    // Unica forma de derrotarlo de una sola vez sin ser de fuego (ver
+    // Axe.h/Bowser.h): tambien vale si ya esta derrotado (por si llega
+    // caminando despues de matarlo con fuego), no hace nada raro llamar
+    // killByAxe() sobre un Bowser que ya no es "dangerous".
+    const bool flyRight = character.x() <= bowser_.x();
+    bowser_.killByAxe(flyRight);
+    axe.collect();
+}
+
 void Game::checkBrickBlockHit(Mario& character) {
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
@@ -1959,6 +2076,32 @@ void Game::update(float dt) {
     checkPodobooCollision(mario_, podoboo_);
     if (twoPlayerMode_) checkPodobooCollision(luigi_, podoboo_);
 
+    // Mismo criterio que HammerBro::faceTowards: apunta al personaje mas
+    // cercano, esta clase tampoco conoce a Mario/Luigi -- independiente de
+    // hacia donde este caminando (ver el comentario de Bowser.h).
+    bowser_.update(dt, kLogicalHeight);
+    if (twoPlayerMode_ && std::abs(luigi_.x() - bowser_.x()) < std::abs(mario_.x() - bowser_.x())) {
+        bowser_.faceTowards(luigi_.x());
+    } else {
+        bowser_.faceTowards(mario_.x());
+    }
+    checkBowserCollision(mario_);
+    if (twoPlayerMode_) checkBowserCollision(luigi_);
+    if (bowser_.consumeFireRequest()) {
+        for (BowserFire& fire : bowserFires_) {
+            if (fire.isAlive()) continue;
+            fire.spawn(bowser_.fireOriginX(), bowser_.fireOriginY(), bowser_.fireVelocityX(), bowser_.fireMaxY());
+            break;
+        }
+    }
+    for (BowserFire& fire : bowserFires_) {
+        fire.update(dt, kLogicalWidth, kLogicalHeight);
+        checkBowserFireCollision(mario_, fire);
+        if (twoPlayerMode_) checkBowserFireCollision(luigi_, fire);
+    }
+    checkAxeCollision(mario_, axe_);
+    if (twoPlayerMode_) checkAxeCollision(luigi_, axe_);
+
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
     // combinaciones de Alado existen en el juego original de 1985): en
@@ -2007,6 +2150,7 @@ void Game::update(float dt) {
         checkFireballBulletBillCollision(fireball, bulletBillA_);
         checkFireballBulletBillCollision(fireball, bulletBillB_);
         checkFireballPodobooCollision(fireball, podoboo_);
+        checkFireballBowserCollision(fireball);
     }
 
     if (twoPlayerMode_) {
@@ -2027,6 +2171,7 @@ void Game::update(float dt) {
             checkFireballBulletBillCollision(fireball, bulletBillA_);
             checkFireballBulletBillCollision(fireball, bulletBillB_);
             checkFireballPodobooCollision(fireball, podoboo_);
+            checkFireballBowserCollision(fireball);
         }
     }
 }
@@ -2091,6 +2236,19 @@ void Game::render() {
     bulletBillB_.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de Podoboo.h): sin worldRow.
     podoboo_.render(renderer_, podobooSprite_, cameraX_);
+    // El hacha primero, Bowser encima -- si llegaran a superponerse (no
+    // deberia pasar con las posiciones de prueba) que se vea el jefe, no el
+    // objeto quieto de fondo.
+    axe_.render(renderer_, axeSprite_, cameraX_);
+    // El fuego ANTES que Bowser a proposito (a pedido del usuario): asi el
+    // propio sprite de Bowser lo tapa mientras el origen (fireOriginX/Y)
+    // todavia queda "dentro" de su silueta, y recien se ve salir una vez
+    // que la boca lo deja atras -- sin depender de ajustar el origen
+    // pixel-perfecto a donde cae la boca en cada frame de caminata.
+    // Una sola paleta (el fuego no cambia de color por WorldType, ver el
+    // comentario de BowserFire.h): sin worldRow.
+    for (const BowserFire& fire : bowserFires_) fire.render(renderer_, bowserFireSprite_, cameraX_);
+    bowser_.render(renderer_, bowserSprite_, worldRow, cameraX_);
     mario_.render(renderer_, cameraX_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
@@ -2129,17 +2287,18 @@ void Game::renderScenarioSelect() {
     const SDL_Color yellow{252, 216, 88, 255};
     DebugFont::drawText(renderer_, 84, 24, "TEST", 3, white);
 
-    DebugFont::drawText(renderer_, 32, 56, "1 ITEMS", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 74, "2 ENEMIGOS", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 92, "3 HAMMER BRO", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 110, "4 LAKITU", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 128, "5 BLOOPER", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 146, "6 CHEEP CHEEP", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 164, "7 BILL BALA", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 182, "8 CHEEP CHEEP SALTO", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 200, "9 PODOBOO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 52, "1 ITEMS", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 68, "2 ENEMIGOS", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 84, "3 HAMMER BRO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 100, "4 LAKITU", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 116, "5 BLOOPER", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 132, "6 CHEEP CHEEP", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 148, "7 BILL BALA", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 164, "8 CHEEP CHEEP SALTO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 180, "9 PODOBOO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 196, "0 BOWSER", 2, yellow);
 
-    DebugFont::drawText(renderer_, 8, 224, "1 2 3 4 5 6 7 8 9", 1, white);
+    DebugFont::drawText(renderer_, 8, 222, "1 2 3 4 5 6 7 8 9 0", 1, white);
 }
 
 void Game::run() {
