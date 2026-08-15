@@ -299,7 +299,12 @@ void Mario::updateVertical(float dt, Input& input) {
 
     const bool jumpHeld = input.down(Action::Jump);
 
-    if (grounded_ && input.consumePress(Action::Jump)) {
+    // consumePress() se llama SIEMPRE, no solo si grounded_ -- si no, el
+    // "latch" (ver el comentario de Input.h) de una apretada en el aire
+    // queda pendiente sin consumir y dispara un salto solo apenas aterriza,
+    // aunque el jugador ya haya soltado el boton.
+    const bool jumpPressed = input.consumePress(Action::Jump);
+    if (grounded_ && jumpPressed) {
         velY_ = -kJumpImpulse;
         grounded_ = false;
     }

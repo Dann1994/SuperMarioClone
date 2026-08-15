@@ -7,7 +7,9 @@
 
 #include "../entities/Blooper.h"
 #include "../entities/BrickDebris.h"
+#include "../entities/BulletBill.h"
 #include "../entities/BuzzyBeetle.h"
+#include "../entities/CheepCheep.h"
 #include "../entities/Coin.h"
 #include "../entities/FireFlower.h"
 #include "../entities/Fireball.h"
@@ -19,6 +21,7 @@
 #include "../entities/Mario.h"
 #include "../entities/Mushroom.h"
 #include "../entities/PiranhaPlant.h"
+#include "../entities/Podoboo.h"
 #include "../entities/ScorePopup.h"
 #include "../entities/Spiny.h"
 #include "../entities/StarItem.h"
@@ -49,6 +52,13 @@ constexpr int kMaxHammers = 2;
 // mientras los anteriores siguen vivos.
 constexpr int kMaxSpinies = 4;
 
+// Cheep Cheep Jumping en pantalla a la vez (pool, mismo criterio que
+// Spiny/Hammer): con el intervalo entre apariciones (ver
+// kCheepCheepJumpIntervalMin/Max en Game.cpp) alcanza para que se vean
+// varias saltando mientras el personaje camina sin que el timer se quede
+// sin lugar en el pool.
+constexpr int kMaxCheepCheepJumps = 3;
+
 // Pedazos volando a la vez (pool): 4 por ladrillo roto (una esquina cada
 // uno), con margen para dos roturas casi juntas sin robarse el pool.
 constexpr int kMaxBrickDebris = 8;
@@ -76,6 +86,15 @@ enum class TestScenario {
     HammerBro,
     LakituSpiny,
     Blooper,
+    CheepCheep,
+    BulletBill,
+    // Escenario largo con scroll horizontal (a diferencia de todos los
+    // demas, de una sola pantalla): el personaje camina normal (worldType_
+    // Overworld) mientras Cheep Cheep Jumping van saltando desde abajo del
+    // borde inferior de pantalla a medida que avanza (ver
+    // cheepCheepJumps_/cheepCheepJumpSpawnTimer_).
+    CheepCheepJump,
+    Podoboo,
 };
 
 enum class AppState {
@@ -104,6 +123,17 @@ private:
     void checkFireFlowerPickup(Mario& character);
     void checkStarPickup(Mario& character);
     void checkCoinPickup(Mario& character);
+    // Bajo el agua Mario nada libremente (no cae por gravedad como en
+    // tierra), asi que la geometria del pisoton -- que necesita "venir
+    // cayendo desde arriba" -- casi nunca se da nadando: por pedido
+    // explicito del usuario, ahi se desactiva el pisoton del todo y
+    // cualquier contacto hace dano como un toque de costado (en el resto de
+    // los mundos el pisoton sigue igual que siempre). Devuelve true si ya
+    // aplico el dano y el llamador tiene que cortar ahi (no seguir con la
+    // logica de pisoton); false si no es Underwater y el llamador sigue
+    // normal. Un solo lugar para este criterio en vez de repetirlo en cada
+    // checkXCollision.
+    bool handleUnderwaterContactDamage(Mario& character);
     // Pisoton (achata y hace rebotar) o dano de costado (como el hazard de
     // prueba), segun de donde venga el contacto.
     // prevY: character.y() de ANTES de moverse este frame (ver el comentario
@@ -190,6 +220,31 @@ private:
     // estrella o fuego lo matan.
     void checkBlooperCollision(Mario& character, Blooper& blooper);
     void checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper);
+    // Pisoton, estrella o fuego: cualquiera lo mata igual (ver CheepCheep.h),
+    // en las dos variantes.
+    void checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, float prevY);
+    void checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& cheepCheep);
+    // Busca un slot libre en cheepCheepJumps_ y lo spawnea desde abajo del
+    // borde de pantalla, cerca del personaje mas adelantado: adelante si
+    // esta caminando, atras si esta corriendo (comportamiento real de
+    // World 2-3/7-3/8-4 de SMB1, ver el comentario de CheepCheep.h) con una
+    // distancia al azar (kCheepCheepJumpAheadOffsetMin/Max). No hace nada si
+    // el pool esta lleno. Lo llaman tanto el timer automatico
+    // (Game::update) como la tecla J de prueba.
+    void spawnNextCheepCheepJump();
+    // A diferencia del resto del elenco reciente (Blooper/Spiny/Pirana
+    // Plant, sin pisoton), el Bill Bala SI se puede pisar como el elenco
+    // clasico (ver BulletBill.h): pisoton, estrella o fuego lo matan igual.
+    void checkBulletBillCollision(Mario& character, BulletBill& bulletBill, float prevY);
+    void checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bulletBill);
+    // Unico enemigo del elenco sin ningun metodo de muerte (ver Podoboo.h):
+    // cualquier contacto mientras esta afuera de la lava hace dano, sin
+    // pisoton ni excepcion por estrella/fuego (la estrella sigue protegiendo
+    // a Mario/Luigi del dano como siempre, pero el Podoboo no desaparece).
+    void checkPodobooCollision(Mario& character, Podoboo& podoboo);
+    // La bola explota igual al tocarlo (mismo feedback que contra Buzzy
+    // Beetle), pero no le hace nada.
+    void checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo);
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -220,6 +275,11 @@ private:
     // checkpoint" hasta que ese sistema exista -- por ahora vuelve al
     // spawn original del nivel.
     void respawnAtCheckpoint(Mario& character, float spawnX, float spawnY);
+    // Bajo el agua usa una invulnerabilidad post-respawn mas larga que en
+    // tierra (ver kUnderwaterRespawnInvincibleDuration en Game.cpp) -- un
+    // solo lugar para este criterio en vez de repetirlo en las dos
+    // funciones de respawn de arriba.
+    void grantRespawnInvincibilityForWorld(Mario& character);
     // Recalcula cameraX_ para que siga al personaje mas adelantado (el de
     // mayor X; en 1P es directamente Mario), sin dejar ver mas alla de los
     // bordes del nivel (se clampea a [0, ancho del nivel - pantalla] --
@@ -368,6 +428,51 @@ private:
     // lo repone (B ya la usa Buzzy Beetle).
     SpriteSheet blooperSprite_;
     Blooper blooper_;
+
+    // Cheep Cheep de prueba (seccion 5.2, noveno enemigo): escenario propio
+    // (TestScenario::CheepCheep, test_cheepcheep.json) con dos instancias
+    // Swimming (una por SwimPattern -- setVariant()/setSwimPattern() se
+    // llaman una sola vez en init()) que comparten sprite con la Jumping
+    // (una sola paleta, ver CheepCheep.h). Tecla N las repone.
+    SpriteSheet cheepCheepSprite_;
+    CheepCheep cheepCheepSwim_;     // SwimPattern::Straight
+    CheepCheep cheepCheepSwimOsc_;  // SwimPattern::Oscillating
+
+    // Cheep Cheep Jumping de prueba: escenario propio
+    // (TestScenario::CheepCheepJump, test_cheepcheep_jump.json, largo con
+    // scroll) en vez de compartir el de arriba -- a diferencia de la
+    // Swimming necesita que el personaje camine (worldType_ Overworld, no
+    // Underwater) para poder probar el cruce mientras avanza. Pool (mismo
+    // criterio que spinies_/hammers_): cheepCheepJumpSpawnTimer_ hace que
+    // vaya apareciendo una tras otra desde abajo del borde inferior de
+    // pantalla, un poco por delante del personaje mas adelantado, mientras
+    // este escenario este activo (ver Game::update). Tecla J fuerza una de
+    // una si hay lugar en el pool, sin esperar al timer.
+    std::array<CheepCheep, kMaxCheepCheepJumps> cheepCheepJumps_;
+    float cheepCheepJumpSpawnTimer_ = 0.0f;
+    // Deriva (izquierda/derecha) de la ultima que aparecio: se alterna
+    // siempre en Game::spawnNextCheepCheepJump en vez de tirar una moneda
+    // cada vez -- con moneda independiente, una racha de varias seguidas
+    // para el mismo lado (estadisticamente normal pero se nota mal en la
+    // practica) hacia parecer que "solo saltan para un lado".
+    bool cheepCheepJumpLastDriftRight_ = false;
+
+    // Bill Bala de prueba (enemigo nuevo, ver BulletBill.h -- surgio de una
+    // confusion con el sprite de Cheep Cheep): escenario propio
+    // (TestScenario::BulletBill, test_bulletbill.json), dos instancias
+    // disparadas en direcciones opuestas para probar el cruce. Tecla I lo
+    // repone (B/N/J ya estan tomadas).
+    SpriteSheet bulletBillSprite_;
+    BulletBill bulletBillA_;
+    BulletBill bulletBillB_;
+
+    // Podoboo de prueba (seccion 5.2, decimo enemigo): escenario propio
+    // (TestScenario::Podoboo, test_podoboo.json) con worldType_ arrancando
+    // en Castle (solo aparece en castillos en el original, ver Podoboo.h).
+    // Una sola instancia fija (no un pool: el pozo de lava no se mueve ni se
+    // agota, siempre el mismo). Tecla P lo repone.
+    SpriteSheet podobooSprite_;
+    Podoboo podoboo_;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

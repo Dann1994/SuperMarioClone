@@ -43,6 +43,12 @@ const std::unordered_map<char, Glyph>& glyphTable() {
         {'W', {0b101, 0b101, 0b101, 0b111, 0b101}},
         {':', {0b000, 0b010, 0b000, 0b010, 0b000}},
         {' ', {0b000, 0b000, 0b000, 0b000, 0b000}},
+        // Agregadas para "HAMMER BRO"/"LAKITU"/"BLOOPER"/"CHEEP CHEEP" en el
+        // selector de escenario (Game::renderScenarioSelect): faltaban
+        // desde el principio, se notaba como un hueco en esas palabras.
+        {'B', {0b111, 0b101, 0b111, 0b101, 0b111}},
+        {'H', {0b101, 0b101, 0b111, 0b101, 0b101}},
+        {'K', {0b101, 0b101, 0b110, 0b101, 0b101}},
     };
     return table;
 }

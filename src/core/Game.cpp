@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 #include "../render/DebugFont.h"
 
@@ -93,6 +95,51 @@ constexpr float kSpinyTestY = 40.0f;
 constexpr float kBlooperTestX = 120.0f;
 constexpr float kBlooperTestY = 60.0f;
 
+// Cheep Cheep de prueba: la Swimming arranca cerca del borde izquierdo a
+// media altura para poder ver el cruce completo antes de que salga por el
+// derecho (ver Game.cpp -- tecla N la repone si sale). La Jumping arranca
+// cerca del piso de test_cheepcheep.json para caer y empezar a saltar
+// enseguida (tecla J la repone).
+// Lejos del spawn de Mario (kMarioSpawnX/Y = 32/64) para que no queden
+// pegadas una arriba de la otra apenas arranca el escenario. Arrancan del
+// lado derecho nadando hacia la izquierda (a pedido del usuario).
+constexpr float kCheepCheepSwimTestX = 216.0f;
+constexpr float kCheepCheepSwimTestY = 40.0f;
+// La Oscillating arranca mas abajo que la Straight, separadas para poder
+// ver las dos a la vez sin superponerse.
+constexpr float kCheepCheepSwimOscTestY = 140.0f;
+
+// Cheep Cheep Jumping de prueba (escenario propio, largo con scroll -- ver
+// TestScenario::CheepCheepJump): aparecen desde abajo del borde inferior de
+// pantalla (kCheepCheepJumpSpawnY, unos px por debajo de kLogicalHeight para
+// que ni el primer frame se alcance a ver el "pop" de aparicion), un poco
+// por delante del personaje mas adelantado (kCheepCheepJumpAheadOffsetX) en
+// vez de en un punto fijo del nivel, para que el patron se vea sin importar
+// que tan rapido camine. Intervalo entre apariciones al azar (mismo
+// criterio que HammerBro/Lakitu, ver randomRange), mientras haya lugar en
+// el pool (cheepCheepJumps_).
+constexpr float kCheepCheepJumpSpawnY = static_cast<float>(kLogicalHeight) + 8.0f;
+// Distancia al personaje al azar (ver Game::spawnNextCheepCheepJump), no un
+// punto fijo, para que no se note el patron.
+constexpr float kCheepCheepJumpAheadOffsetMin = 40.0f;
+constexpr float kCheepCheepJumpAheadOffsetMax = 90.0f;
+constexpr float kCheepCheepJumpIntervalMin = 1.0f;
+constexpr float kCheepCheepJumpIntervalMax = 2.0f;
+
+// Bill Bala de prueba: dos instancias disparadas en direcciones opuestas
+// desde los dos bordes de test_bulletbill.json, a la misma altura, para
+// poder ver el cruce (ver BulletBill.h -- sin rebote ni colision, se
+// atraviesan y siguen de largo, como el original).
+constexpr float kBulletBillATestX = 16.0f;
+constexpr float kBulletBillBTestX = 224.0f;
+constexpr float kBulletBillTestY = 120.0f;
+
+// Podoboo de prueba: columna fija en el medio de test_podoboo.json,
+// baseY es el borde de arriba del piso solido (filas 14-15) -- se hunde ahi
+// entre saltos (ver Podoboo.h).
+constexpr float kPodobooTestX = 120.0f;
+constexpr float kPodobooTestY = 224.0f;
+
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
 // (hongo, flor de fuego) que los disparan en el juego.
@@ -104,6 +151,17 @@ MarioSize nextSize(MarioSize size) {
     }
 }
 
+// Timer de aparicion de los Cheep Cheep Jumping (ver kCheepCheepJumpIntervalMin/Max).
+float randomRange(float minVal, float maxVal) {
+    static bool seeded = false;
+    if (!seeded) {
+        std::srand(static_cast<unsigned>(std::time(nullptr)));
+        seeded = true;
+    }
+    const float t = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+    return minVal + t * (maxVal - minVal);
+}
+
 // Constantes de la colision Mario<->Luigi (prototipo, sin base documentada
 // en el juego original -- este mismo no tiene multiplayer simultaneo). Se
 // ajustan a ojo, como el resto de la fisica del proyecto.
@@ -112,6 +170,11 @@ constexpr float kMinCollisionSpeed = 45.0f;   // px/s, piso de velocidad de choq
 constexpr float kStompBounce = -180.0f;       // px/s, pisada normal (mas chica que el salto: -260)
 constexpr float kStompBounceBoosted = -260.0f; // px/s, pisada con Jump sostenido: igual a un salto completo
 constexpr float kKoopaStompBounce = -220.0f;  // px/s, pisar un Koopa rebota un poco mas alto que el resto
+// s de invulnerabilidad post-respawn bajo el agua (ver
+// Game::grantRespawnInvincibilityForWorld) -- el doble de la normal
+// (Mario::kHurtInvincibleDuration = 2s), Mario nada mucho mas lento que
+// corriendo en tierra y necesita mas tiempo para alejarse de un enemigo.
+constexpr float kUnderwaterRespawnInvincibleDuration = 4.0f;
 // Tolerancia para "los pies ya estaban por encima" al detectar pisotones
 // contra Goomba/Koopa (ver checkGoombaCollision/checkKoopaCollision): un
 // par de pixeles de margen por las dudas de redondeo, no para que cuente
@@ -256,10 +319,28 @@ bool Game::init() {
     if (!blooperSprite_.loadFromFile(renderer_, "assets/sprites/blooper.png", Blooper::kWidth, Blooper::kHeight)) {
         return false;
     }
+    if (!cheepCheepSprite_.loadFromFile(renderer_, "assets/sprites/cheep_cheep.png", CheepCheep::kSize,
+                                         CheepCheep::kSize)) {
+        return false;
+    }
+    if (!bulletBillSprite_.loadFromFile(renderer_, "assets/sprites/bullet_bill.png", BulletBill::kSize,
+                                         BulletBill::kSize)) {
+        return false;
+    }
+    if (!podobooSprite_.loadFromFile(renderer_, "assets/sprites/podoboo.png", Podoboo::kSize, Podoboo::kSize)) {
+        return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
     koopaRedFlying_.setColor(KoopaColor::Red);
+    // Variante/patron fijos para toda la vida de la instancia (ver
+    // CheepCheep.h), mismo criterio que setColor de arriba.
+    cheepCheepSwim_.setVariant(CheepCheepVariant::Swimming);
+    cheepCheepSwim_.setSwimPattern(SwimPattern::Straight);
+    cheepCheepSwimOsc_.setVariant(CheepCheepVariant::Swimming);
+    cheepCheepSwimOsc_.setSwimPattern(SwimPattern::Oscillating);
+    for (CheepCheep& fish : cheepCheepJumps_) fish.setVariant(CheepCheepVariant::Jumping);
 
     // Arranca en el selector (ver renderScenarioSelect): recien se carga un
     // nivel y se ponen entidades en pie cuando se elige un escenario.
@@ -278,13 +359,35 @@ void Game::startScenario(TestScenario scenario) {
         path = "levels/world1/test_lakitu.json";
     } else if (scenario == TestScenario::Blooper) {
         path = "levels/world1/test_blooper.json";
+    } else if (scenario == TestScenario::CheepCheep) {
+        path = "levels/world1/test_cheepcheep.json";
+    } else if (scenario == TestScenario::BulletBill) {
+        path = "levels/world1/test_bulletbill.json";
+    } else if (scenario == TestScenario::CheepCheepJump) {
+        path = "levels/world1/test_cheepcheep_jump.json";
+    } else if (scenario == TestScenario::Podoboo) {
+        path = "levels/world1/test_podoboo.json";
     }
     level_.loadFromFile(path);
 
     // Nivel de agua (seccion 5.5): arranca directo en Underwater en vez del
     // Overworld por defecto -- F7 lo sigue pudiendo ciclar manualmente
-    // despues, pero no tendria sentido abrir este escenario a pie.
-    worldType_ = scenario == TestScenario::Blooper ? WorldType::Underwater : WorldType::Overworld;
+    // despues, pero no tendria sentido abrir este escenario a pie. El de
+    // Cheep Cheep (Swimming, ver CheepCheep.h) tambien arranca en Underwater:
+    // en paleta Castle (gris sobre negro) se notaba poco y quedaba dificil de
+    // ver. La Jumping tiene su propio escenario (CheepCheepJump, mas abajo)
+    // y SI necesita que el personaje camine, asi que ese cae en el else de
+    // Overworld como cualquier otro. Podoboo arranca en Castle: solo aparece
+    // ahi en el original (ver Podoboo.h).
+    if (scenario == TestScenario::Blooper) {
+        worldType_ = WorldType::Underwater;
+    } else if (scenario == TestScenario::CheepCheep) {
+        worldType_ = WorldType::Underwater;
+    } else if (scenario == TestScenario::Podoboo) {
+        worldType_ = WorldType::Castle;
+    } else {
+        worldType_ = WorldType::Overworld;
+    }
     mario_.setWorldType(worldType_);
     luigi_.setWorldType(worldType_);
 
@@ -310,6 +413,12 @@ void Game::startScenario(TestScenario scenario) {
     lakitu_.reset();
     for (Spiny& spiny : spinies_) spiny.reset();
     blooper_.reset();
+    cheepCheepSwim_.reset();
+    cheepCheepSwimOsc_.reset();
+    for (CheepCheep& fish : cheepCheepJumps_) fish.reset();
+    bulletBillA_.reset();
+    bulletBillB_.reset();
+    podoboo_.reset();
 
     if (scenario == TestScenario::Items) {
         mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
@@ -329,8 +438,21 @@ void Game::startScenario(TestScenario scenario) {
         hammerBro_.spawn(kHammerBroTestX, kHammerBroTestY, true);
     } else if (scenario == TestScenario::LakituSpiny) {
         lakitu_.spawn(kLakituTestX, kLakituTestY, true);
-    } else {
+    } else if (scenario == TestScenario::Blooper) {
         blooper_.spawn(kBlooperTestX, kBlooperTestY);
+    } else if (scenario == TestScenario::CheepCheep) {
+        cheepCheepSwim_.spawn(kCheepCheepSwimTestX, kCheepCheepSwimTestY, false);
+        cheepCheepSwimOsc_.spawn(kCheepCheepSwimTestX, kCheepCheepSwimOscTestY, false);
+    } else if (scenario == TestScenario::BulletBill) {
+        bulletBillA_.spawn(kBulletBillATestX, kBulletBillTestY, true);
+        bulletBillB_.spawn(kBulletBillBTestX, kBulletBillTestY, false);
+    } else if (scenario == TestScenario::CheepCheepJump) {
+        // El pool arranca vacio (ya lo dejo reset() arriba): la primera
+        // aparece sola cuando el timer llega a 0 en Game::update, no hace
+        // falta spawnear ninguna a mano aca.
+        cheepCheepJumpSpawnTimer_ = randomRange(kCheepCheepJumpIntervalMin, kCheepCheepJumpIntervalMax);
+    } else if (scenario == TestScenario::Podoboo) {
+        podoboo_.spawn(kPodobooTestX, kPodobooTestY);
     }
 
     appState_ = AppState::Playing;
@@ -364,6 +486,14 @@ void Game::processEvents() {
                     startScenario(TestScenario::LakituSpiny);
                 } else if (event.key.keysym.scancode == SDL_SCANCODE_5) {
                     startScenario(TestScenario::Blooper);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_6) {
+                    startScenario(TestScenario::CheepCheep);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_7) {
+                    startScenario(TestScenario::BulletBill);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_8) {
+                    startScenario(TestScenario::CheepCheepJump);
+                } else if (event.key.keysym.scancode == SDL_SCANCODE_9) {
+                    startScenario(TestScenario::Podoboo);
                 }
                 continue;
             }
@@ -421,6 +551,18 @@ void Game::processEvents() {
                 }
             } else if (event.key.keysym.scancode == SDL_SCANCODE_O && scenario_ == TestScenario::Blooper) {
                 blooper_.spawn(kBlooperTestX, kBlooperTestY);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_N && scenario_ == TestScenario::CheepCheep) {
+                cheepCheepSwim_.spawn(kCheepCheepSwimTestX, kCheepCheepSwimTestY, false);
+                cheepCheepSwimOsc_.spawn(kCheepCheepSwimTestX, kCheepCheepSwimOscTestY, false);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_J && scenario_ == TestScenario::CheepCheepJump) {
+                // Fuerza una aparicion de una sin esperar al timer, igual que
+                // el disparo manual de Spiny (tecla S en LakituSpiny).
+                spawnNextCheepCheepJump();
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_I && scenario_ == TestScenario::BulletBill) {
+                bulletBillA_.spawn(kBulletBillATestX, kBulletBillTestY, true);
+                bulletBillB_.spawn(kBulletBillBTestX, kBulletBillTestY, false);
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_P && scenario_ == TestScenario::Podoboo) {
+                podoboo_.spawn(kPodobooTestX, kPodobooTestY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -606,6 +748,16 @@ void Game::checkCoinPickup(Mario& character) {
     coin_.collect();
 }
 
+bool Game::handleUnderwaterContactDamage(Mario& character) {
+    if (character.worldType() != WorldType::Underwater) return false;
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+    return true;
+}
+
 void Game::checkGoombaCollision(Mario& character, float prevY) {
     // Sin colision mientras esta en su secuencia de muerte: ya esta cayendo
     // con la pose de "muerto" fija, no tiene sentido que un enemigo lo
@@ -629,6 +781,7 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
         goomba_.killFalling(flyRight);
         return;
     }
+    if (handleUnderwaterContactDamage(character)) return;
 
     // Pisoton: los pies YA estaban por encima de la cabeza del Goomba antes
     // de moverse este frame (no importa cuanto se haya hundido AHORA -- eso
@@ -684,6 +837,7 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
         koopa.killFalling(flyRight);
         return;
     }
+    if (handleUnderwaterContactDamage(character)) return;
 
     bool fromAbove;
     if (koopa.state() == KoopaState::ShellMoving) {
@@ -862,6 +1016,7 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
         buzzy.killFalling(flyRight);
         return;
     }
+    if (handleUnderwaterContactDamage(character)) return;
 
     bool fromAbove;
     if (buzzy.state() == BuzzyBeetleState::ShellMoving) {
@@ -1056,6 +1211,7 @@ void Game::checkHammerBroCollision(Mario& character, float prevY) {
         hammerBro_.killFalling(flyRight);
         return;
     }
+    if (handleUnderwaterContactDamage(character)) return;
 
     const bool fromAbove = (prevY + character.height()) <= hammerBro_.y() + kStompLeewayPx &&
                             character.velocityY() > 0.0f;
@@ -1128,6 +1284,7 @@ void Game::checkLakituCollision(Mario& character, float prevY) {
         lakitu_.killFalling(flyRight);
         return;
     }
+    if (handleUnderwaterContactDamage(character)) return;
 
     const bool fromAbove = (prevY + character.height()) <= lakitu_.y() + kStompLeewayPx &&
                             character.velocityY() > 0.0f;
@@ -1261,6 +1418,180 @@ void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
 
     const bool flyRight = fireball.x() <= blooper.x();
     blooper.killFalling(flyRight);
+    fireball.explode();
+}
+
+void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, float prevY) {
+    if (character.isInDeathSequence()) return;
+    if (!cheepCheep.isDangerous()) return;
+
+    const bool overlap = character.x() < cheepCheep.x() + CheepCheep::kSize &&
+                          character.x() + character.width() > cheepCheep.x() &&
+                          character.y() < cheepCheep.y() + CheepCheep::kSize &&
+                          character.y() + character.height() > cheepCheep.y();
+    if (!overlap) return;
+
+    // Cualquier forma de matarlo usa la misma parabola (ver CheepCheep.h):
+    // no hay caparazon ni frame de achatado propio en el arte fuente en
+    // ninguna de las dos variantes.
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= cheepCheep.x();
+        cheepCheep.killFalling(flyRight);
+        return;
+    }
+    if (handleUnderwaterContactDamage(character)) return;
+
+    const bool fromAbove = (prevY + character.height()) <= cheepCheep.y() + kStompLeewayPx &&
+                            character.velocityY() > 0.0f;
+    if (fromAbove) {
+        const bool flyRight = character.x() <= cheepCheep.x();
+        cheepCheep.killFalling(flyRight);
+        character.setVelocityY(kStompBounce);
+        return;
+    }
+
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& cheepCheep) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!cheepCheep.isDangerous()) return;
+
+    const bool overlap = fireball.x() < cheepCheep.x() + CheepCheep::kSize &&
+                          fireball.x() + Fireball::kSize > cheepCheep.x() &&
+                          fireball.y() < cheepCheep.y() + CheepCheep::kSize &&
+                          fireball.y() + Fireball::kSize > cheepCheep.y();
+    if (!overlap) return;
+
+    const bool flyRight = fireball.x() <= cheepCheep.x();
+    cheepCheep.killFalling(flyRight);
+    fireball.explode();
+}
+
+void Game::spawnNextCheepCheepJump() {
+    for (CheepCheep& fish : cheepCheepJumps_) {
+        if (fish.isAlive()) continue;
+        const bool leaderIsLuigi = twoPlayerMode_ && luigi_.x() > mario_.x();
+        const Mario& leader = leaderIsLuigi ? luigi_ : mario_;
+        const float offset = randomRange(kCheepCheepJumpAheadOffsetMin, kCheepCheepJumpAheadOffsetMax);
+
+        // De que lado salta: moneda 50/50 -- la inclinacion segun
+        // caminando/corriendo (comportamiento real de SMB1) terminaba
+        // saltando casi siempre de atras en este escenario largo, porque en
+        // un nivel tan largo el personaje pasa la mayor parte del tiempo
+        // corriendo (Action::Run sostenido) para cruzarlo. Se saca el sesgo
+        // del todo para que se note bien mezclado sin importar la velocidad.
+        const bool spawnBehind = randomRange(0.0f, 1.0f) < 0.5f;
+        const bool travelingRight = leader.facingRight();
+        const float signedAheadOffset = travelingRight ? offset : -offset;
+        const float spawnX = leader.x() + (spawnBehind ? -signedAheadOffset : signedAheadOffset);
+
+        // Deriva propia (izquierda o derecha, ver el comentario de
+        // CheepCheep.h): alternada, no una moneda independiente cada vez --
+        // con moneda independiente una racha de varias seguidas al mismo
+        // lado es estadisticamente normal pero se nota mal en la practica
+        // (parece que "solo saltan para un lado").
+        cheepCheepJumpLastDriftRight_ = !cheepCheepJumpLastDriftRight_;
+        fish.spawn(spawnX, kCheepCheepJumpSpawnY, cheepCheepJumpLastDriftRight_);
+        return;
+    }
+}
+
+void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, float prevY) {
+    // Ver el comentario en checkGoombaCollision.
+    if (character.isInDeathSequence()) return;
+    if (!bulletBill.isDangerous()) return;
+
+    const bool overlap = character.x() < bulletBill.x() + BulletBill::kSize &&
+                          character.x() + character.width() > bulletBill.x() &&
+                          character.y() < bulletBill.y() + BulletBill::kSize &&
+                          character.y() + character.height() > bulletBill.y();
+    if (!overlap) return;
+
+    // Con estrella: lo elimina de un toque, desde cualquier lado, sin
+    // pisoton (ver el mismo criterio en checkGoombaCollision).
+    if (character.isInvincible()) {
+        const bool flyRight = character.x() <= bulletBill.x();
+        bulletBill.killFalling(flyRight);
+        return;
+    }
+    if (handleUnderwaterContactDamage(character)) return;
+
+    // Pisoton: SI se puede pisar (a diferencia de Blooper/Spiny/Pirana
+    // Plant, ver BulletBill.h) -- mismo criterio de "los pies ya estaban
+    // por encima" que el resto del elenco.
+    const bool fromAbove = (prevY + character.height()) <= bulletBill.y() + kStompLeewayPx &&
+                            character.velocityY() > 0.0f;
+    if (fromAbove) {
+        const bool flyRight = character.x() <= bulletBill.x();
+        bulletBill.killFalling(flyRight);
+        character.setVelocityY(kStompBounce);
+        return;
+    }
+
+    // De frente: dano (ver el comentario de la clase).
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bulletBill) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!bulletBill.isDangerous()) return;
+
+    const bool overlap = fireball.x() < bulletBill.x() + BulletBill::kSize &&
+                          fireball.x() + Fireball::kSize > bulletBill.x() &&
+                          fireball.y() < bulletBill.y() + BulletBill::kSize &&
+                          fireball.y() + Fireball::kSize > bulletBill.y();
+    if (!overlap) return;
+
+    const bool flyRight = fireball.x() <= bulletBill.x();
+    bulletBill.killFalling(flyRight);
+    fireball.explode();
+}
+
+void Game::checkPodobooCollision(Mario& character, Podoboo& podoboo) {
+    if (character.isInDeathSequence()) return;
+    if (!podoboo.isDangerous()) return;
+
+    const bool overlap =
+        character.x() < podoboo.x() + podoboo.width() && character.x() + character.width() > podoboo.x() &&
+        character.y() < podoboo.y() + podoboo.height() && character.y() + character.height() > podoboo.y();
+    if (!overlap) return;
+
+    // Invencible de verdad (ver Podoboo.h): la estrella sigue protegiendo a
+    // quien lo toca del dano como siempre, pero el Podoboo no desaparece --
+    // por eso, a diferencia de cualquier otro chequeo de colision, esta
+    // rama no llama nada sobre el Podoboo, solo corta antes del dano.
+    if (character.isInvincible()) return;
+
+    // Sin pisoton (ver el comentario de la clase): cualquier contacto hace
+    // dano, sin importar de que lado venga.
+    if (character.size() == MarioSize::Small) {
+        character.startDeath();
+    } else {
+        character.takeDamage();
+    }
+}
+
+void Game::checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo) {
+    if (!fireball.isAlive() || fireball.isExploding()) return;
+    if (!podoboo.isDangerous()) return;
+
+    const bool overlap = fireball.x() < podoboo.x() + podoboo.width() &&
+                          fireball.x() + Fireball::kSize > podoboo.x() &&
+                          fireball.y() < podoboo.y() + podoboo.height() &&
+                          fireball.y() + Fireball::kSize > podoboo.y();
+    if (!overlap) return;
+
+    // Invencible (ver Podoboo.h): la bola explota igual, pero al Podoboo no
+    // le pasa nada.
     fireball.explode();
 }
 
@@ -1399,14 +1730,28 @@ void Game::respawnNearestPlatform(Mario& character) {
     // Preferentemente en el centro de la pantalla, no en donde murio.
     const SDL_Point point = findRespawnPoint(kLogicalWidth / 2.0f, character.height());
     character.spawn(static_cast<float>(point.x), static_cast<float>(point.y));
-    character.grantRespawnInvincibility();
+    grantRespawnInvincibilityForWorld(character);
 }
 
 void Game::respawnAtCheckpoint(Mario& character, float spawnX, float spawnY) {
     // Placeholder hasta que exista un sistema de checkpoints real (seccion
     // 6): vuelve al spawn original del nivel.
     character.spawn(spawnX, spawnY);
-    character.grantRespawnInvincibility();
+    grantRespawnInvincibilityForWorld(character);
+}
+
+void Game::grantRespawnInvincibilityForWorld(Mario& character) {
+    if (character.worldType() == WorldType::Underwater) {
+        // Bajo el agua Mario nada mucho mas lento que corriendo en tierra
+        // (Mario::kSwimMaxSpeed vs kMaxRunSpeed) -- con la duracion normal
+        // (2s) no le alcanza para alejarse de un enemigo antes de que se le
+        // acabe la invulnerabilidad, y muere de nuevo apenas se corta el
+        // parpadeo si sigue pegado (reportado por el usuario). El doble de
+        // tiempo le da margen real para nadar lejos.
+        character.grantRespawnInvincibility(kUnderwaterRespawnInvincibleDuration);
+    } else {
+        character.grantRespawnInvincibility();
+    }
 }
 
 void Game::updateCamera(float dt) {
@@ -1583,6 +1928,37 @@ void Game::update(float dt) {
     checkBlooperCollision(mario_, blooper_);
     if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper_);
 
+    cheepCheepSwim_.update(dt, kLogicalWidth, kLogicalHeight);
+    checkCheepCheepCollision(mario_, cheepCheepSwim_, marioPrevY);
+    if (twoPlayerMode_) checkCheepCheepCollision(luigi_, cheepCheepSwim_, luigiPrevY);
+    cheepCheepSwimOsc_.update(dt, kLogicalWidth, kLogicalHeight);
+    checkCheepCheepCollision(mario_, cheepCheepSwimOsc_, marioPrevY);
+    if (twoPlayerMode_) checkCheepCheepCollision(luigi_, cheepCheepSwimOsc_, luigiPrevY);
+
+    if (scenario_ == TestScenario::CheepCheepJump) {
+        cheepCheepJumpSpawnTimer_ -= dt;
+        if (cheepCheepJumpSpawnTimer_ <= 0.0f) {
+            spawnNextCheepCheepJump();
+            cheepCheepJumpSpawnTimer_ = randomRange(kCheepCheepJumpIntervalMin, kCheepCheepJumpIntervalMax);
+        }
+    }
+    for (CheepCheep& fish : cheepCheepJumps_) {
+        fish.update(dt, kLogicalWidth, kLogicalHeight);
+        checkCheepCheepCollision(mario_, fish, marioPrevY);
+        if (twoPlayerMode_) checkCheepCheepCollision(luigi_, fish, luigiPrevY);
+    }
+
+    bulletBillA_.update(dt, kLogicalWidth, kLogicalHeight);
+    checkBulletBillCollision(mario_, bulletBillA_, marioPrevY);
+    if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillA_, luigiPrevY);
+    bulletBillB_.update(dt, kLogicalWidth, kLogicalHeight);
+    checkBulletBillCollision(mario_, bulletBillB_, marioPrevY);
+    if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillB_, luigiPrevY);
+
+    podoboo_.update(dt);
+    checkPodobooCollision(mario_, podoboo_);
+    if (twoPlayerMode_) checkPodobooCollision(luigi_, podoboo_);
+
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
     // combinaciones de Alado existen en el juego original de 1985): en
@@ -1625,6 +2001,12 @@ void Game::update(float dt) {
         checkFireballLakituCollision(fireball);
         for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
         checkFireballBlooperCollision(fireball, blooper_);
+        checkFireballCheepCheepCollision(fireball, cheepCheepSwim_);
+        checkFireballCheepCheepCollision(fireball, cheepCheepSwimOsc_);
+        for (CheepCheep& fish : cheepCheepJumps_) checkFireballCheepCheepCollision(fireball, fish);
+        checkFireballBulletBillCollision(fireball, bulletBillA_);
+        checkFireballBulletBillCollision(fireball, bulletBillB_);
+        checkFireballPodobooCollision(fireball, podoboo_);
     }
 
     if (twoPlayerMode_) {
@@ -1639,6 +2021,12 @@ void Game::update(float dt) {
             checkFireballLakituCollision(fireball);
             for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
             checkFireballBlooperCollision(fireball, blooper_);
+            checkFireballCheepCheepCollision(fireball, cheepCheepSwim_);
+            checkFireballCheepCheepCollision(fireball, cheepCheepSwimOsc_);
+            for (CheepCheep& fish : cheepCheepJumps_) checkFireballCheepCheepCollision(fireball, fish);
+            checkFireballBulletBillCollision(fireball, bulletBillA_);
+            checkFireballBulletBillCollision(fireball, bulletBillB_);
+            checkFireballPodobooCollision(fireball, podoboo_);
         }
     }
 }
@@ -1695,6 +2083,14 @@ void Game::render() {
     // Una sola paleta (ver el comentario de Spiny.h): fila 0 siempre, no worldRow.
     for (const Spiny& spiny : spinies_) spiny.render(renderer_, spinySprite_, 0, cameraX_);
     blooper_.render(renderer_, blooperSprite_, worldRow, cameraX_);
+    // Una sola paleta (ver el comentario de CheepCheep.h): sin worldRow.
+    cheepCheepSwim_.render(renderer_, cheepCheepSprite_, cameraX_);
+    cheepCheepSwimOsc_.render(renderer_, cheepCheepSprite_, cameraX_);
+    for (const CheepCheep& fish : cheepCheepJumps_) fish.render(renderer_, cheepCheepSprite_, cameraX_);
+    bulletBillA_.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
+    bulletBillB_.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
+    // Una sola paleta (ver el comentario de Podoboo.h): sin worldRow.
+    podoboo_.render(renderer_, podobooSprite_, cameraX_);
     mario_.render(renderer_, cameraX_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
@@ -1733,13 +2129,17 @@ void Game::renderScenarioSelect() {
     const SDL_Color yellow{252, 216, 88, 255};
     DebugFont::drawText(renderer_, 84, 24, "TEST", 3, white);
 
-    DebugFont::drawText(renderer_, 40, 90, "1 ITEMS", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 115, "2 ENEMIGOS", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 140, "3 HAMMER BRO", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 165, "4 LAKITU", 2, yellow);
-    DebugFont::drawText(renderer_, 40, 190, "5 BLOOPER", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 56, "1 ITEMS", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 74, "2 ENEMIGOS", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 92, "3 HAMMER BRO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 110, "4 LAKITU", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 128, "5 BLOOPER", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 146, "6 CHEEP CHEEP", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 164, "7 BILL BALA", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 182, "8 CHEEP CHEEP SALTO", 2, yellow);
+    DebugFont::drawText(renderer_, 32, 200, "9 PODOBOO", 2, yellow);
 
-    DebugFont::drawText(renderer_, 8, 215, "PRESIONA 1, 2, 3, 4 O 5", 1, white);
+    DebugFont::drawText(renderer_, 8, 224, "1 2 3 4 5 6 7 8 9", 1, white);
 }
 
 void Game::run() {
