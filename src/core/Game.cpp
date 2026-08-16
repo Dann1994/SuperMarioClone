@@ -84,6 +84,7 @@ const QuestionBlockSpawn* findBlockSpawn(int col, int row) {
     return nullptr;
 }
 constexpr float kQuestionBlockAnimFrameDuration = 0.2f;  // s por frame del brillo (3 frames)
+constexpr float kBrickCoinAnimFrameDuration = 0.12f;  // s por frame del giro, igual que Coin::kFrameDuration
 
 // Que tan lejos atras del borde izquierdo de la camara tiene que quedar un
 // enemigo/item antes de eliminarlo del todo -- pedido del usuario: en un
@@ -1861,8 +1862,20 @@ void Game::checkBrickBlockHit(Mario& character) {
         } else {
             breakBrickBlock(col, row);
         }
+        collectTopCoinIfAny(col, row);
         return;
     }
+}
+
+void Game::collectTopCoinIfAny(int col, int row) {
+    if (!level_.hasCoinOnTop(col, row)) return;
+    level_.collectTopCoin(col, row);
+    ++coinCount_;
+    const int ts = level_.tileSize();
+    const float x = static_cast<float>(col * ts) +
+                    (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f;
+    const float y = static_cast<float>(row * ts) - static_cast<float>(BlockCoin::kHeight);
+    blockCoin_.spawn(x, y);
 }
 
 void Game::breakBrickBlock(int col, int row) {
@@ -2478,6 +2491,16 @@ void Game::update(float dt) {
         questionBlockAnimFrame_ = (questionBlockAnimFrame_ + 1) % 3;
     }
 
+    // Giro de las monedas paradas arriba de un ladrillo (ver
+    // brickCoinAnimTimer_ en Game.h): mismo criterio que arriba, pero con la
+    // duracion de frame de Coin::kFrameDuration (la moneda del piso) para
+    // que se vean igual de rapidas.
+    brickCoinAnimTimer_ += dt;
+    if (brickCoinAnimTimer_ >= kBrickCoinAnimFrameDuration) {
+        brickCoinAnimTimer_ -= kBrickCoinAnimFrameDuration;
+        brickCoinAnimFrame_ = (brickCoinAnimFrame_ + 1) % 3;
+    }
+
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
@@ -2549,7 +2572,7 @@ void Game::render() {
     // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
     blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
     level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
-                        questionBlockAnimFrame_);
+                        questionBlockAnimFrame_, &coinSprite_, brickCoinAnimFrame_);
     const int camOffset = static_cast<int>(std::lround(cameraX_));
     for (const BlockBump& bump : blockBumps_) {
         if (!bump.active) continue;

@@ -11,7 +11,8 @@
 //
 // Formato actual (placeholder minimo, mientras no existe el editor de
 // niveles): un array de strings donde '#' es solido, '=' es plataforma (ver
-// isPlatformTile), 'B' es ladrillo rompible (ver isBrickTile), '?' es
+// isPlatformTile), 'B' es ladrillo rompible (ver isBrickTile), 'C' es
+// ladrillo rompible con una moneda parada arriba (ver hasCoinOnTop), '?' es
 // bloque de interrogacion (ver isQuestionTile), 'D' es ladrillo
 // dispensador (ver isDispenserTile) y '.' es vacio. El editor (seccion 7 de
 // la especificacion) va a reemplazar/ampliar este formato con identidad de
@@ -43,6 +44,14 @@ public:
     // breakTile(); esta clase solo guarda el estado, no la logica de que lo
     // dispara.
     bool isBrickTile(int col, int row) const;
+    // Moneda parada arriba del ladrillo ('C', pedido del usuario): no ocupa
+    // tile propio, se dibuja un piso mas arriba de este mismo ladrillo (ver
+    // renderBlocks) mientras no la agarren. Game::checkBrickBlockHit la da
+    // apenas se golpea el ladrillo de abajo -- se rompa o no se rompa (a
+    // diferencia del ladrillo en si, romperlo o no es independiente de
+    // esto) -- y la marca agarrada para siempre con collectTopCoin.
+    bool hasCoinOnTop(int col, int row) const;
+    void collectTopCoin(int col, int row);
     // A diferencia de isBrickTile, esto sigue devolviendo true despues de
     // romperlo (nunca se limpia) -- distingue un agujero hecho a proposito
     // rompiendo un ladrillo del borde real de una plataforma/piso que nunca
@@ -114,9 +123,14 @@ public:
     // kQuestionUsedFrame, sin animar) -- tambien se saltan los que esten en
     // hiddenBrickTiles (mismo pool de sacudida que el ladrillo, ver
     // Game::startBlockBump).
+    // coinSprite/coinAnimFrame: para las monedas paradas arriba de un
+    // ladrillo (hasCoinOnTop) sin agarrar todavia -- se dibujan un tile mas
+    // arriba de su ladrillo, con la misma paleta/animacion que la moneda
+    // suelta del piso (Coin.h, ver Game::brickCoinOnTopAnimFrame_).
     void renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprite, int worldRow, float cameraX = 0.0f,
                        const std::vector<SDL_Point>& hiddenBrickTiles = {},
-                       const SpriteSheet* questionSprite = nullptr, int questionAnimFrame = 0) const;
+                       const SpriteSheet* questionSprite = nullptr, int questionAnimFrame = 0,
+                       const SpriteSheet* coinSprite = nullptr, int coinAnimFrame = 0) const;
 
     // Columna fija del frame "usado" en question_block.png (ver el
     // comentario de render()): las primeras kQuestionUsedFrame columnas son
@@ -129,8 +143,9 @@ private:
     int height_ = 0;
     std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')
     std::vector<uint8_t> platform_;  // row-major, 1 = plataforma ('=')
-    std::vector<uint8_t> brick_;     // row-major, 1 = ladrillo sin romper ('B')
-    std::vector<uint8_t> everBrick_; // row-major, 1 = fue 'B' al cargar el nivel (breakTile no lo toca)
+    std::vector<uint8_t> brick_;     // row-major, 1 = ladrillo sin romper ('B' o 'C')
+    std::vector<uint8_t> everBrick_; // row-major, 1 = fue 'B'/'C' al cargar el nivel (breakTile no lo toca)
+    std::vector<uint8_t> topCoin_;   // row-major, 1 = tiene moneda arriba sin agarrar ('C')
     std::vector<uint8_t> question_;      // row-major, 1 = bloque de interrogacion ('?')
     std::vector<uint8_t> questionUsed_;  // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
     std::vector<uint8_t> questionHits_;  // row-major, cuantas veces lo golpearon hasta ahora

@@ -343,6 +343,12 @@ private:
     // No lo rompe: arranca la animacion corta de "sacudida" (sube unos px y
     // vuelve a bajar, ver blockBumps_/kBumpDuration) sin sacar el tile.
     void bumpBrickBlock(int col, int row);
+    // Si el ladrillo (col, row) tiene una moneda parada arriba
+    // (Tilemap::hasCoinOnTop, tile 'C'), la agarra: suma al contador y la
+    // hace saltar con la animacion de BlockCoin, igual que una moneda de
+    // bloque de interrogacion -- se llama sea que el ladrillo se rompio o
+    // solo se sacudio, da igual (pedido del usuario).
+    void collectTopCoinIfAny(int col, int row);
     // Comun a romper y sacudir (en el original, CUALQUIER golpe a un bloque
     // -- se rompa o no -- mata al enemigo que este parado justo encima):
     // mata a cualquier enemigo de prueba parado justo encima del tile
@@ -479,6 +485,14 @@ private:
     float questionBlockAnimTimer_ = 0.0f;
     int questionBlockAnimFrame_ = 0;
     ItemEmerge itemEmerge_;
+
+    // Animacion (giro de 3 frames) compartida por todas las monedas paradas
+    // arriba de un ladrillo (Tilemap::hasCoinOnTop, tile 'C') sin agarrar
+    // todavia -- mismo criterio que questionBlockAnimTimer_/frame_ de
+    // arriba, reusa coinSprite_ (la misma moneda del piso, Coin.h) en vez de
+    // un sprite nuevo.
+    float brickCoinAnimTimer_ = 0.0f;
+    int brickCoinAnimFrame_ = 0;
 
     // La moneda que salta de un bloque (BlockCoin.h, distinta de Coin.h de
     // arriba -- ver el comentario de spawnItemFromQuestionBlock): tiene su

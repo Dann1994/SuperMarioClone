@@ -32,6 +32,19 @@ bool Mario::loadStarSprite(SDL_Renderer* renderer, const std::string& smallStarP
 }
 
 int Mario::currentHeight() const {
+    if (size_ == MarioSize::Small) return kSmallHitboxHeight;
+    return isDucking_ ? kCrouchHitboxHeight : kBigHitboxHeight;
+}
+
+int Mario::currentWidth() const {
+    return size_ == MarioSize::Small ? kSmallHitboxWidth : kBigHitboxWidth;
+}
+
+// Alto real del frame del spritesheet (para dibujar, no para el hitbox --
+// ver el comentario de kSmallHitboxWidth en Mario.h): a diferencia de
+// currentHeight() no cambia al agacharse, la pose de agachado esta dibujada
+// DENTRO del mismo frame de siempre.
+int Mario::currentSpriteFrameHeight() const {
     return size_ == MarioSize::Small ? kSmallHeight : kBigHeight;
 }
 
@@ -249,7 +262,15 @@ void Mario::updateHorizontal(float dt, const Input& input) {
 
     // Agachado: solo grande/fuego, parado en el piso, y no bajo el agua (ahi
     // no tiene sentido). Mientras se mantiene, no camina, solo frena.
+    // El hitbox se achica igual que en el original (ver kCrouchHitboxHeight
+    // en Mario.h) -- mismo truco que setSize() para mantener los pies en el
+    // mismo lugar al entrar/salir de la posicion.
+    const int heightBeforeDuck = currentHeight();
     isDucking_ = size_ != MarioSize::Small && grounded_ && !underwater && input.down(Action::Down);
+    const int heightAfterDuck = currentHeight();
+    if (heightAfterDuck != heightBeforeDuck) {
+        y_ -= static_cast<float>(heightAfterDuck - heightBeforeDuck);
+    }
     if (isDucking_) {
         if (velX_ > 0.0f) {
             velX_ = std::max(0.0f, velX_ - kFriction * dt);
@@ -304,12 +325,16 @@ void Mario::updateVertical(float dt, Input& input) {
     // queda pendiente sin consumir y dispara un salto solo apenas aterriza,
     // aunque el jugador ya haya soltado el boton.
     const bool jumpPressed = input.consumePress(Action::Jump);
+    // A partir de kRunJumpThreshold (umbral real del original, ver Mario.h),
+    // salto un poco mas alto -- afecta tanto el impulso inicial como la
+    // gravedad durante todo el salto (los dos juegos de valores van juntos
+    // en el original). Se recalcula por velocidad ACTUAL cada frame en vez
+    // de quedar fijo con la velocidad de cuando se salto (simplificacion:
+    // el original la fija al saltar y no la vuelve a tocar hasta aterrizar,
+    // la diferencia practica es minima).
+    const bool fastArc = std::abs(velX_) >= kRunJumpThreshold;
     if (grounded_ && jumpPressed) {
-        // A velocidad maxima de carrera, salto un poco mas alto (ver el
-        // comentario de kRunJumpImpulse) -- 1px/s de margen por si el
-        // acelerado no llega a pisar el maximo exacto por redondeo de dt.
-        const bool atMaxRunSpeed = std::abs(velX_) >= kMaxRunSpeed - 1.0f;
-        velY_ = -(atMaxRunSpeed ? kRunJumpImpulse : kJumpImpulse);
+        velY_ = -(fastArc ? kRunJumpImpulse : kJumpImpulse);
         grounded_ = false;
     }
 
@@ -317,7 +342,9 @@ void Mario::updateVertical(float dt, Input& input) {
     // gravedad debil (sostiene el salto); si se suelta antes o se esta
     // cayendo, gravedad fuerte (corta el salto / caida rapida).
     const bool ascending = velY_ < 0.0f;
-    const float gravity = (ascending && jumpHeld) ? kGravityAscend : kGravityDescend;
+    const float gravityAscend = fastArc ? kGravityAscendRun : kGravityAscend;
+    const float gravityDescend = fastArc ? kGravityDescendRun : kGravityDescend;
+    const float gravity = (ascending && jumpHeld) ? gravityAscend : gravityDescend;
     velY_ = std::min(velY_ + gravity * dt, kMaxFallSpeed);
 }
 
@@ -333,11 +360,13 @@ constexpr float kEdgeEpsilon = 0.01f;
 void Mario::moveAndCollide(float dt, const Tilemap& level) {
     const int ts = level.tileSize();
 
+    const int width = currentWidth();
+
     // --- Eje X ---
     float newX = x_ + velX_ * dt;
     {
         float left = newX;
-        float right = newX + kWidth;
+        float right = newX + width;
         int row0 = static_cast<int>(std::floor(y_ / ts));
         int row1 = static_cast<int>(std::floor((y_ + currentHeight() - kEdgeEpsilon) / ts));
         int col0 = static_cast<int>(std::floor(left / ts));
@@ -350,7 +379,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
                     if (level.isSolidTile(col, row)) { blocked = true; break; }
                 }
                 if (blocked) {
-                    newX = static_cast<float>(col * ts - kWidth);
+                    newX = static_cast<float>(col * ts - width);
                     velX_ = 0.0f;
                     break;
                 }
@@ -380,7 +409,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
         float top = newY;
         float bottom = newY + height;
         int col0 = static_cast<int>(std::floor(x_ / ts));
-        int col1 = static_cast<int>(std::floor((x_ + kWidth - kEdgeEpsilon) / ts));
+        int col1 = static_cast<int>(std::floor((x_ + width - kEdgeEpsilon) / ts));
         int row0 = static_cast<int>(std::floor(top / ts));
         int row1 = static_cast<int>(std::floor((bottom - kEdgeEpsilon) / ts));
 
@@ -499,9 +528,12 @@ void Mario::updateAnimation(float dt, const Input& input) {
         return;
     }
 
-    // La velocidad del ciclo de caminata acompana la velocidad real de Mario.
-    const float speedRatio = std::clamp(std::fabs(velX_) / kMaxRunSpeed, 0.0f, 1.0f);
-    const float framesPerSecond = 3.0f + speedRatio * 9.0f;
+    // La velocidad del ciclo de caminata: 3 escalones fijos por velocidad
+    // (PlayerAnimTmrData del original), no interpolacion continua.
+    const float absSpeed = std::fabs(velX_);
+    const float framesPerSecond = absSpeed >= kAnimSpeedFastThreshold     ? kAnimFpsFast
+                                   : absSpeed >= kAnimSpeedMediumThreshold ? kAnimFpsMedium
+                                                                            : kAnimFpsSlow;
     walkAnimTimer_ += dt * framesPerSecond;
     while (walkAnimTimer_ >= 1.0f) {
         walkAnimTimer_ -= 1.0f;
@@ -510,7 +542,12 @@ void Mario::updateAnimation(float dt, const Input& input) {
 }
 
 void Mario::render(SDL_Renderer* renderer, float cameraX) const {
-    const int drawXBase = static_cast<int>(std::lround(x_ - cameraX)) - (kSpriteFrameWidth - kWidth) / 2;
+    const int drawXBase = static_cast<int>(std::lround(x_ - cameraX)) - (kSpriteFrameWidth - currentWidth()) / 2;
+    // El frame del sprite es mas alto que el hitbox real (ver el comentario
+    // de kSmallHitboxWidth en Mario.h): se dibuja mas arriba de y_ por esta
+    // diferencia para que la base (pies) coincida con el piso del hitbox en
+    // vez de con el fondo del frame completo.
+    const int spriteYOffset = currentSpriteFrameHeight() - currentHeight();
 
     // Se calcula antes de los casos especiales: la secuencia de crecer lo
     // reusa para animar "sobre" la pose que estaba jugando (caminar, salto,
@@ -529,7 +566,8 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
 
     if (inDeathSequence_) {
         // Pose fija de "muerto" mientras salta/cae, siempre chico.
-        spriteSmall_.draw(renderer, kAnimRowDie, 0, drawXBase, static_cast<int>(std::lround(y_)), !facingRight_);
+        const int deadDrawY = static_cast<int>(std::lround(y_)) - (kSmallHeight - kSmallHitboxHeight);
+        spriteSmall_.draw(renderer, kAnimRowDie, 0, drawXBase, deadDrawY, !facingRight_);
         return;
     }
 
@@ -537,7 +575,8 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         // Congelado, parpadeando: grande -> invisible -> chico -> invisible
         // (pies siempre en el mismo lugar).
         if (damageFlickerPhase_ == 0) {
-            currentSprite().draw(renderer, kAnimRowIdle, 0, drawXBase, static_cast<int>(std::lround(y_)), !facingRight_);
+            const int bigDrawY = static_cast<int>(std::lround(y_)) - spriteYOffset;
+            currentSprite().draw(renderer, kAnimRowIdle, 0, drawXBase, bigDrawY, !facingRight_);
         } else if (damageFlickerPhase_ == 2) {
             const int smallDrawY = static_cast<int>(std::lround(y_)) + (currentHeight() - kSmallHeight);
             spriteSmall_.draw(renderer, kAnimRowIdle, 0, drawXBase, smallDrawY, !facingRight_);
@@ -554,7 +593,8 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         // reflejan la forma actual sea cual sea (chico->grande/fuego, o
         // grande->fuego sin cambio de altura).
         if (growFlickerPhase_ == 0) {
-            currentSprite().draw(renderer, row, col, drawXBase, static_cast<int>(std::lround(y_)), !facingRight_);
+            const int currentDrawY = static_cast<int>(std::lround(y_)) - spriteYOffset;
+            currentSprite().draw(renderer, row, col, drawXBase, currentDrawY, !facingRight_);
         } else {
             const int targetDrawY = static_cast<int>(std::lround(y_)) - (kBigHeight - currentHeight());
             const SpriteSheet& targetSprite = growTargetSize_ == MarioSize::Fire ? spriteFire_ : spriteBig_;
@@ -568,7 +608,7 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
     }
 
     const int drawX = drawXBase;
-    const int drawY = static_cast<int>(std::lround(y_));
+    const int drawY = static_cast<int>(std::lround(y_)) - spriteYOffset;
 
     // Estrella: mientras dura, se usa el sheet de paletas alternativas en vez
     // del normal, con un offset de filas segun el tipo de mundo (cada uno
@@ -584,7 +624,7 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         // Tecnica del juego original: se componen dos capas en vez de un frame
         // unico (ver comentario de kThrowTopHeight).
         sprite.drawSlice(renderer, kAnimRowThrow + rowOffset, 0, 0, kThrowTopHeight, drawX, drawY, !facingRight_);
-        sprite.drawSlice(renderer, row + rowOffset, col, kThrowTopHeight, currentHeight() - kThrowTopHeight,
+        sprite.drawSlice(renderer, row + rowOffset, col, kThrowTopHeight, currentSpriteFrameHeight() - kThrowTopHeight,
                           drawX, drawY, !facingRight_);
         return;
     }

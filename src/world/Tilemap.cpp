@@ -23,6 +23,7 @@ bool Tilemap::loadFromFile(const std::string& path) {
     platform_.assign(static_cast<size_t>(width_) * height_, 0);
     brick_.assign(static_cast<size_t>(width_) * height_, 0);
     everBrick_.assign(static_cast<size_t>(width_) * height_, 0);
+    topCoin_.assign(static_cast<size_t>(width_) * height_, 0);
     question_.assign(static_cast<size_t>(width_) * height_, 0);
     questionUsed_.assign(static_cast<size_t>(width_) * height_, 0);
     questionHits_.assign(static_cast<size_t>(width_) * height_, 0);
@@ -35,10 +36,11 @@ bool Tilemap::loadFromFile(const std::string& path) {
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'B' || c == '?' || c == 'D') ? 1 : 0;
+            solid_[i] = (c == '#' || c == 'B' || c == 'C' || c == '?' || c == 'D') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
-            brick_[i] = (c == 'B') ? 1 : 0;
-            everBrick_[i] = (c == 'B') ? 1 : 0;
+            brick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
+            everBrick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
+            topCoin_[i] = (c == 'C') ? 1 : 0;
             question_[i] = (c == '?') ? 1 : 0;
             dispenser_[i] = (c == 'D') ? 1 : 0;
         }
@@ -73,6 +75,20 @@ bool Tilemap::wasBrickTile(int col, int row) const {
         return false;
     }
     return everBrick_[row * width_ + col] != 0;
+}
+
+bool Tilemap::hasCoinOnTop(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return topCoin_[row * width_ + col] != 0;
+}
+
+void Tilemap::collectTopCoin(int col, int row) {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return;
+    }
+    topCoin_[row * width_ + col] = 0;
 }
 
 void Tilemap::breakTile(int col, int row) {
@@ -205,7 +221,7 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, f
 
 void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprite, int worldRow, float cameraX,
                             const std::vector<SDL_Point>& hiddenBrickTiles, const SpriteSheet* questionSprite,
-                            int questionAnimFrame) const {
+                            int questionAnimFrame, const SpriteSheet* coinSprite, int coinAnimFrame) const {
     auto isHidden = [&](int col, int row) {
         for (const SDL_Point& p : hiddenBrickTiles) {
             if (p.x == col && p.y == row) return true;
@@ -244,6 +260,20 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
                 }
                 const int frame = isQuestionUsed(col, row) ? kQuestionUsedFrame : questionAnimFrame;
                 questionSprite->draw(renderer, worldRow, frame, col * tileSize_ - camOffset, row * tileSize_, false);
+            }
+        }
+    }
+
+    // Monedas paradas arriba de un ladrillo ('C', hasCoinOnTop): un tile mas
+    // arriba de su ladrillo, no de este mismo -- por eso no pasan por
+    // isHidden (esta atado a la posicion del LADRILLO, que se sacude, pero
+    // la moneda de arriba se queda quieta hasta que la agarran).
+    if (coinSprite != nullptr) {
+        for (int row = 0; row < height_; ++row) {
+            for (int col = 0; col < width_; ++col) {
+                if (!hasCoinOnTop(col, row)) continue;
+                coinSprite->draw(renderer, worldRow, coinAnimFrame, col * tileSize_ - camOffset,
+                                  (row - 1) * tileSize_, false);
             }
         }
     }

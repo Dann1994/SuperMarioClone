@@ -75,7 +75,7 @@ public:
     void playThrowAnimation();
     float x() const { return x_; }
     float y() const { return y_; }
-    int width() const { return kWidth; }
+    int width() const { return currentWidth(); }
     int height() const { return currentHeight(); }
     // Altura fija de Mario/Luigi chico (a diferencia de height(), que
     // depende del tamano actual) -- publica porque Blooper.h la usa como
@@ -162,32 +162,75 @@ private:
     void moveAndCollide(float dt, const Tilemap& level);
     void updateAnimation(float dt, const Input& input);
     int currentHeight() const;
+    int currentWidth() const;
+    int currentSpriteFrameHeight() const;
     const SpriteSheet& currentSprite() const;
     const SpriteSheet& currentStarSprite() const;
 
-    static constexpr int kWidth = 12;
-    static constexpr int kBigHeight = 32;
+    // Tamano de frame del spritesheet (recorte del PNG, seccion 8.1): NO es
+    // el hitbox, es mas grande que el (el original tambien lo hace asi, ver
+    // el comentario de kSmallHitboxWidth mas abajo) -- no tocar estos dos
+    // sin volver a extraer los sprites, loadSprite() los usa para cortar la
+    // grilla.
     static constexpr int kSpriteFrameWidth = 16;
+    static constexpr int kBigHeight = 32;
 
-    // Constantes aproximadas a partir de las curvas de fisica documentadas
-    // por la comunidad para SMB1 (px/frame a 60fps convertidas a px/s).
-    // Pendientes de ajuste iterativo jugando, como pide la seccion 4 del doc.
-    static constexpr float kMaxWalkSpeed = 93.75f;    // px/s
-    static constexpr float kWalkAccel = 135.0f;       // px/s^2
-    static constexpr float kMaxRunSpeed = 153.75f;    // px/s, con Action::Run mantenido
-    static constexpr float kRunAccel = 202.5f;        // px/s^2
-    static constexpr float kFriction = 183.0f;        // px/s^2
-    static constexpr float kGravityAscend = 540.0f;   // px/s^2, salto sostenido
-    static constexpr float kGravityDescend = 1575.0f; // px/s^2, caida / salto cortado
-    static constexpr float kJumpImpulse = 260.0f;     // px/s (velocidad inicial hacia arriba)
-    // Un poco mas alto si al saltar ya esta a velocidad maxima de carrera
-    // (kMaxRunSpeed, con Action::Run mantenido) -- a pedido del usuario,
-    // como en el original (correr a fondo da un salto mas alto).
-    static constexpr float kRunJumpImpulse = 275.0f;  // px/s
-    static constexpr float kMaxFallSpeed = 300.0f;    // px/s
-    static constexpr float kSkidVelocityThreshold = 10.0f; // px/s, minimo para considerar patinada
+    // Constantes sacadas de la tabla real de fisica de SMB1 (disassembly de
+    // doppelganger, MaxLeftXSpdData/MaxRightXSpdData/FrictionData/
+    // JumpMForceData/FallMForceData/PlayerYSpdData en subpixeles por frame a
+    // 60fps, convertidas a px/s y px/s^2) -- investigado a pedido del
+    // usuario para reemplazar los valores aproximados que habia antes.
+    static constexpr float kMaxWalkSpeed = 90.0f;         // px/s (0x18 = 1.5px/frame)
+    static constexpr float kMaxRunSpeed = 150.0f;         // px/s, con Action::Run mantenido (0x28 = 2.5px/frame)
+    // El original usa el MISMO valor para acelerar caminando y para frenar
+    // (soltar todo o patinar en sentido contrario): no hay una constante de
+    // friccion separada de verdad, kFriction = kWalkAccel a proposito.
+    static constexpr float kWalkAccel = 133.59375f;       // px/s^2 (0x98/256 subpixel/frame, /16 y *3600)
+    static constexpr float kRunAccel = 200.390625f;       // px/s^2 (0xe4, con Action::Run mantenido)
+    static constexpr float kFriction = kWalkAccel;        // px/s^2, frenar/patinar (mismo valor que caminar)
+    // Gravedad y velocidad inicial de salto: el original usa dos juegos de
+    // valores segun que tan rapido se este moviendo Mario AL SALTAR (mas de
+    // 5 umbrales en realidad, ver JumpMForceData/PlayerYSpdData en el
+    // disassembly) -- se simplifica a los dos casos extremos (parado/
+    // caminando vs corriendo a fondo) para que coincida con el diseño de
+    // "salto un poco mas alto corriendo a fondo" que ya se habia pedido.
+    static constexpr float kGravityAscend = 450.0f;       // px/s^2, salto sostenido (parado/caminando)
+    static constexpr float kGravityDescend = 1575.0f;     // px/s^2, caida / salto cortado (parado/caminando)
+    static constexpr float kJumpImpulse = 240.0f;         // px/s, velocidad inicial (parado/caminando)
+    static constexpr float kGravityAscendRun = 562.5f;    // px/s^2, salto sostenido (corriendo a fondo)
+    static constexpr float kGravityDescendRun = 2025.0f;  // px/s^2, caida / salto cortado (corriendo a fondo)
+    static constexpr float kRunJumpImpulse = 300.0f;      // px/s, velocidad inicial (corriendo a fondo)
+    // Velocidad horizontal a partir de la cual se usa el juego de salto de
+    // "corriendo a fondo" (kRunJumpImpulse/kGravity*Run) en vez del normal
+    // -- umbral real del original (0x19 = 1.5625px/frame), no "estar al
+    // maximo de kMaxRunSpeed" como antes.
+    static constexpr float kRunJumpThreshold = 93.75f;    // px/s
+    static constexpr float kMaxFallSpeed = 240.0f;        // px/s, velocidad terminal de caida (0x04 = 4px/frame)
+    static constexpr float kSkidVelocityThreshold = 41.25f; // px/s, minimo para la animacion de patinada (0x0b)
     static constexpr float kThrowAnimDuration = 0.15f; // segundos que se ve la pose de tirar
     static constexpr float kStarFlickerInterval = 0.08f; // s entre cada paso del ciclo de 4 paletas
+
+    // Velocidad del ciclo de caminar/correr: el original NO interpola
+    // continuo, usa 3 escalones fijos segun la velocidad horizontal
+    // (PlayerAnimTmrData en el disassembly, en frames por paso de
+    // animacion: 2/4/7 a 60fps).
+    static constexpr float kAnimSpeedFastThreshold = 105.0f;   // px/s (0x1c)
+    static constexpr float kAnimSpeedMediumThreshold = 52.5f;  // px/s (0x0e)
+    static constexpr float kAnimFpsFast = 30.0f;    // 60/2
+    static constexpr float kAnimFpsMedium = 15.0f;  // 60/4
+    static constexpr float kAnimFpsSlow = 60.0f / 7.0f;
+
+    // Hitbox real (BoundBoxCtrlData en el disassembly): mas chico que el
+    // frame del sprite de arriba, alineado por los pies (el sprite se
+    // dibuja un poco mas arriba de x_,y_ para que la base coincida, ver
+    // render()) -- antes el hitbox usaba directamente el tamano del frame
+    // completo. kCrouchHitboxHeight es grande/fuego agachado (isDucking_):
+    // mismo ancho que parado, la mitad de alto.
+    static constexpr int kSmallHitboxWidth = 10;
+    static constexpr int kSmallHitboxHeight = 12;
+    static constexpr int kBigHitboxWidth = 12;
+    static constexpr int kBigHitboxHeight = 24;
+    static constexpr int kCrouchHitboxHeight = 12;
 
     // Fisica de nado (Underwater): todo mas lento y flotante, sin salto real.
     static constexpr float kSwimMaxSpeed = 47.0f;      // px/s
