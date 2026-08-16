@@ -102,6 +102,16 @@ public:
     bool isFalling() const { return falling_; }
     KoopaState state() const { return state_; }
     bool isMovingShell() const { return alive_ && !falling_ && state_ == KoopaState::ShellMoving; }
+    // true una sola vez el frame en que rebota contra una pared (caminando,
+    // saltando o de caparazon -- se pone en true en cualquiera de los tres,
+    // Game.cpp decide si reproducir el sonido segun isMovingShell() en ESE
+    // momento, el pedido del usuario es solo para el caparazon en
+    // movimiento). Se resetea solo, mismo criterio que Mario::consumeJumpRequest().
+    bool consumeWallBounceRequest() {
+        const bool value = wallBounceRequested_;
+        wallBounceRequested_ = false;
+        return value;
+    }
     // Puede interactuar (pisarse/patearse/danar/matar) mientras este vivo y
     // no este ya cayendo muerto -- caminando, escondido o deslizandose son
     // todos "dangerous" (cada uno reacciona distinto, ver Game.cpp). Ojo:
@@ -135,7 +145,7 @@ public:
     void kick(bool kickRight, const void* character = nullptr);
     // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
     // flyRight, sin colision, hasta salir de pantalla (igual que Goomba).
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
     // Al cruzarse con otro enemigo (Game::checkGoombaKoopaBounce/checkKoopaKoopaBounce):
     // mismo efecto que chocar una pared -- invierte direccion (si estaba
     // quieto, como ShellIdle, sigue quieto) mas un empuje pushX para
@@ -191,7 +201,7 @@ private:
     // especificamente este aviso).
     static constexpr float kShellWarningDuration = 1.5f;
     static constexpr float kShellWarningFlashDuration = 0.15f;  // s por frame durante el aviso
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
     // Inmunidad de un personaje puntual al recien frenar/patear un
     // caparazon, ver isImmuneTo().
@@ -203,6 +213,7 @@ private:
     float velY_ = 0.0f;
     bool alive_ = false;
     bool falling_ = false;
+    bool wallBounceRequested_ = false;
     KoopaState state_ = KoopaState::Walking;
     KoopaColor color_ = KoopaColor::Green;
     bool lastFacingRight_ = true;

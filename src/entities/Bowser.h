@@ -161,7 +161,7 @@ private:
     // veces baje lo suficiente como para golpear a Mario/Luigi parado, en
     // vez de bajar el punto de aparicion en si).
     static constexpr float kFireOriginYOffset = 6.0f;
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
     static constexpr int kFireballsToDefeat = 5;
 

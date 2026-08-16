@@ -6,7 +6,9 @@ void Fireball::spawn(float x, float y, bool movingRight) {
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kSpeed : -kSpeed;
-    velY_ = kBounceVelocity * 0.5f;  // primer salto chico al salir de la mano
+    // Sin "saltito" al salir de la mano (asi estaba antes): en el original
+    // arranca cayendo de una, se nota el arco recien cuando rebota.
+    velY_ = kInitialFallSpeed;
     alive_ = true;
     lifetime_ = kMaxLifetime;
     animTimer_ = 0.0f;
@@ -64,6 +66,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         for (int row = row0; row <= row1; ++row) {
             if (level.isSolidTile(col, row)) {
                 explode();
+                wallHitRequested_ = true;
                 return;
             }
         }

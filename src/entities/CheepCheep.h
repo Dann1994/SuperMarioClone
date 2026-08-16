@@ -94,7 +94,7 @@ public:
     // Pisoton, estrella o fuego: cualquiera lo mata igual (ver el
     // comentario de la clase), se da vuelta y sale disparado en parabola
     // hacia flyRight.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -122,7 +122,7 @@ private:
     static constexpr float kMaxFallSpeed = 300.0f;
 
     static constexpr float kAnimFrameDuration = 0.15f;   // s por frame de nado/salto
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
     void updateSwimming(float dt, int screenWidth);

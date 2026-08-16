@@ -21,11 +21,12 @@ void Spiny::reset() {
     falling_ = false;
 }
 
-void Spiny::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool Spiny::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 void Spiny::update(float dt, const Tilemap& level, int screenHeight) {

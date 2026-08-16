@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 
+#include "../audio/SoundManager.h"
 #include "../entities/Axe.h"
 #include "../entities/BlockCoin.h"
 #include "../entities/Blooper.h"
@@ -124,6 +125,15 @@ struct QuestionBlockSpawn {
     int maxHits = 1;
 };
 
+// A que tuberia le corresponde cada entrada valida (Tilemap::isPipeTopTile)
+// del escenario de Items, y a donde manda -- ver Game::checkPipeWarp.
+struct PipeWarp {
+    int col;      // columna izquierda del tope de la tuberia (donde hay que pararse)
+    int row;      // fila del tope
+    float destX;
+    float destY;
+};
+
 // Cuanto tarda en "salir" del todo un item que emerge de un bloque (ver
 // ItemEmerge mas abajo) -- Mushroom/FireFlower/Star no tienen animacion de
 // emerger propia (ningun otro item/enemigo del elenco la tiene tampoco), asi
@@ -204,6 +214,27 @@ private:
     // normal. Un solo lugar para este criterio en vez de repetirlo en cada
     // checkXCollision.
     bool handleUnderwaterContactDamage(Mario& character);
+    // Dano de contacto "normal" (tocar a un enemigo/hazard de costado, no
+    // pisandolo ni con estrella): chico muere, grande/fuego se achica -- con
+    // su sonido correspondiente (Sfx::Death/Sfx::PowerDown), solo si
+    // realmente arranco la secuencia (startDeath()/takeDamage() devuelven
+    // false si ya estaba en una o ya era invulnerable). Un solo lugar para
+    // este mismo if/else que se repetia en cada checkXCollision.
+    void applyContactDamage(Mario& character);
+    // Mata a un enemigo "volteandolo" (fuego, estrella, caparazon, o un
+    // pisoton en los que no tienen animacion de achatado propia -- ver el
+    // comentario de la clase de cada uno): reproduce Sfx::Kick una sola vez,
+    // solo si killFalling() realmente arranco la secuencia esta vez (false
+    // si ya estaba cayendo, evita que suene varias veces seguidas si algo lo
+    // toca de nuevo mientras todavia esta en el aire). Investigado en el
+    // disassembly original: es el mismo sonido/mecanismo ahi tambien
+    // ("ShellOrBlockDefeat"), sin importar la causa. Template porque cada
+    // clase de enemigo es un tipo distinto, todas comparten la firma
+    // bool killFalling(bool).
+    template <typename T>
+    void killEnemyFalling(T& enemy, bool flyRight) {
+        if (enemy.killFalling(flyRight)) audio_.play(Sfx::Kick);
+    }
     // Pisoton (achata y hace rebotar) o dano de costado (como el hazard de
     // prueba), segun de donde venga el contacto.
     // prevY: character.y() de ANTES de moverse este frame (ver el comentario
@@ -330,6 +361,13 @@ private:
     // Tocar el hacha derrota a Bowser de una sola vez (ver Axe.h) y hace
     // desaparecer el hacha misma.
     void checkAxeCollision(Mario& character, Axe& axe);
+    // Tuberia (seccion 5.3): si el personaje esta parado (grounded) justo
+    // arriba del TOPE de una tuberia (Tilemap::isPipeTopTile) y aprieta
+    // abajo, lo teletransporta al destino configurado en kPipeWarps -- sin
+    // animacion de "hundirse" (simplificacion), aparece de una en el
+    // destino. input es la de ESE personaje (input1_/input2_), no la
+    // recibe Mario/Luigi (no le hace falta saber de tuberias).
+    void checkPipeWarp(Mario& character, Input& input);
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -506,6 +544,17 @@ private:
     BlockCoin blockCoin_;
     int coinCount_ = 0;
     int livesCount_ = 0;
+
+    // Tuberia (seccion 5.3): sprite propio, 2 columnas (0=tope, 1=cuerpo) x
+    // una fila por WorldType, cada celda de 32x16 (dos tiles de ancho de una
+    // sola vez, ver Tilemap::isPipeTile). checkPipeWarp es quien decide
+    // cuando entra por ella (ver el comentario en Game.cpp).
+    SpriteSheet pipeSprite_;
+
+    // Efectos de sonido (seccion 8.2): ver SoundManager.h para la API y el
+    // comentario en Game::init() (donde se cargan) para el mapeo
+    // evento->archivo.
+    SoundManager audio_;
 
     // Goomba de prueba (seccion 5.2, primer enemigo), solo en el escenario
     // de enemigos: ese nivel tiene paredes en los dos bordes (ver

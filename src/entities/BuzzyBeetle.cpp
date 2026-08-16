@@ -57,13 +57,14 @@ void BuzzyBeetle::kick(bool kickRight, const void* character) {
     stompCooldownOwner_ = character;
 }
 
-void BuzzyBeetle::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool BuzzyBeetle::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
     animTimer_ = 0.0f;
     animFrame_ = 0;
+    return true;
 }
 
 void BuzzyBeetle::update(float dt, const Tilemap& level, int screenHeight) {

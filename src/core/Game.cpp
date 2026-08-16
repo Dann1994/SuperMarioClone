@@ -69,6 +69,17 @@ constexpr QuestionBlockSpawn kDispenserBlockItems[] = {
     {25, kDispenserBlockRow, BlockItem::Coin, 10},
 };
 
+// Tuberias de prueba del escenario de Items (seccion 5.3, tile 'T' --
+// Tilemap::isPipeTopTile): la A esta a la vista, sobre el piso principal, y
+// lleva a un cuarto escondido debajo del piso (filas 17-22 de
+// test_items.json, sin otra forma de llegar caminando) donde esta la B, que
+// vuelve a la zona principal -- ida y vuelta, ambas se entran apretando
+// abajo parado en el tope (ver Game::checkPipeWarp).
+constexpr PipeWarp kPipeWarps[] = {
+    {32, 12, 7 * 16.0f, 21 * 16.0f},   // A: piso principal -> cuarto escondido
+    {5, 20, 34 * 16.0f, 13 * 16.0f},   // B: cuarto escondido -> piso principal
+};
+
 // Busca la configuracion (item + maxHits) de la celda (col, row) en ambas
 // tablas de arriba -- lo usan tanto Game::checkQuestionBlockHit (para saber
 // maxHits sin duplicar la busqueda) como Game::spawnItemFromQuestionBlock
@@ -324,7 +335,7 @@ const char* bowserAttackModeName(BowserAttackMode mode) {
 }  // namespace
 
 bool Game::init() {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         SDL_Log("SDL_Init fallo: %s", SDL_GetError());
         return false;
     }
@@ -332,6 +343,45 @@ bool Game::init() {
     if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
         SDL_Log("IMG_Init fallo: %s", IMG_GetError());
         return false;
+    }
+
+    // Efectos de sonido (seccion 8.2): si el audio no abre (ej. sin
+    // dispositivo de sonido), el juego sigue andando mudo en vez de
+    // frenarse -- no hay motivo para que sea fatal.
+    if (audio_.init()) {
+        // Mapeo evento->archivo (carpeta original del usuario: "NES - Super
+        // Mario Bros. - Miscellaneous - Sound Effects"). El original reusa
+        // el mismo .wav para dos eventos que nunca suenan a la vez (mismo
+        // canal); se respeta esa misma asociacion aca en vez de un archivo
+        // por evento:
+        //  - pipepowerdown.wav: entrar/salir de una tuberia Y Mario
+        //    encogiendo al recibir danio (PowerDown/Pipe).
+        //  - stompswim.wav: pisar/matar un enemigo saltando (achatado, no
+        //    volteado -- eso es Kick) Y cada brazada nadando bajo el agua.
+        //  - kickkill.wav: patear un caparazon y que un caparazon en
+        //    movimiento mate a otro enemigo (Kick).
+        // fire.wav se uso para el chorro de Bowser (BowserFire), no para la
+        // bola de fuego de Mario (esa es fireball.wav) -- son dos sonidos
+        // bien distintos en el archivo, se investigo por nombre cual
+        // corresponde a cada uno.
+        const std::string sfxDir = "assets/sound/sfx/";
+        audio_.load(Sfx::Jump, sfxDir + "jump.wav");
+        audio_.load(Sfx::JumpSmall, sfxDir + "jumpsmall.wav");
+        audio_.load(Sfx::Coin, sfxDir + "coin.wav");
+        audio_.load(Sfx::Bump, sfxDir + "bump.wav");
+        audio_.load(Sfx::Brick, sfxDir + "brick.wav");
+        audio_.load(Sfx::Item, sfxDir + "item.wav");
+        audio_.load(Sfx::PowerUp, sfxDir + "powerup.wav");
+        audio_.load(Sfx::PowerDown, sfxDir + "pipepowerdown.wav");
+        audio_.load(Sfx::Pipe, sfxDir + "pipepowerdown.wav");
+        audio_.load(Sfx::StompKill, sfxDir + "stompswim.wav");
+        audio_.load(Sfx::Kick, sfxDir + "kickkill.wav");
+        audio_.load(Sfx::Death, sfxDir + "death.wav");
+        audio_.load(Sfx::OneUp, sfxDir + "1up.wav");
+        audio_.load(Sfx::BowserFall, sfxDir + "bowserfall.wav");
+        audio_.load(Sfx::Fireball, sfxDir + "fireball.wav");
+        audio_.load(Sfx::BowserFire, sfxDir + "fire.wav");
+        audio_.load(Sfx::BillFirework, sfxDir + "billfirework.wav");
     }
 
     window_ = SDL_CreateWindow(
@@ -431,6 +481,9 @@ bool Game::init() {
     }
     if (!blockCoinSprite_.loadFromFile(renderer_, "assets/sprites/block_coin.png", BlockCoin::kWidth,
                                         BlockCoin::kHeight)) {
+        return false;
+    }
+    if (!pipeSprite_.loadFromFile(renderer_, "assets/sprites/pipe.png", 32, 16)) {
         return false;
     }
     if (!brickDebrisSprite_.loadFromFile(renderer_, "assets/sprites/brick_debris.png", BrickDebris::kSize,
@@ -712,6 +765,7 @@ void Game::processEvents() {
             } else if (event.key.keysym.scancode == SDL_SCANCODE_I && scenario_ == TestScenario::BulletBill) {
                 bulletBillA_.spawn(kBulletBillATestX, kBulletBillTestY, true);
                 bulletBillB_.spawn(kBulletBillBTestX, kBulletBillTestY, false);
+                audio_.play(Sfx::BillFirework);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_P && scenario_ == TestScenario::Podoboo) {
                 podoboo_.spawn(kPodobooTestX, kPodobooTestY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_Y && scenario_ == TestScenario::Bowser) {
@@ -746,9 +800,16 @@ void Game::trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPe
         if (fireball.isAlive()) continue;
         const bool right = shooter.facingRight();
         const float spawnX = right ? shooter.x() + 12.0f : shooter.x() - Fireball::kSize;
-        const float spawnY = shooter.y() + shooter.height() * 0.4f;
+        // Altura real del original (Player_Y_Position: el tope del sprite,
+        // no un porcentaje arbitrario de su alto) -- coincide con la mano
+        // en la pose de tirar (kAnimRowThrow), que ya esta jugando en este
+        // mismo instante (ver playThrowAnimation() mas abajo). kHandYOffset:
+        // un poco mas abajo del tope justo, a pedido del usuario.
+        constexpr float kHandYOffset = 6.0f;
+        const float spawnY = shooter.spriteTopY() + kHandYOffset;
         fireball.spawn(spawnX, spawnY, right);
         shooter.playThrowAnimation();
+        audio_.play(Sfx::Fireball);
         return;
     }
     // Los dos slots estan ocupados: como en el original, no se tira una tercera
@@ -863,6 +924,7 @@ void Game::checkMushroomPickup(Mario& character) {
         ++livesCount_;
         spawnScorePopup(mushroom_.x(), mushroom_.y(), "1UP");
         mushroom_.collect();
+        audio_.play(Sfx::OneUp);
         return;
     }
 
@@ -871,6 +933,7 @@ void Game::checkMushroomPickup(Mario& character) {
     }
     spawnScorePopup(mushroom_.x(), mushroom_.y(), "1000");
     mushroom_.collect();
+    audio_.play(Sfx::PowerUp);
 }
 
 void Game::checkFireFlowerPickup(Mario& character) {
@@ -894,6 +957,7 @@ void Game::checkFireFlowerPickup(Mario& character) {
     }
     spawnScorePopup(fireFlower_.x(), fireFlower_.y(), "1000");
     fireFlower_.collect();
+    audio_.play(Sfx::PowerUp);
 }
 
 void Game::checkStarPickup(Mario& character) {
@@ -908,6 +972,7 @@ void Game::checkStarPickup(Mario& character) {
     character.setInvincible(true);
     spawnScorePopup(star_.x(), star_.y(), "1000");
     star_.collect();
+    audio_.play(Sfx::PowerUp);
 }
 
 void Game::checkCoinPickup(Mario& character) {
@@ -922,15 +987,20 @@ void Game::checkCoinPickup(Mario& character) {
     // Sin contador de monedas/vidas todavia (seccion 6): por ahora solo se
     // recolecta (sin popup de puntaje, la moneda no lo tiene en el original).
     coin_.collect();
+    audio_.play(Sfx::Coin);
+}
+
+void Game::applyContactDamage(Mario& character) {
+    if (character.size() == MarioSize::Small) {
+        if (character.startDeath()) audio_.play(Sfx::Death);
+    } else if (character.takeDamage()) {
+        audio_.play(Sfx::PowerDown);
+    }
 }
 
 bool Game::handleUnderwaterContactDamage(Mario& character) {
     if (character.worldType() != WorldType::Underwater) return false;
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
     return true;
 }
 
@@ -954,7 +1024,7 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
     // personaje, en vez de achatarse (ver Goomba::killFalling).
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= goomba_.x();
-        goomba_.killFalling(flyRight);
+        killEnemyFalling(goomba_, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -968,15 +1038,12 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
     if (fromAbove) {
         goomba_.squish();
         character.setVelocityY(kStompBounce);
+        audio_.play(Sfx::StompKill);
         return;
     }
 
     // Contacto de costado: mismo dano que takeDamage()/startDeath() normal.
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballGoombaCollision(Fireball& fireball) {
@@ -989,7 +1056,7 @@ void Game::checkFireballGoombaCollision(Fireball& fireball) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= goomba_.x();
-    goomba_.killFalling(flyRight);
+    killEnemyFalling(goomba_, flyRight);
     fireball.explode();
 }
 
@@ -1010,7 +1077,7 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
     // Con estrella: lo elimina en cualquier estado, igual que al Goomba.
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= koopa.x();
-        koopa.killFalling(flyRight);
+        killEnemyFalling(koopa, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1046,6 +1113,7 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
             // pasa a tratarse como toque de costado contra un ShellMoving,
             // que SI hace dano -- terminaria matando al que lo piso.
             koopa.kick(character.facingRight(), &character);
+            audio_.play(Sfx::Kick);
             character.setVelocityY(0.0f);
             // Empuje lateral (igual que el pisoton Mario<->Luigi, ver
             // resolveCharacterCollision): si el personaje se queda parado en
@@ -1057,6 +1125,7 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
             // De costado: patada, hacia el lado contrario de donde vino el personaje.
             const bool kickRight = character.x() <= koopa.x();
             koopa.kick(kickRight, &character);
+            audio_.play(Sfx::Kick);
         }
         return;
     }
@@ -1067,11 +1136,10 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
         koopa.stomp(&character);
         character.setVelocityY(kKoopaStompBounce);
         character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
-    } else if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
+        audio_.play(Sfx::StompKill);
+        return;
     }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballKoopaCollision(Fireball& fireball, Koopa& koopa) {
@@ -1084,7 +1152,7 @@ void Game::checkFireballKoopaCollision(Fireball& fireball, Koopa& koopa) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= koopa.x();
-    koopa.killFalling(flyRight);
+    killEnemyFalling(koopa, flyRight);
     fireball.explode();
 }
 
@@ -1098,7 +1166,8 @@ void Game::checkShellVsGoomba(Koopa& koopa) {
     if (!overlap) return;
 
     const bool flyRight = goomba_.x() >= koopa.x();
-    goomba_.killFalling(flyRight);
+    killEnemyFalling(goomba_, flyRight);
+    audio_.play(Sfx::Kick);
     // El caparazon sigue de largo (no se frena al matar a otro enemigo).
 }
 
@@ -1113,18 +1182,19 @@ void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
     const bool aMoving = a.isMovingShell();
     const bool bMoving = b.isMovingShell();
     if (!aMoving && !bMoving) return;
+    audio_.play(Sfx::Kick);
 
     if (aMoving && bMoving) {
         // Chocan de frente: mueren los dos, cada uno hacia el lado contrario del otro.
         const bool aFliesRight = a.x() >= b.x();
-        a.killFalling(aFliesRight);
-        b.killFalling(!aFliesRight);
+        killEnemyFalling(a, aFliesRight);
+        killEnemyFalling(b, !aFliesRight);
     } else if (aMoving) {
         const bool bFliesRight = b.x() >= a.x();
-        b.killFalling(bFliesRight);
+        killEnemyFalling(b, bFliesRight);
     } else {
         const bool aFliesRight = a.x() >= b.x();
-        a.killFalling(aFliesRight);
+        killEnemyFalling(a, aFliesRight);
     }
 }
 
@@ -1189,7 +1259,7 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
     // Con estrella: lo elimina en cualquier estado, igual que al Koopa.
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= buzzy.x();
-        buzzy.killFalling(flyRight);
+        killEnemyFalling(buzzy, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1205,11 +1275,13 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
     if (buzzy.state() == BuzzyBeetleState::ShellIdle) {
         if (fromAbove) {
             buzzy.kick(character.facingRight(), &character);
+            audio_.play(Sfx::Kick);
             character.setVelocityY(0.0f);
             character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
         } else {
             const bool kickRight = character.x() <= buzzy.x();
             buzzy.kick(kickRight, &character);
+            audio_.play(Sfx::Kick);
         }
         return;
     }
@@ -1220,11 +1292,10 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
         buzzy.stomp(&character);
         character.setVelocityY(kKoopaStompBounce);
         character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
-    } else if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
+        audio_.play(Sfx::StompKill);
+        return;
     }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballBuzzyBeetleCollision(Fireball& fireball, BuzzyBeetle& buzzy) {
@@ -1252,17 +1323,18 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
     const bool koopaMoving = koopa.isMovingShell();
     const bool buzzyMoving = buzzy.isMovingShell();
     if (!koopaMoving && !buzzyMoving) return;
+    audio_.play(Sfx::Kick);
 
     if (koopaMoving && buzzyMoving) {
         const bool koopaFliesRight = koopa.x() >= buzzy.x();
-        koopa.killFalling(koopaFliesRight);
-        buzzy.killFalling(!koopaFliesRight);
+        killEnemyFalling(koopa, koopaFliesRight);
+        killEnemyFalling(buzzy, !koopaFliesRight);
     } else if (koopaMoving) {
         const bool buzzyFliesRight = buzzy.x() >= koopa.x();
-        buzzy.killFalling(buzzyFliesRight);
+        killEnemyFalling(buzzy, buzzyFliesRight);
     } else {
         const bool koopaFliesRight = koopa.x() >= buzzy.x();
-        koopa.killFalling(koopaFliesRight);
+        killEnemyFalling(koopa, koopaFliesRight);
     }
 }
 
@@ -1276,7 +1348,8 @@ void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy) {
     if (!overlap) return;
 
     const bool flyRight = goomba_.x() >= buzzy.x();
-    goomba_.killFalling(flyRight);
+    killEnemyFalling(goomba_, flyRight);
+    audio_.play(Sfx::Kick);
 }
 
 void Game::checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy) {
@@ -1337,11 +1410,7 @@ void Game::checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant) {
 
     // Sin pisoton (ver PiranhaPlant.h): cualquier contacto hace dano, sin
     // importar de que lado venga.
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballPiranhaPlantCollision(Fireball& fireball, PiranhaPlant& plant) {
@@ -1384,7 +1453,7 @@ void Game::checkHammerBroCollision(Mario& character, float prevY) {
     // no hay caparazon ni frame de achatado propio en el arte fuente.
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= hammerBro_.x();
-        hammerBro_.killFalling(flyRight);
+        killEnemyFalling(hammerBro_, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1393,16 +1462,12 @@ void Game::checkHammerBroCollision(Mario& character, float prevY) {
                             character.velocityY() > 0.0f;
     if (fromAbove) {
         const bool flyRight = character.x() <= hammerBro_.x();
-        hammerBro_.killFalling(flyRight);
+        killEnemyFalling(hammerBro_, flyRight);
         character.setVelocityY(kStompBounce);
         return;
     }
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballHammerBroCollision(Fireball& fireball) {
@@ -1416,7 +1481,7 @@ void Game::checkFireballHammerBroCollision(Fireball& fireball) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= hammerBro_.x();
-    hammerBro_.killFalling(flyRight);
+    killEnemyFalling(hammerBro_, flyRight);
     fireball.explode();
 }
 
@@ -1435,11 +1500,7 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     // falta nada especial aca -- Mario::takeDamage() ya se encarga).
     if (character.isInvincible()) return;
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkLakituCollision(Mario& character, float prevY) {
@@ -1457,7 +1518,7 @@ void Game::checkLakituCollision(Mario& character, float prevY) {
     // razon para que un salto encima no lo tire de la nube).
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= lakitu_.x();
-        lakitu_.killFalling(flyRight);
+        killEnemyFalling(lakitu_, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1466,16 +1527,12 @@ void Game::checkLakituCollision(Mario& character, float prevY) {
                             character.velocityY() > 0.0f;
     if (fromAbove) {
         const bool flyRight = character.x() <= lakitu_.x();
-        lakitu_.killFalling(flyRight);
+        killEnemyFalling(lakitu_, flyRight);
         character.setVelocityY(kStompBounce);
         return;
     }
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballLakituCollision(Fireball& fireball) {
@@ -1489,7 +1546,7 @@ void Game::checkFireballLakituCollision(Fireball& fireball) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= lakitu_.x();
-    lakitu_.killFalling(flyRight);
+    killEnemyFalling(lakitu_, flyRight);
     fireball.explode();
 }
 
@@ -1504,17 +1561,13 @@ void Game::checkSpinyCollision(Mario& character, Spiny& spiny) {
 
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= spiny.x();
-        spiny.killFalling(flyRight);
+        killEnemyFalling(spiny, flyRight);
         return;
     }
 
     // Sin pisoton (ver Spiny.h): cualquier contacto hace dano, sin importar
     // de que lado venga.
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballSpinyCollision(Fireball& fireball, Spiny& spiny) {
@@ -1527,7 +1580,7 @@ void Game::checkFireballSpinyCollision(Fireball& fireball, Spiny& spiny) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= spiny.x();
-    spiny.killFalling(flyRight);
+    killEnemyFalling(spiny, flyRight);
     fireball.explode();
 }
 
@@ -1569,17 +1622,13 @@ void Game::checkBlooperCollision(Mario& character, Blooper& blooper) {
 
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= blooper.x();
-        blooper.killFalling(flyRight);
+        killEnemyFalling(blooper, flyRight);
         return;
     }
 
     // Sin pisoton (ver Blooper.h): cualquier contacto hace dano, sin
     // importar de que lado venga.
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
@@ -1593,7 +1642,7 @@ void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= blooper.x();
-    blooper.killFalling(flyRight);
+    killEnemyFalling(blooper, flyRight);
     fireball.explode();
 }
 
@@ -1612,7 +1661,7 @@ void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, fl
     // ninguna de las dos variantes.
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= cheepCheep.x();
-        cheepCheep.killFalling(flyRight);
+        killEnemyFalling(cheepCheep, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1621,16 +1670,12 @@ void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, fl
                             character.velocityY() > 0.0f;
     if (fromAbove) {
         const bool flyRight = character.x() <= cheepCheep.x();
-        cheepCheep.killFalling(flyRight);
+        killEnemyFalling(cheepCheep, flyRight);
         character.setVelocityY(kStompBounce);
         return;
     }
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& cheepCheep) {
@@ -1644,7 +1689,7 @@ void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& chee
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= cheepCheep.x();
-    cheepCheep.killFalling(flyRight);
+    killEnemyFalling(cheepCheep, flyRight);
     fireball.explode();
 }
 
@@ -1692,7 +1737,7 @@ void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, fl
     // pisoton (ver el mismo criterio en checkGoombaCollision).
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= bulletBill.x();
-        bulletBill.killFalling(flyRight);
+        killEnemyFalling(bulletBill, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1704,17 +1749,13 @@ void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, fl
                             character.velocityY() > 0.0f;
     if (fromAbove) {
         const bool flyRight = character.x() <= bulletBill.x();
-        bulletBill.killFalling(flyRight);
+        killEnemyFalling(bulletBill, flyRight);
         character.setVelocityY(kStompBounce);
         return;
     }
 
     // De frente: dano (ver el comentario de la clase).
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bulletBill) {
@@ -1728,7 +1769,7 @@ void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bull
     if (!overlap) return;
 
     const bool flyRight = fireball.x() <= bulletBill.x();
-    bulletBill.killFalling(flyRight);
+    killEnemyFalling(bulletBill, flyRight);
     fireball.explode();
 }
 
@@ -1749,11 +1790,7 @@ void Game::checkPodobooCollision(Mario& character, Podoboo& podoboo) {
 
     // Sin pisoton (ver el comentario de la clase): cualquier contacto hace
     // dano, sin importar de que lado venga.
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo) {
@@ -1786,11 +1823,7 @@ void Game::checkBowserCollision(Mario& character) {
     // matan de verdad.
     if (character.isInvincible()) return;
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkFireballBowserCollision(Fireball& fireball) {
@@ -1824,11 +1857,7 @@ void Game::checkBowserFireCollision(Mario& character, BowserFire& fire) {
     // que Hammer/checkHammerCollision. Con estrella no hace dano.
     if (character.isInvincible()) return;
 
-    if (character.size() == MarioSize::Small) {
-        character.startDeath();
-    } else {
-        character.takeDamage();
-    }
+    applyContactDamage(character);
 }
 
 void Game::checkAxeCollision(Mario& character, Axe& axe) {
@@ -1847,6 +1876,30 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     const bool flyRight = character.x() <= bowser_.x();
     bowser_.killByAxe(flyRight);
     axe.collect();
+    audio_.play(Sfx::BowserFall);
+}
+
+void Game::checkPipeWarp(Mario& character, Input& input) {
+    if (!character.isGrounded()) return;
+    if (!input.consumePress(Action::Down)) return;
+
+    const int ts = level_.tileSize();
+    // Fila donde estan parados los pies (grounded_ ya garantiza que hay algo
+    // solido justo ahi debajo) y las dos columnas que ocupa el hitbox --
+    // alcanza con que cualquiera de las dos caiga en el tope de una tuberia
+    // configurada, no hace falta estar perfectamente centrado.
+    const int row = static_cast<int>(std::floor((character.y() + character.height()) / ts));
+    const int col0 = static_cast<int>(std::floor(character.x() / ts));
+    const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
+
+    for (const PipeWarp& warp : kPipeWarps) {
+        if (warp.row != row) continue;
+        if (warp.col != col0 && warp.col != col1) continue;
+        if (!level_.isPipeTopTile(warp.col, warp.row)) continue;  // por si el nivel cambio
+        character.spawn(warp.destX, warp.destY);
+        audio_.play(Sfx::Pipe);
+        return;
+    }
 }
 
 void Game::checkBrickBlockHit(Mario& character) {
@@ -1857,6 +1910,10 @@ void Game::checkBrickBlockHit(Mario& character) {
         if (!level_.isBrickTile(col, row)) continue;
         // Chico: el golpe ya freno el salto en moveAndCollide(); esto solo
         // agrega la sacudida visual, no rompe el tile.
+        // Golpe "sordo" de cualquier bloque desde abajo: suena siempre,
+        // ademas del sonido especifico de lo que pase despues (romperse,
+        // dar un item) -- pedido del usuario.
+        audio_.play(Sfx::Bump);
         if (character.size() == MarioSize::Small) {
             bumpBrickBlock(col, row);
         } else {
@@ -1876,10 +1933,12 @@ void Game::collectTopCoinIfAny(int col, int row) {
                     (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f;
     const float y = static_cast<float>(row * ts) - static_cast<float>(BlockCoin::kHeight);
     blockCoin_.spawn(x, y);
+    audio_.play(Sfx::Coin);
 }
 
 void Game::breakBrickBlock(int col, int row) {
     level_.breakTile(col, row);
+    audio_.play(Sfx::Brick);
 
     const int ts = level_.tileSize();
     const float tileX = static_cast<float>(col * ts);
@@ -1913,7 +1972,7 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
         return x < tileRight && x + width > tileLeft && std::abs((y + height) - tileTop) < 4.0f;
     };
     if (goomba_.isDangerous() && onTop(goomba_.x(), goomba_.y(), Goomba::kSize, Goomba::kSize)) {
-        goomba_.killFalling(true);
+        killEnemyFalling(goomba_, true);
     }
     const std::array<Koopa*, 5> koopasOnTop{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
     for (Koopa* koopa : koopasOnTop) {
@@ -1923,14 +1982,14 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     }
     if (buzzyBeetle_.isDangerous() &&
         onTop(buzzyBeetle_.x(), buzzyBeetle_.y(), BuzzyBeetle::kSize, BuzzyBeetle::kSize)) {
-        buzzyBeetle_.killFalling(true);
+        killEnemyFalling(buzzyBeetle_, true);
     }
     if (hammerBro_.isDangerous() && onTop(hammerBro_.x(), hammerBro_.y(), HammerBro::kWidth, HammerBro::kHeight)) {
-        hammerBro_.killFalling(true);
+        killEnemyFalling(hammerBro_, true);
     }
     for (Spiny& spiny : spinies_) {
         if (spiny.isDangerous() && onTop(spiny.x(), spiny.y(), Spiny::kSize, Spiny::kSize)) {
-            spiny.killFalling(true);
+            killEnemyFalling(spiny, true);
         }
     }
 }
@@ -1977,11 +2036,16 @@ void Game::checkQuestionBlockHit(Mario& character) {
         // item (kDispenserBlockItems en vez de kQuestionBlockItems).
         const bool isDispenser = level_.isDispenserTile(col, row);
         if (!isQuestion && !isDispenser) continue;
+        // Golpe "sordo" de cualquier bloque desde abajo (ver
+        // checkBrickBlockHit): suena SIEMPRE, incluso ya usado/gastado (a
+        // diferencia de la sacudida/item, que se cortan del todo una vez
+        // usado, ver mas abajo) -- pedido del usuario.
+        audio_.play(Sfx::Bump);
         const bool used = isQuestion ? level_.isQuestionUsed(col, row) : level_.isDispenserUsed(col, row);
         // Una vez usado (ya tiro su ultimo item) deja de reaccionar del
-        // todo, ni siquiera se sacude -- a pedido del usuario, distinto de
-        // como arranco esto (que se sacudia siempre, este comentario viejo
-        // asumia que asi era en el original).
+        // todo (nada de sacudida ni item) -- a pedido del usuario, distinto
+        // de como arranco esto (que se sacudia siempre, este comentario
+        // viejo asumia que asi era en el original).
         if (used) return;
         BlockBump* bump = startBlockBump(col, row);
         // maxHits (ver QuestionBlockSpawn): 1 en casi todos, pero un bloque
@@ -2041,8 +2105,10 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
         ++coinCount_;
         blockCoin_.spawn(blockX + (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f,
                           blockTopY);
+        audio_.play(Sfx::Coin);
         return;
     }
+    audio_.play(Sfx::Item);
 
     // Mushroom/FireFlower/Star: ninguno tiene animacion de emerger propia
     // (ningun otro item/enemigo del elenco la tiene tampoco), asi que
@@ -2205,6 +2271,14 @@ void Game::update(float dt) {
     mario_.update(dt, input1_, level_);
     checkBrickBlockHit(mario_);
     checkQuestionBlockHit(mario_);
+    checkPipeWarp(mario_, input1_);
+    if (mario_.consumeJumpRequest()) {
+        audio_.play(mario_.size() == MarioSize::Small ? Sfx::JumpSmall : Sfx::Jump);
+    }
+    // stompswim.wav (Sfx::StompKill) es el mismo sonido para pisar/matar un
+    // enemigo Y cada brazada nadando (ver el comentario en Game::init()) --
+    // esta es la parte de nadar, no implementada hasta ahora.
+    if (mario_.consumeSwimStrokeSoundRequest()) audio_.play(Sfx::StompKill);
     // Solo se llega aca muriendo en 2P con el otro todavia vivo (en 1P o en
     // "murieron los dos" ya se atendio arriba): reaparece en la plataforma
     // mas cercana en vez del spawn del nivel, sin pausar nada.
@@ -2216,6 +2290,11 @@ void Game::update(float dt) {
         luigi_.update(dt, input2_, level_);
         checkBrickBlockHit(luigi_);
         checkQuestionBlockHit(luigi_);
+        checkPipeWarp(luigi_, input2_);
+        if (luigi_.consumeJumpRequest()) {
+            audio_.play(luigi_.size() == MarioSize::Small ? Sfx::JumpSmall : Sfx::Jump);
+        }
+        if (luigi_.consumeSwimStrokeSoundRequest()) audio_.play(Sfx::StompKill);
         if (luigi_.consumeDeathFinished()) {
             respawnNearestPlatform(luigi_);
         }
@@ -2419,6 +2498,7 @@ void Game::update(float dt) {
         for (BowserFire& fire : bowserFires_) {
             if (fire.isAlive()) continue;
             fire.spawn(bowser_.fireOriginX(), bowser_.fireOriginY(), bowser_.fireVelocityX(), bowser_.fireMaxY());
+            audio_.play(Sfx::BowserFire);
             break;
         }
     }
@@ -2450,6 +2530,12 @@ void Game::update(float dt) {
     const std::array<Koopa*, 5> koopas{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
     for (Koopa* koopa : koopas) {
         koopa->update(dt, level_, kLogicalHeight);
+        // Solo el caparazon en movimiento rebotando contra una pared suena
+        // (caminando/saltando tambien rebotan, pero en silencio, como en el
+        // original) -- pedido del usuario.
+        if (koopa->consumeWallBounceRequest() && koopa->isMovingShell()) {
+            audio_.play(Sfx::Bump);
+        }
         checkKoopaCollision(mario_, *koopa, marioPrevY);
         if (twoPlayerMode_) checkKoopaCollision(luigi_, *koopa, luigiPrevY);
         checkShellVsGoomba(*koopa);
@@ -2504,6 +2590,7 @@ void Game::update(float dt) {
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
+        if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
         checkFireballGoombaCollision(fireball);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
         checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
@@ -2525,6 +2612,7 @@ void Game::update(float dt) {
         trySpawnFireball(luigi_, luigiFireballs_);
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, level_.widthPixels());
+        if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
             checkFireballGoombaCollision(fireball);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
             checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
@@ -2560,6 +2648,7 @@ void Game::render() {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
     level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
+    level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
     // bloques (ver el comentario del usuario): mientras esta "emergiendo"
     // (ItemEmerge) el bloque tiene que quedar tapandolo, no al reves. No
@@ -2764,6 +2853,7 @@ void Game::run() {
 }
 
 void Game::shutdown() {
+    audio_.shutdown();  // antes de SDL_Quit() -- ver el comentario en SoundManager.h
     if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);
     IMG_Quit();

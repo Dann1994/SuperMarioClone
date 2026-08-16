@@ -313,6 +313,7 @@ void Mario::updateVertical(float dt, Input& input) {
         if (input.consumePress(Action::Jump)) {
             velY_ = kSwimStrokeImpulse;
             swimStrokeBoostTimer_ = kSwimStrokeBoostDuration;
+            swimStrokeSoundRequested_ = true;
         }
         velY_ = std::clamp(velY_ + kSwimGravity * dt, kSwimMaxRiseSpeed, kSwimMaxSinkSpeed);
         return;
@@ -336,6 +337,7 @@ void Mario::updateVertical(float dt, Input& input) {
     if (grounded_ && jumpPressed) {
         velY_ = -(fastArc ? kRunJumpImpulse : kJumpImpulse);
         grounded_ = false;
+        jumpRequested_ = true;
     }
 
     // Salto de altura variable: mientras se sube y se mantiene el boton,
@@ -511,7 +513,6 @@ void Mario::updateAnimation(float dt, const Input& input) {
     const bool skidding = grounded_ &&
         ((velX_ > kSkidVelocityThreshold && pressingLeft) ||
          (velX_ < -kSkidVelocityThreshold && pressingRight));
-
     if (!grounded_) {
         animState_ = MarioAnim::Jump;
     } else if (skidding) {

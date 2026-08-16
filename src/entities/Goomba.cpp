@@ -24,11 +24,12 @@ void Goomba::squish() {
     velY_ = 0.0f;
 }
 
-void Goomba::killFalling(bool flyRight) {
-    if (!alive_ || squished_ || falling_) return;
+bool Goomba::killFalling(bool flyRight) {
+    if (!alive_ || squished_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 void Goomba::update(float dt, const Tilemap& level, int screenHeight) {

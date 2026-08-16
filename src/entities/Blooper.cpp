@@ -20,11 +20,12 @@ void Blooper::reset() {
     falling_ = false;
 }
 
-void Blooper::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool Blooper::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 void Blooper::backToResting() {

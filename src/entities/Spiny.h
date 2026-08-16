@@ -61,7 +61,7 @@ public:
 
     // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
     // flyRight, igual que el Goomba.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
     // Al cruzarse con otro Spiny caminando (Game::checkSpinyBounce): mismo
     // efecto que chocar una pared, invierte direccion, mas un empuje pushX
     // para separarlos y que no queden rebotando en el mismo lugar.
@@ -83,7 +83,7 @@ private:
     static constexpr float kMaxFallSpeed = 300.0f;
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
     float x_ = 0.0f;

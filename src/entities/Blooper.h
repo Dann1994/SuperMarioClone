@@ -75,7 +75,7 @@ public:
     // Pisoton, estrella o fuego: cualquiera lo mata igual (ver el
     // comentario de la clase), se da vuelta y sale disparado en parabola
     // hacia flyRight.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -100,7 +100,7 @@ private:
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kGravity = 1000.0f;
     static constexpr float kMaxFallSpeed = 300.0f;
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
     void applyHorizontalWithWallBounce(float dt, const Tilemap& level);

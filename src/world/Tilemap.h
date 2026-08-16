@@ -17,7 +17,12 @@
 // dispensador (ver isDispenserTile) y '.' es vacio. El editor (seccion 7 de
 // la especificacion) va a reemplazar/ampliar este formato con identidad de
 // nivel, tiles graficos, enemigos, etc. sin cambiar como el juego consume
-// el archivo (misma carpeta /levels).
+// el archivo (misma carpeta /levels). 'T' es tuberia (ver isPipeTile):
+// siempre se coloca en pares de 2 columnas de ancho (como en el original),
+// cualquier alto -- esta clase deduce sola cual es el "caño" (izquierda vs
+// derecha) y cual es el "tope" (la fila de mas arriba de un tramo vertical
+// contiguo de 'T') mirando los vecinos, no hace falta un caracter distinto
+// para cada parte.
 class Tilemap {
 public:
     bool loadFromFile(const std::string& path);
@@ -98,6 +103,21 @@ public:
     int dispenserHitCount(int col, int row) const;
     void incrementDispenserHit(int col, int row);
 
+    // Tuberia ('T', seccion 5.3): siempre solida, nunca se rompe. Se coloca
+    // en el JSON como un bloque de 2 columnas de ancho x N filas de alto,
+    // sin distinguir tope/cuerpo/izquierda/derecha con el caracter -- estas
+    // consultas lo deducen mirando los vecinos:
+    //  - isPipeTopTile: la fila de mas arriba de un tramo vertical contiguo
+    //    (arriba no hay otra 'T') -- ahi es donde Game::checkPipeWarp
+    //    detecta que el personaje esta parado para poder entrar.
+    //  - isPipeLeftHalf: existe una 'T' a la derecha (col+1) -- si no, es la
+    //    mitad derecha (existe una 'T' a la izquierda). No da resultados
+    //    utiles en una tuberia mal formada (ancho != 2), el nivel de prueba
+    //    tiene que respetar el par de columnas.
+    bool isPipeTile(int col, int row) const;
+    bool isPipeTopTile(int col, int row) const;
+    bool isPipeLeftHalf(int col, int row) const;
+
     // Separado en dos pasadas (en vez de un solo render()) para que
     // Game.cpp pueda dibujar los items que salen de un bloque JUSTO en el
     // medio (ver el comentario del usuario: el item tiene que quedar
@@ -132,6 +152,13 @@ public:
                        const SpriteSheet* questionSprite = nullptr, int questionAnimFrame = 0,
                        const SpriteSheet* coinSprite = nullptr, int coinAnimFrame = 0) const;
 
+    // Tuberia: sprite propio (una fila por WorldType, 2 columnas -- 0 =
+    // tope, 1 = cuerpo -- de 32x16 cada una, dos tiles de ancho de una sola
+    // vez, ver el comentario de isPipeTile) en vez del rectangulo plano del
+    // terreno. Dibuja una sola vez por par de columnas (se salta la mitad
+    // derecha, ya se dibujo junto con la izquierda).
+    void renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX = 0.0f) const;
+
     // Columna fija del frame "usado" en question_block.png (ver el
     // comentario de render()): las primeras kQuestionUsedFrame columnas son
     // la animacion sin usar.
@@ -152,4 +179,5 @@ private:
     std::vector<uint8_t> dispenser_;     // row-major, 1 = ladrillo dispensador ('D')
     std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
     std::vector<uint8_t> dispenserHits_; // row-major, cuantas veces lo golpearon hasta ahora
+    std::vector<uint8_t> pipe_;          // row-major, 1 = tuberia ('T')
 };

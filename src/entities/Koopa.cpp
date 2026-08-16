@@ -78,13 +78,14 @@ void Koopa::kick(bool kickRight, const void* character) {
     stompCooldownOwner_ = character;
 }
 
-void Koopa::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool Koopa::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
     animTimer_ = 0.0f;
     animFrame_ = 0;
+    return true;
 }
 
 bool Koopa::applyVerticalPhysics(float dt, const Tilemap& level, int hitboxHeight) {
@@ -142,6 +143,7 @@ void Koopa::applyHorizontalWithWallBounce(float dt, const Tilemap& level, int hi
     if (blocked) {
         velX_ = -velX_;
         lastFacingRight_ = velX_ > 0.0f;
+        wallBounceRequested_ = true;
     } else {
         x_ = newX;
     }

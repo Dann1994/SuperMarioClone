@@ -25,11 +25,12 @@ void Lakitu::reset() {
     throwRequested_ = false;
 }
 
-void Lakitu::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool Lakitu::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 bool Lakitu::consumeThrowRequest() {

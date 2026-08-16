@@ -86,7 +86,7 @@ public:
     // Estrella: se da vuelta y sale disparado en parabola hacia flyRight,
     // sin colision, hasta salir de pantalla (igual que Goomba/Koopa). El
     // fuego NO llega a llamar esto (ver el comentario de la clase).
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
     // Al cruzarse con otro enemigo (Game::checkGoombaBuzzyBeetleBounce/
     // checkKoopaBuzzyBeetleBounce): mismo efecto que chocar una pared.
     void bounceOffEnemy(float pushX) {
@@ -110,7 +110,7 @@ private:
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;
     static constexpr float kShellIdleDuration = 8.0f;
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
     static constexpr float kPostStompCooldown = 0.4f;
 

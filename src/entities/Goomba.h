@@ -58,7 +58,7 @@ public:
     // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
     // flyRight (true = derecha, false = izquierda -- el lado contrario de
     // donde vino el golpe), sin colision, hasta salir de pantalla.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -73,7 +73,7 @@ private:
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;  // s por frame de caminata
     static constexpr float kSquishDuration = 0.5f;      // s achatado antes de desaparecer
-    static constexpr float kFallKillHopImpulse = -120.0f;      // px/s, saltito al darse vuelta, antes de caer
+    static constexpr float kFallKillHopImpulse = -180.0f;      // px/s, saltito al darse vuelta, antes de caer
     static constexpr float kFallKillHorizontalSpeed = 60.0f;   // px/s, empuje horizontal constante de la parabola
 
     float x_ = 0.0f;

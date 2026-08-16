@@ -45,13 +45,14 @@ void HammerBro::reset() {
     throwRequested_ = false;
 }
 
-void HammerBro::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool HammerBro::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
     animTimer_ = 0.0f;
     animFrame_ = 0;
+    return true;
 }
 
 void HammerBro::faceTowards(float targetX) {

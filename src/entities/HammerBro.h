@@ -70,7 +70,7 @@ public:
     // Pisoton, estrella o fuego: cualquiera lo mata igual (ver el
     // comentario de la clase), se da vuelta y sale disparado en parabola
     // hacia flyRight.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
     // Al cruzarse con otro enemigo: mismo efecto que chocar una pared
     // (hacia donde mira no se toca, ver faceTowards()).
     void bounceOffEnemy(float pushX) {
@@ -144,7 +144,7 @@ private:
     static constexpr float kThrowWindupDuration = 0.18f;
     static constexpr float kHammerSpeedX = 50.0f;        // px/s horizontal del martillo, hacia donde mira
     static constexpr float kHammerSpeedY = -270.0f;      // px/s vertical inicial del martillo (arco hacia arriba)
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
     float x_ = 0.0f;

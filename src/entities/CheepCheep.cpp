@@ -31,11 +31,12 @@ void CheepCheep::reset() {
     falling_ = false;
 }
 
-void CheepCheep::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool CheepCheep::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 void CheepCheep::updateSwimming(float dt, int screenWidth) {

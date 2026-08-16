@@ -17,11 +17,12 @@ void BulletBill::reset() {
     falling_ = false;
 }
 
-void BulletBill::killFalling(bool flyRight) {
-    if (!alive_ || falling_) return;
+bool BulletBill::killFalling(bool flyRight) {
+    if (!alive_ || falling_) return false;
     falling_ = true;
     velX_ = flyRight ? kFallKillHorizontalSpeed : -kFallKillHorizontalSpeed;
     velY_ = kFallKillHopImpulse;
+    return true;
 }
 
 void BulletBill::update(float dt, int screenWidth, int screenHeight) {

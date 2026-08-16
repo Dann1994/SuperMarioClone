@@ -73,10 +73,34 @@ public:
     // Game la llama solo si realmente se pudo instanciar la bola de fuego
     // (si los 2 slots ya estaban ocupados, no se reproduce la pose de tirar).
     void playThrowAnimation();
+    // true una sola vez el frame en que arranca un salto de verdad (parado y
+    // se apreto el boton -- no en cada frame que sigue en el aire), para que
+    // Game.cpp sepa cuando reproducir el sonido de salto (grande o chico
+    // segun size(), no hace falta que esta clase sepa nada de audio). Se
+    // resetea solo, mismo criterio que headBumpedThisFrame().
+    bool consumeJumpRequest() {
+        const bool value = jumpRequested_;
+        jumpRequested_ = false;
+        return value;
+    }
+    // Idem, para el sonido de cada brazada nadando (Underwater, tecla de
+    // saltar): true el frame en que arranca una brazada nueva. Este SI se
+    // consume (un solo golpe, no loop -- cada brazada es corta).
+    bool consumeSwimStrokeSoundRequest() {
+        const bool value = swimStrokeSoundRequested_;
+        swimStrokeSoundRequested_ = false;
+        return value;
+    }
     float x() const { return x_; }
     float y() const { return y_; }
     int width() const { return currentWidth(); }
     int height() const { return currentHeight(); }
+    // Tope del FRAME del sprite (mas arriba que y(), que es el tope del
+    // hitbox -- ver el comentario de kSmallHitboxWidth): lo usa
+    // Game::trySpawnFireball para que la bola de fuego salga de la mano en
+    // vez de a una altura arbitraria (mismo punto de referencia que usa el
+    // original para esto, Player_Y_Position).
+    float spriteTopY() const { return y_ - static_cast<float>(currentSpriteFrameHeight() - currentHeight()); }
     // Altura fija de Mario/Luigi chico (a diferencia de height(), que
     // depende del tamano actual) -- publica porque Blooper.h la usa como
     // distancia de referencia para frenar antes de tocar el piso (ver
@@ -268,6 +292,8 @@ private:
     bool facingRight_ = true;
     MarioSize size_ = MarioSize::Small;
     bool wantsThrow_ = false;
+    bool jumpRequested_ = false;
+    bool swimStrokeSoundRequested_ = false;
     bool isDucking_ = false;
     bool headBumped_ = false;
     int headBumpRow_ = 0;

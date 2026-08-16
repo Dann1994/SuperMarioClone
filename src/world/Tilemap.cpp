@@ -30,19 +30,21 @@ bool Tilemap::loadFromFile(const std::string& path) {
     dispenser_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenserUsed_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenserHits_.assign(static_cast<size_t>(width_) * height_, 0);
+    pipe_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'B' || c == 'C' || c == '?' || c == 'D') ? 1 : 0;
+            solid_[i] = (c == '#' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
             brick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             everBrick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             topCoin_[i] = (c == 'C') ? 1 : 0;
             question_[i] = (c == '?') ? 1 : 0;
             dispenser_[i] = (c == 'D') ? 1 : 0;
+            pipe_[i] = (c == 'T') ? 1 : 0;
         }
     }
 
@@ -173,6 +175,21 @@ void Tilemap::incrementDispenserHit(int col, int row) {
     if (hits < 255) ++hits;
 }
 
+bool Tilemap::isPipeTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return pipe_[row * width_ + col] != 0;
+}
+
+bool Tilemap::isPipeTopTile(int col, int row) const {
+    return isPipeTile(col, row) && !isPipeTile(col, row - 1);
+}
+
+bool Tilemap::isPipeLeftHalf(int col, int row) const {
+    return isPipeTile(col + 1, row);
+}
+
 bool Tilemap::isSolidAtPixel(float x, float y) const {
     if (x < 0.0f || y < 0.0f) {
         return false;
@@ -192,11 +209,11 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, f
     SDL_SetRenderDrawColor(renderer, 151, 87, 40, 255);
     for (int row = 0; row < height_; ++row) {
         for (int col = 0; col < width_; ++col) {
-            // Los ladrillos (normales y dispensadores) y bloques de
-            // interrogacion se dibujan aparte con sprite propio en
-            // renderBlocks() -- no como este rectangulo plano.
+            // Los ladrillos (normales y dispensadores), bloques de
+            // interrogacion y tuberias se dibujan aparte con sprite propio
+            // (renderBlocks/renderPipes) -- no como este rectangulo plano.
             if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
-                isDispenserTile(col, row)) {
+                isDispenserTile(col, row) || isPipeTile(col, row)) {
                 continue;
             }
             SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_, tileSize_, tileSize_};
@@ -275,6 +292,20 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
                 coinSprite->draw(renderer, worldRow, coinAnimFrame, col * tileSize_ - camOffset,
                                   (row - 1) * tileSize_, false);
             }
+        }
+    }
+}
+
+void Tilemap::renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX) const {
+    const int camOffset = static_cast<int>(std::lround(cameraX));
+    for (int row = 0; row < height_; ++row) {
+        for (int col = 0; col < width_; ++col) {
+            // Solo se dibuja desde la mitad IZQUIERDA (ver isPipeLeftHalf):
+            // el frame ya cubre las dos columnas de una sola vez (32px de
+            // ancho), dibujarlo tambien desde la derecha lo duplicaria.
+            if (!isPipeTile(col, row) || !isPipeLeftHalf(col, row)) continue;
+            const int frame = isPipeTopTile(col, row) ? 0 : 1;  // 0 = tope, 1 = cuerpo
+            pipeSprite.draw(renderer, worldRow, frame, col * tileSize_ - camOffset, row * tileSize_, false);
         }
     }
 }

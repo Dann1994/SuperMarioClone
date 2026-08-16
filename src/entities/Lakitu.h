@@ -79,7 +79,7 @@ public:
     // Pisoton, estrella o fuego: cualquiera lo mata igual (ver el
     // comentario de la clase), se da vuelta y sale disparado en parabola
     // hacia flyRight.
-    void killFalling(bool flyRight);
+    bool killFalling(bool flyRight);
 
     // Mientras esta en el "amague" (ver kThrowWindupDuration): se agacha
     // hacia el huevo un instante antes de tirarlo de verdad (columna 0 del
@@ -128,7 +128,7 @@ private:
     static constexpr float kSpawnAboveOffset = 10.0f;      // px por encima de la cabeza donde aparece el huevo (ver throwOriginY)
     static constexpr float kGravity = 1000.0f;
     static constexpr float kMaxFallSpeed = 300.0f;
-    static constexpr float kFallKillHopImpulse = -120.0f;
+    static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
     float x_ = 0.0f;
