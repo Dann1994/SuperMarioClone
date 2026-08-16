@@ -62,7 +62,27 @@ constexpr int kDispenserBlockRow = 10;
 constexpr QuestionBlockSpawn kDispenserBlockItems[] = {
     {19, kDispenserBlockRow, BlockItem::Mushroom},
     {22, kDispenserBlockRow, BlockItem::Star},
+    // Ladrillo "de varias monedas" (pedido del usuario): 10 golpes en vez
+    // de 1 (ver QuestionBlockSpawn::maxHits) -- el numero clasico que se le
+    // atribuye a este tipo de bloque en el original de 1985, aunque ahi en
+    // realidad es un limite de TIEMPO entre golpes, no de cantidad fija.
+    {25, kDispenserBlockRow, BlockItem::Coin, 10},
 };
+
+// Busca la configuracion (item + maxHits) de la celda (col, row) en ambas
+// tablas de arriba -- lo usan tanto Game::checkQuestionBlockHit (para saber
+// maxHits sin duplicar la busqueda) como Game::spawnItemFromQuestionBlock
+// (para saber que item tirar). nullptr si esa celda no esta configurada en
+// ninguna (no deberia pasar con los tiles '?'/'D' del nivel actual).
+const QuestionBlockSpawn* findBlockSpawn(int col, int row) {
+    for (const QuestionBlockSpawn& entry : kQuestionBlockItems) {
+        if (entry.col == col && entry.row == row) return &entry;
+    }
+    for (const QuestionBlockSpawn& entry : kDispenserBlockItems) {
+        if (entry.col == col && entry.row == row) return &entry;
+    }
+    return nullptr;
+}
 constexpr float kQuestionBlockAnimFrameDuration = 0.2f;  // s por frame del brillo (3 frames)
 
 // Goomba y Koopas de prueba: el nivel de enemigos tiene paredes en los dos
@@ -1913,16 +1933,26 @@ void Game::checkQuestionBlockHit(Mario& character) {
         const bool isDispenser = level_.isDispenserTile(col, row);
         if (!isQuestion && !isDispenser) continue;
         const bool used = isQuestion ? level_.isQuestionUsed(col, row) : level_.isDispenserUsed(col, row);
-        // Una vez usado (ya tiro su item) deja de reaccionar del todo, ni
-        // siquiera se sacude -- a pedido del usuario, distinto de como
-        // arranco esto (que se sacudia siempre, este comentario viejo
+        // Una vez usado (ya tiro su ultimo item) deja de reaccionar del
+        // todo, ni siquiera se sacude -- a pedido del usuario, distinto de
+        // como arranco esto (que se sacudia siempre, este comentario viejo
         // asumia que asi era en el original).
         if (used) return;
         BlockBump* bump = startBlockBump(col, row);
+        // maxHits (ver QuestionBlockSpawn): 1 en casi todos, pero un bloque
+        // "de N monedas" (kDispenserBlockItems, item Coin con maxHits>1)
+        // sigue reaccionando hasta agotar sus golpes -- recien en el ultimo
+        // se marca usado para siempre (mismo criterio que antes para
+        // maxHits=1: el primer golpe YA es el ultimo).
+        const QuestionBlockSpawn* config = findBlockSpawn(col, row);
+        const int maxHits = config != nullptr ? config->maxHits : 1;
+        const int hitsSoFar = isQuestion ? level_.questionHitCount(col, row) : level_.dispenserHitCount(col, row);
         if (isQuestion) {
-            level_.markQuestionUsed(col, row);
+            level_.incrementQuestionHit(col, row);
+            if (hitsSoFar + 1 >= maxHits) level_.markQuestionUsed(col, row);
         } else {
-            level_.markDispenserUsed(col, row);
+            level_.incrementDispenserHit(col, row);
+            if (hitsSoFar + 1 >= maxHits) level_.markDispenserUsed(col, row);
         }
         killEnemyOnTopOfTile(col, row);
         // Estilo Super Mario Bros. 3: el item sale hacia el lado OPUESTO
@@ -1950,25 +1980,9 @@ void Game::checkQuestionBlockHit(Mario& character) {
 }
 
 void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
-    BlockItem item = BlockItem::Coin;
-    bool found = false;
-    for (const QuestionBlockSpawn& entry : kQuestionBlockItems) {
-        if (entry.col == col && entry.row == row) {
-            item = entry.item;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        for (const QuestionBlockSpawn& entry : kDispenserBlockItems) {
-            if (entry.col == col && entry.row == row) {
-                item = entry.item;
-                found = true;
-                break;
-            }
-        }
-    }
-    if (!found) return;
+    const QuestionBlockSpawn* config = findBlockSpawn(col, row);
+    if (config == nullptr) return;
+    const BlockItem item = config->item;
 
     const int ts = level_.tileSize();
     const float blockX = static_cast<float>(col * ts);

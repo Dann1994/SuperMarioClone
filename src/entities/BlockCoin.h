@@ -31,7 +31,7 @@ public:
     static constexpr int kHeight = 16;
 
 private:
-    static constexpr float kJumpImpulse = -260.0f;  // px/s
+    static constexpr float kJumpImpulse = -340.0f;  // px/s
     static constexpr float kGravity = 1100.0f;       // px/s^2
     static constexpr float kFrameDuration = 0.05f;   // s por frame del giro, rapido
 

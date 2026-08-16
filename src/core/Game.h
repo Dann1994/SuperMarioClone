@@ -113,6 +113,15 @@ struct QuestionBlockSpawn {
     int col;
     int row;
     BlockItem item;
+    // Cuantas veces se puede golpear antes de quedar "usado" para siempre
+    // (ver Tilemap::questionHitCount/dispenserHitCount): 1 por defecto
+    // (todos los items excepto Coin), asi las entradas existentes no
+    // necesitan tocarse. Un bloque "de N monedas" clasico (pedido del
+    // usuario, investigado: en el original de 1985 en realidad es por
+    // tiempo entre golpes, no por cantidad fija -- se simplifica aca a un
+    // numero fijo de golpes, mas facil de parametrizar y de probar) pone
+    // esto en N con item = Coin.
+    int maxHits = 1;
 };
 
 // Cuanto tarda en "salir" del todo un item que emerge de un bloque (ver

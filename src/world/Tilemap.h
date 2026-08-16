@@ -65,17 +65,29 @@ public:
     bool isQuestionTile(int col, int row) const;
     bool isQuestionUsed(int col, int row) const;
     void markQuestionUsed(int col, int row);
+    // Cuantas veces ya lo golpearon (0 la primera vez, antes de marcarlo
+    // usado): a diferencia de isQuestionUsed (que es binario), esto le
+    // permite a Game::checkQuestionBlockHit soportar bloques de "N golpes"
+    // (ver QuestionBlockSpawn::maxHits) sin que esta clase sepa nada de esa
+    // cuenta maxima -- solo lleva la cuenta, Game.cpp decide cuando llamar
+    // markQuestionUsed.
+    int questionHitCount(int col, int row) const;
+    void incrementQuestionHit(int col, int row);
 
     // Ladrillo dispensador ('D'): variante de ladrillo que "actua como el
     // de interrogacion" (pedido del usuario) -- SIEMPRE solido, nunca se
-    // rompe (a diferencia de isBrickTile/breakTile), y tira un item una
-    // sola vez la primera vez que lo golpean, igual que isQuestionTile.
-    // Se dibuja con el mismo sprite de ladrillo normal (ver renderBlocks),
-    // sin frame especial de "usado" -- un ladrillo no tiene forma obvia de
-    // verse "vacio", a diferencia del bloque de interrogacion.
+    // rompe (a diferencia de isBrickTile/breakTile), y tira un item cada vez
+    // que lo golpean hasta agotar sus golpes (ver dispenserHitCount, mismo
+    // criterio de conteo que isQuestionTile/questionHitCount), quedando
+    // "usado" para siempre en el ultimo. Mientras no este usado se dibuja
+    // como un ladrillo normal (ver renderBlocks); usado, con el mismo frame
+    // "vacio" del bloque de interrogacion (Tilemap::kQuestionUsedFrame) --
+    // un ladrillo no tiene forma propia de verse "vacio".
     bool isDispenserTile(int col, int row) const;
     bool isDispenserUsed(int col, int row) const;
     void markDispenserUsed(int col, int row);
+    int dispenserHitCount(int col, int row) const;
+    void incrementDispenserHit(int col, int row);
 
     // Separado en dos pasadas (en vez de un solo render()) para que
     // Game.cpp pueda dibujar los items que salen de un bloque JUSTO en el
@@ -120,7 +132,9 @@ private:
     std::vector<uint8_t> brick_;     // row-major, 1 = ladrillo sin romper ('B')
     std::vector<uint8_t> everBrick_; // row-major, 1 = fue 'B' al cargar el nivel (breakTile no lo toca)
     std::vector<uint8_t> question_;      // row-major, 1 = bloque de interrogacion ('?')
-    std::vector<uint8_t> questionUsed_;  // row-major, 1 = ya lo golpearon una vez
+    std::vector<uint8_t> questionUsed_;  // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
+    std::vector<uint8_t> questionHits_;  // row-major, cuantas veces lo golpearon hasta ahora
     std::vector<uint8_t> dispenser_;     // row-major, 1 = ladrillo dispensador ('D')
-    std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon una vez
+    std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
+    std::vector<uint8_t> dispenserHits_; // row-major, cuantas veces lo golpearon hasta ahora
 };

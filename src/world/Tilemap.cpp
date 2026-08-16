@@ -25,8 +25,10 @@ bool Tilemap::loadFromFile(const std::string& path) {
     everBrick_.assign(static_cast<size_t>(width_) * height_, 0);
     question_.assign(static_cast<size_t>(width_) * height_, 0);
     questionUsed_.assign(static_cast<size_t>(width_) * height_, 0);
+    questionHits_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenser_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenserUsed_.assign(static_cast<size_t>(width_) * height_, 0);
+    dispenserHits_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
@@ -104,6 +106,21 @@ void Tilemap::markQuestionUsed(int col, int row) {
     questionUsed_[row * width_ + col] = 1;
 }
 
+int Tilemap::questionHitCount(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return 0;
+    }
+    return questionHits_[row * width_ + col];
+}
+
+void Tilemap::incrementQuestionHit(int col, int row) {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return;
+    }
+    uint8_t& hits = questionHits_[row * width_ + col];
+    if (hits < 255) ++hits;
+}
+
 bool Tilemap::isDispenserTile(int col, int row) const {
     if (col < 0 || row < 0 || col >= width_ || row >= height_) {
         return false;
@@ -123,6 +140,21 @@ void Tilemap::markDispenserUsed(int col, int row) {
         return;
     }
     dispenserUsed_[row * width_ + col] = 1;
+}
+
+int Tilemap::dispenserHitCount(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return 0;
+    }
+    return dispenserHits_[row * width_ + col];
+}
+
+void Tilemap::incrementDispenserHit(int col, int row) {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return;
+    }
+    uint8_t& hits = dispenserHits_[row * width_ + col];
+    if (hits < 255) ++hits;
 }
 
 bool Tilemap::isSolidAtPixel(float x, float y) const {
