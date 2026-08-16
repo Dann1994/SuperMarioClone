@@ -180,6 +180,10 @@ private:
     static constexpr float kGravityAscend = 540.0f;   // px/s^2, salto sostenido
     static constexpr float kGravityDescend = 1575.0f; // px/s^2, caida / salto cortado
     static constexpr float kJumpImpulse = 260.0f;     // px/s (velocidad inicial hacia arriba)
+    // Un poco mas alto si al saltar ya esta a velocidad maxima de carrera
+    // (kMaxRunSpeed, con Action::Run mantenido) -- a pedido del usuario,
+    // como en el original (correr a fondo da un salto mas alto).
+    static constexpr float kRunJumpImpulse = 275.0f;  // px/s
     static constexpr float kMaxFallSpeed = 300.0f;    // px/s
     static constexpr float kSkidVelocityThreshold = 10.0f; // px/s, minimo para considerar patinada
     static constexpr float kThrowAnimDuration = 0.15f; // segundos que se ve la pose de tirar

@@ -11,7 +11,10 @@
 // de un Koopa, no le tiene miedo a los bordes).
 class Mushroom {
 public:
-    void spawn(float x, float y, bool movingRight);
+    // oneUp: variante 1-UP (suma una vida en vez de crecer, ver
+    // Game::checkMushroomPickup) -- misma fisica, Game.cpp elige el sprite
+    // (mushroomSprite_ u oneUpSprite_) segun isOneUp() al dibujar.
+    void spawn(float x, float y, bool movingRight, bool oneUp = false);
     void update(float dt, const Tilemap& level, int screenWidth);
     // worldRow selecciona la variante de color segun el tipo de mundo (el
     // sheet trae una fila por WorldType, en ese mismo orden).
@@ -19,6 +22,7 @@ public:
     void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
     bool isAlive() const { return alive_; }
     void collect() { alive_ = false; }
+    bool isOneUp() const { return oneUp_; }
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -35,4 +39,5 @@ private:
     float velX_ = 0.0f;
     float velY_ = 0.0f;
     bool alive_ = false;
+    bool oneUp_ = false;
 };

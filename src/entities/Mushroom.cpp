@@ -2,12 +2,13 @@
 
 #include <cmath>
 
-void Mushroom::spawn(float x, float y, bool movingRight) {
+void Mushroom::spawn(float x, float y, bool movingRight, bool oneUp) {
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kSpeed : -kSpeed;
     velY_ = 0.0f;
     alive_ = true;
+    oneUp_ = oneUp;
 }
 
 void Mushroom::update(float dt, const Tilemap& level, int screenWidth) {

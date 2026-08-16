@@ -21,16 +21,29 @@
 // De esas 4, las primeras 2 son boca abierta y las otras 2 boca cerrada
 // (confirmado visualmente: se le nota el colmillo/lengua en las primeras
 // dos, en las otras dos tiene la boca sellada). Normalmente cicla boca
-// abierta (caminando) -- SOLO cierra la boca durante el amague antes de
-// escupir fuego (ver render()), y la vuelve a abrir en el instante que lo
-// escupe: tira un BowserFire (ver BowserFire.h) en linea recta hacia donde
-// esta mirando.
+// abierta (caminando, o en el amague/tiro del martillo -- sin pose propia
+// para eso, mismo criterio que HammerBro que tampoco tiene una) -- SOLO
+// cierra la boca durante el amague antes de escupir fuego (ver render()), y
+// la vuelve a abrir en el instante que lo escupe.
 //
-// A proposito NO tira martillos (a diferencia del Bowser de niveles mas
-// avanzados en el original): a pedido del usuario, un martillo apareciendo
-// cada tanto se sentia como un elemento suelto/no pedido -- este Bowser de
-// prueba se queda con el "moveset" simple del primer encuentro (fuego +
-// salto). Hacia donde MIRA (direccion del fuego) es independiente de hacia
+// En el original, distintos Bowser de distintos mundos tienen distinto
+// "moveset" (los primeros solo escupen fuego, los de mundos mas avanzados
+// tambien tiran martillos como un Hammer Bro -- en algunos, come 6-4, tira
+// tantos martillos que hay que pasar por abajo en vez de saltarlo). Eso se
+// elige con setAttackMode() (ver AttackMode mas abajo), fijo antes del
+// primer spawn(), mismo criterio que Koopa::setColor:
+//   FireOnly   -> solo fuego (BowserFire, ver BowserFire.h), en linea recta.
+//   HammerOnly -> martillos, el MISMO objeto que usa HammerBro (ver
+//                 consumeHammerThrowRequest/hammerOriginX.../Y -- Game.cpp
+//                 es quien lo instancia, mismo patron pull-based que
+//                 HammerBro::consumeThrowRequest) -- Bowser reusa esa
+//                 entidad en vez de tener una propia. A diferencia del
+//                 fuego, no tira uno solo por amague: tira una RAFAGA de
+//                 kHammerBurstCount seguidos, cada kHammerBurstInterval
+//                 (a pedido del usuario).
+//   Both       -> alterna entre fuego (un tiro) y martillo (una rafaga
+//                 entera), nunca dos seguidos del mismo tipo.
+// Hacia donde MIRA (direccion de los ataques) es independiente de hacia
 // donde CAMINA, mismo criterio que HammerBro (ver faceTowards()).
 //
 // Sin pisoton: cualquier contacto hace dano, ni la estrella lo derrota (ver
@@ -42,8 +55,18 @@
 // Axe.h). Cualquiera de las dos usa la misma parabola de "se da vuelta y
 // sale despedido" que el resto del elenco sin arte de muerte propio (no
 // tiene, ver el comentario de arriba).
+enum class BowserAttackMode {
+    FireOnly,
+    HammerOnly,
+    Both,
+};
+
 class Bowser {
 public:
+    // Fijo antes del primer spawn() (ver el comentario de la clase), mismo
+    // criterio que Koopa::setColor.
+    void setAttackMode(BowserAttackMode mode) { attackMode_ = mode; }
+    BowserAttackMode attackMode() const { return attackMode_; }
     void spawn(float x, float y, bool movingRight);
     // Lo desactiva sin ninguna animacion de muerte: para cuando se cambia
     // de escenario de prueba y este no tiene que seguir vivo.
@@ -87,6 +110,14 @@ public:
     // mas arriba del piso real. BowserFire lo usa como tope fijo, no como
     // algo que siga a Bowser durante el vuelo.
     float fireMaxY() const { return groundY_ + static_cast<float>(kHeight); }
+    // Mismo patron pull-based para el martillo (ver HammerOnly/Both en el
+    // comentario de la clase): solo se activa alguna vez si attackMode_ no
+    // es FireOnly.
+    bool consumeHammerThrowRequest();
+    float hammerOriginX() const;
+    float hammerOriginY() const;
+    float hammerVelocityX() const;
+    float hammerVelocityY() const;
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -96,6 +127,8 @@ public:
     static constexpr int kHeight = 32;
 
 private:
+    enum class AttackType { Fire, Hammer };
+
     static constexpr float kWalkSpeed = 15.0f;    // px/s, patrulla lenta
     static constexpr float kPatrolRange = 48.0f;  // px a cada lado del punto de spawn
     static constexpr float kGravity = 1000.0f;  // caida al derrotarlo (killFalling), no toca el salto en vivo
@@ -112,9 +145,15 @@ private:
     static constexpr float kWalkFrameDuration = 0.25f;
     static constexpr float kAttackIntervalMin = 2.0f;
     static constexpr float kAttackIntervalMax = 3.5f;
-    static constexpr float kAttackWindupDuration = 0.4f;   // boca cerrada antes de escupir de verdad
-    static constexpr float kAttackRecoverDuration = 0.3f;  // boca abierta un toque despues de escupir
+    static constexpr float kAttackWindupDuration = 0.4f;   // amague antes de atacar de verdad
+    static constexpr float kAttackRecoverDuration = 0.3f;  // un toque despues del ataque
     static constexpr float kFireSpeedX = 70.0f;
+    static constexpr float kHammerSpeedX = 50.0f;
+    static constexpr float kHammerSpeedY = -270.0f;  // arco hacia arriba, igual que HammerBro
+    // Rafaga de martillos (ver el comentario de la clase): cuantos y cada
+    // cuanto, uno detras del otro.
+    static constexpr int kHammerBurstCount = 8;
+    static constexpr float kHammerBurstInterval = 0.15f;
     // Altura de la boca (medido a pixel contra el sprite, ver el
     // comentario de fireOriginX()): siempre aparece ahi, sin importar hacia
     // donde termine yendo (ver BowserFire::kVerticalShiftPixels/Duration --
@@ -142,7 +181,18 @@ private:
     float attackTimer_ = 0.0f;
     float attackWindupTimer_ = 0.0f;
     float attackRecoverTimer_ = 0.0f;
+    BowserAttackMode attackMode_ = BowserAttackMode::FireOnly;
+    // Que ataque toca esta vez (fijado al arrancar el amague, no cambia
+    // hasta el proximo -- ver el comentario de la clase) y cual le toca
+    // DESPUES (solo relevante con Both, para alternar).
+    AttackType currentAttack_ = AttackType::Fire;
+    AttackType nextAttack_ = AttackType::Fire;
     bool fireRequested_ = false;
+    bool hammerThrowRequested_ = false;
+    // Cuantos le quedan por tirar en la rafaga actual (0 = no esta en
+    // rafaga) y cuanto falta para el proximo (ver kHammerBurstCount/Interval).
+    int hammerBurstRemaining_ = 0;
+    float hammerBurstTimer_ = 0.0f;
     int fireballHits_ = 0;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;

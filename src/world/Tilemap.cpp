@@ -23,16 +23,22 @@ bool Tilemap::loadFromFile(const std::string& path) {
     platform_.assign(static_cast<size_t>(width_) * height_, 0);
     brick_.assign(static_cast<size_t>(width_) * height_, 0);
     everBrick_.assign(static_cast<size_t>(width_) * height_, 0);
+    question_.assign(static_cast<size_t>(width_) * height_, 0);
+    questionUsed_.assign(static_cast<size_t>(width_) * height_, 0);
+    dispenser_.assign(static_cast<size_t>(width_) * height_, 0);
+    dispenserUsed_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'B') ? 1 : 0;
+            solid_[i] = (c == '#' || c == 'B' || c == '?' || c == 'D') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
             brick_[i] = (c == 'B') ? 1 : 0;
             everBrick_[i] = (c == 'B') ? 1 : 0;
+            question_[i] = (c == '?') ? 1 : 0;
+            dispenser_[i] = (c == 'D') ? 1 : 0;
         }
     }
 
@@ -77,6 +83,48 @@ void Tilemap::breakTile(int col, int row) {
     solid_[i] = 0;
 }
 
+bool Tilemap::isQuestionTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return question_[row * width_ + col] != 0;
+}
+
+bool Tilemap::isQuestionUsed(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return questionUsed_[row * width_ + col] != 0;
+}
+
+void Tilemap::markQuestionUsed(int col, int row) {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return;
+    }
+    questionUsed_[row * width_ + col] = 1;
+}
+
+bool Tilemap::isDispenserTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return dispenser_[row * width_ + col] != 0;
+}
+
+bool Tilemap::isDispenserUsed(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return dispenserUsed_[row * width_ + col] != 0;
+}
+
+void Tilemap::markDispenserUsed(int col, int row) {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return;
+    }
+    dispenserUsed_[row * width_ + col] = 1;
+}
+
 bool Tilemap::isSolidAtPixel(float x, float y) const {
     if (x < 0.0f || y < 0.0f) {
         return false;
@@ -84,14 +132,7 @@ bool Tilemap::isSolidAtPixel(float x, float y) const {
     return isSolidTile(static_cast<int>(x) / tileSize_, static_cast<int>(y) / tileSize_);
 }
 
-void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& brickSprite,
-                      int worldRow, float cameraX, const std::vector<SDL_Point>& hiddenBrickTiles) const {
-    auto isHidden = [&](int col, int row) {
-        for (const SDL_Point& p : hiddenBrickTiles) {
-            if (p.x == col && p.y == row) return true;
-        }
-        return false;
-    };
+void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, float cameraX) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     SDL_SetRenderDrawColor(renderer, backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a);
     // El fondo cubre todo el nivel (no solo la pantalla visible): es un
@@ -103,22 +144,15 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const Sp
     SDL_SetRenderDrawColor(renderer, 151, 87, 40, 255);
     for (int row = 0; row < height_; ++row) {
         for (int col = 0; col < width_; ++col) {
-            // Los ladrillos se dibujan aparte con sprite propio, ver mas
-            // abajo -- no como este rectangulo plano.
-            if (!isSolidTile(col, row) || isBrickTile(col, row)) {
+            // Los ladrillos (normales y dispensadores) y bloques de
+            // interrogacion se dibujan aparte con sprite propio en
+            // renderBlocks() -- no como este rectangulo plano.
+            if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
+                isDispenserTile(col, row)) {
                 continue;
             }
             SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_, tileSize_, tileSize_};
             SDL_RenderFillRect(renderer, &tileRect);
-        }
-    }
-
-    for (int row = 0; row < height_; ++row) {
-        for (int col = 0; col < width_; ++col) {
-            if (!isBrickTile(col, row) || isHidden(col, row)) {
-                continue;
-            }
-            brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
         }
     }
 
@@ -133,6 +167,52 @@ void Tilemap::render(SDL_Renderer* renderer, SDL_Color backgroundColor, const Sp
             }
             SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_ + tileSize_ / 2, tileSize_, tileSize_ / 2};
             SDL_RenderFillRect(renderer, &tileRect);
+        }
+    }
+}
+
+void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprite, int worldRow, float cameraX,
+                            const std::vector<SDL_Point>& hiddenBrickTiles, const SpriteSheet* questionSprite,
+                            int questionAnimFrame) const {
+    auto isHidden = [&](int col, int row) {
+        for (const SDL_Point& p : hiddenBrickTiles) {
+            if (p.x == col && p.y == row) return true;
+        }
+        return false;
+    };
+    const int camOffset = static_cast<int>(std::lround(cameraX));
+
+    for (int row = 0; row < height_; ++row) {
+        for (int col = 0; col < width_; ++col) {
+            if (isHidden(col, row)) continue;
+            if (isBrickTile(col, row)) {
+                brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
+            } else if (isDispenserTile(col, row)) {
+                // Usado: mismo frame "vacio" que un bloque de interrogacion
+                // usado (Tilemap::kQuestionUsedFrame), a pedido del usuario
+                // -- asi se nota que ya no tiene item, en vez de seguir
+                // pareciendo un ladrillo cualquiera para siempre. Sin usar
+                // sigue igual a un ladrillo comun (no hay forma de
+                // "adivinar" que tiene algo adentro, como en el original).
+                if (isDispenserUsed(col, row) && questionSprite != nullptr) {
+                    questionSprite->draw(renderer, worldRow, kQuestionUsedFrame, col * tileSize_ - camOffset,
+                                          row * tileSize_, false);
+                } else {
+                    brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
+                }
+            }
+        }
+    }
+
+    if (questionSprite != nullptr) {
+        for (int row = 0; row < height_; ++row) {
+            for (int col = 0; col < width_; ++col) {
+                if (!isQuestionTile(col, row) || isHidden(col, row)) {
+                    continue;
+                }
+                const int frame = isQuestionUsed(col, row) ? kQuestionUsedFrame : questionAnimFrame;
+                questionSprite->draw(renderer, worldRow, frame, col * tileSize_ - camOffset, row * tileSize_, false);
+            }
         }
     }
 }

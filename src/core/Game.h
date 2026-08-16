@@ -6,6 +6,7 @@
 #include <string>
 
 #include "../entities/Axe.h"
+#include "../entities/BlockCoin.h"
 #include "../entities/Blooper.h"
 #include "../entities/Bowser.h"
 #include "../entities/BowserFire.h"
@@ -44,9 +45,12 @@ constexpr int kLogicalHeight = 240;
 constexpr int kMaxFireballsPerPlayer = 2;
 
 // Maximo de martillos en pantalla a la vez (pool, mismo criterio que
-// Fireball): con un solo Hammer Bro de prueba y el intervalo entre tiros
-// (ver HammerBro::kThrowInterval), 2 alcanzan de sobra.
-constexpr int kMaxHammers = 2;
+// Fireball), compartido entre HammerBro (2 alcanzan de sobra, ver
+// HammerBro::kThrowInterval) y la rafaga de Bowser (ver
+// Bowser::kHammerBurstCount -- con intervalo corto entre cada uno,
+// facilmente hay varios en pantalla a la vez antes de que los primeros
+// salgan por el borde).
+constexpr int kMaxHammers = 8;
 
 // Huevos de Spiny en pantalla a la vez (pool, mismo criterio que Hammer):
 // a diferencia del martillo, el Spiny no desaparece solo al eclosionar y
@@ -74,15 +78,63 @@ constexpr int kMaxBrickDebris = 8;
 // Sacudidas de ladrillo (chico golpeandolo sin romperlo) activas a la vez.
 constexpr int kMaxBlockBumps = 2;
 // Cuanto sube y cuanto dura la sacudida (sube y vuelve a bajar en este lapso).
-constexpr float kBumpDuration = 0.16f;
-constexpr float kBumpHeight = 4.0f;
+constexpr float kBumpDuration = 0.22f;
+constexpr float kBumpHeight = 6.0f;
 
 // Una sacudida en curso: que tile y cuanto le queda (ver Game::bumpBrickBlock).
+// hasPendingItem/pendingMovingRight: solo lo usa checkQuestionBlockHit (ver
+// ese comentario) para que el item recien aparezca cuando termina de
+// sacudirse el bloque, en vez de al toque -- bumpBrickBlock (ladrillo comun,
+// sin item) nunca los toca, quedan en false.
 struct BlockBump {
     bool active = false;
     int col = 0;
     int row = 0;
     float timer = 0.0f;
+    bool hasPendingItem = false;
+    bool pendingMovingRight = false;
+};
+
+// Que item le toca a cada bloque de interrogacion (seccion 5.3) en el
+// escenario de Items: uno por item de la fase inicial (5.4), asignado por
+// posicion de tile en vez de una entidad de bloque propia por instancia --
+// el bloque en si (Tilemap::isQuestionTile/isQuestionUsed) no sabe nada de
+// items, es Game::checkQuestionBlockHit quien busca aca cual le toca a la
+// celda que golpearon.
+enum class BlockItem {
+    Mushroom,
+    FireFlower,
+    Star,
+    Coin,
+    OneUp,
+};
+
+struct QuestionBlockSpawn {
+    int col;
+    int row;
+    BlockItem item;
+};
+
+// Cuanto tarda en "salir" del todo un item que emerge de un bloque (ver
+// ItemEmerge mas abajo) -- Mushroom/FireFlower/Star no tienen animacion de
+// emerger propia (ningun otro item/enemigo del elenco la tiene tampoco), asi
+// que Game.cpp la simula moviendolo el mismo de golpeY_ inicial (a la altura
+// del bloque, tapado por el Z-order) hasta su altura final, sin dejar que
+// actualice su propia fisica mientras tanto (ver Game::update). BlockCoin es
+// la excepcion: tiene su propio salto (ver BlockCoin.h), no pasa por aca.
+constexpr float kItemEmergeDuration = 0.3f;
+
+// Item emergiendo de un bloque en este momento (ver el comentario de
+// kItemEmergeDuration) -- uno solo a la vez alcanza para este escenario de
+// prueba (un personaje no puede golpear dos bloques en el mismo instante).
+struct ItemEmerge {
+    bool active = false;
+    BlockItem item = BlockItem::Mushroom;
+    float x = 0.0f;
+    float startY = 0.0f;  // altura del bloque: ahi arranca, tapado por el Z-order
+    float endY = 0.0f;    // altura final de descanso, arriba del bloque
+    float timer = 0.0f;
+    bool movingRight = true;
 };
 
 // Escenarios de prueba (para no amontonar items y enemigos en un solo nivel
@@ -287,6 +339,34 @@ private:
     // mata a cualquier enemigo de prueba parado justo encima del tile
     // (col, row), con la misma parabola que usa el fuego/la estrella.
     void killEnemyOnTopOfTile(int col, int row);
+    // Arranca (o reinicia si ya estaba en curso) la sacudida visual de
+    // blockBumps_ para (col, row) -- extraido de bumpBrickBlock() para que
+    // el bloque de interrogacion/dispensador lo pueda reusar sin duplicar la
+    // logica del pool. Devuelve el slot usado (o nullptr si el pool estaba
+    // lleno) para que checkQuestionBlockHit le pueda dejar cargado el item
+    // pendiente (ver hasPendingItem en BlockBump).
+    BlockBump* startBlockBump(int col, int row);
+
+    // Bloque de interrogacion (seccion 5.3, tambien cubre el dispensador
+    // 'D'): mismo mecanismo de deteccion que el ladrillo
+    // (Mario::headBumpedThisFrame), se sacude y tira el item que le
+    // corresponde a esa celda (ver kQuestionBlockItems/kDispenserBlockItems)
+    // la primera vez que lo golpean, quedando "usado" para siempre
+    // (Tilemap::markQuestionUsed/markDispenserUsed) -- un golpe mas tarde no
+    // hace nada, ni se sacude. El item recien aparece (spawnItemFromQuestionBlock)
+    // cuando termina la sacudida, no al toque -- ver hasPendingItem en BlockBump.
+    void checkQuestionBlockHit(Mario& character);
+    // Que item le toca a la celda (col, row) segun kQuestionBlockItems, y lo
+    // hace aparecer saliendo del bloque (arriba de el, ver el comentario de
+    // la clase) usando la instancia de prueba correspondiente
+    // (mushroom_/fireFlower_/star_/coin_) -- no hay pool, un item por bloque
+    // alcanza para este escenario de prueba. movingRight: hacia donde arranca
+    // movi/endose Mushroom/Star (FireFlower/BlockCoin no se mueven, lo
+    // ignoran) -- estilo Super Mario Bros. 3 en vez del original de 1985
+    // (que siempre iba a la derecha, sin excepcion): sale hacia el lado
+    // OPUESTO de donde vino el golpe, lo decide checkQuestionBlockHit segun
+    // de que lado del bloque esta el personaje que lo golpeo.
+    void spawnItemFromQuestionBlock(int col, int row, bool movingRight);
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -353,10 +433,17 @@ private:
     std::array<Fireball, kMaxFireballsPerPlayer> marioFireballs_;
     std::array<Fireball, kMaxFireballsPerPlayer> luigiFireballs_;
 
-    // Hongo de prueba: todavia no hay bloques de interrogacion que lo
-    // hagan salir, asi que arranca ya puesto en el nivel (F11 lo repone).
+    // Hongo de prueba: sale de su bloque de interrogacion (ver
+    // checkQuestionBlockHit), F11 lo repone igual (sin bloque, cae directo
+    // en su posicion de prueba de siempre) por si hace falta probarlo suelto.
     SpriteSheet mushroomSprite_;
     Mushroom mushroom_;
+
+    // Variante 1-UP del hongo (misma entidad Mushroom, ver
+    // Mushroom::isOneUp): solo cambia el sprite (verde en vez de naranja,
+    // recoloreado a partir de mushroomSprite_) y el efecto al agarrarlo
+    // (suma una vida en vez de crecer, ver checkMushroomPickup).
+    SpriteSheet oneUpSprite_;
 
     // Flor de fuego de prueba, mismo criterio que el hongo (F12 la repone).
     SpriteSheet fireFlowerSprite_;
@@ -366,9 +453,36 @@ private:
     SpriteSheet starSprite_;
     StarItem star_;
 
-    // Moneda de prueba (tecla C la repone).
+    // Moneda de prueba: a diferencia de los otros tres, esta NO sale de
+    // ningun bloque (ver el comentario de spawnItemFromQuestionBlock) --
+    // queda quieta puesta en el piso del escenario de Items, se agarra
+    // caminando. Tecla C la repone en el mismo lugar.
     SpriteSheet coinSprite_;
     Coin coin_;
+
+    // Bloques de interrogacion de prueba (seccion 5.3, escenario de Items):
+    // uno por item de la fase inicial (ver QuestionBlockSpawn/kQuestionBlockItems
+    // en Game.cpp). Animacion compartida por todos los bloques sin usar del
+    // nivel (mismo ciclo, sincronizados, como en el original) en vez de un
+    // timer por celda. itemEmerge_ maneja el "salir del bloque" de
+    // Mushroom/FireFlower/Star (ver el comentario de ItemEmerge).
+    SpriteSheet questionBlockSprite_;
+    float questionBlockAnimTimer_ = 0.0f;
+    int questionBlockAnimFrame_ = 0;
+    ItemEmerge itemEmerge_;
+
+    // La moneda que salta de un bloque (BlockCoin.h, distinta de Coin.h de
+    // arriba -- ver el comentario de spawnItemFromQuestionBlock): tiene su
+    // propio salto, no pasa por itemEmerge_. coinCount_ es el contador
+    // (seccion 6, pieza minima nada mas para esto: no hay guardado ni
+    // 100 monedas = 1UP todavia) que suma cada vez que aparece una, mostrado
+    // en el overlay de debug. livesCount_ es la otra pieza minima de la
+    // seccion 6, sumada por checkMushroomPickup cuando el hongo agarrado es
+    // el 1-UP (ver BlockItem::OneUp).
+    SpriteSheet blockCoinSprite_;
+    BlockCoin blockCoin_;
+    int coinCount_ = 0;
+    int livesCount_ = 0;
 
     // Goomba de prueba (seccion 5.2, primer enemigo), solo en el escenario
     // de enemigos: ese nivel tiene paredes en los dos bordes (ver

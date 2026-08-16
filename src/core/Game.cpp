@@ -20,16 +20,50 @@ constexpr float kMarioSpawnY = 64.0f;
 constexpr float kLuigiSpawnX = 56.0f;
 constexpr float kLuigiSpawnY = 64.0f;
 
-// Nivel de prueba (levels/world1/1-1.json): un item por plataforma, separados
-// para poder probar cada uno sin que se pisen entre si.
+// Posiciones de prueba para soltar cada item SUELTO (teclas F11/F12/F4/C,
+// ver el comentario de mushroom_ en Game.h) sin pasar por su bloque --
+// mismos valores de siempre, separados para poder probar cada uno sin que
+// se pisen entre si.
 constexpr float kMushroomTestX = 88.0f;
 constexpr float kMushroomTestY = 160.0f;
 constexpr float kFireFlowerTestX = 136.0f;
 constexpr float kFireFlowerTestY = 128.0f;
 constexpr float kStarTestX = 168.0f;
 constexpr float kStarTestY = 160.0f;
-constexpr float kCoinTestX = 200.0f;
-constexpr float kCoinTestY = 128.0f;
+// La moneda normal (Coin.h) NO sale de ningun bloque (ver el comentario de
+// spawnItemFromQuestionBlock): esta es donde queda puesta, quieta en el
+// piso del escenario de Items -- lejos de los bloques para no confundirla
+// con la moneda que salta de uno (BlockCoin.h). Tecla C la repone aca mismo.
+constexpr float kCoinTestX = 224.0f;
+constexpr float kCoinTestY = 208.0f;  // 224 (piso) - 16 (Coin::kSize)
+
+// Bloques de interrogacion de prueba (seccion 5.3, ver checkQuestionBlockHit):
+// uno por item de la fase inicial (5.4), todos en la misma fila de
+// test_items.json para que se vean parejos. El item sale centrado sobre el
+// bloque, con el borde de abajo pegado al de arriba (ver
+// spawnItemFromQuestionBlock). El de Coin en realidad dispara BlockCoin
+// (moneda que salta y suma al contador), no la Coin normal de arriba -- ver
+// el comentario de esa funcion.
+constexpr int kQuestionBlockRow = 10;
+constexpr QuestionBlockSpawn kQuestionBlockItems[] = {
+    {3, kQuestionBlockRow, BlockItem::Mushroom},
+    {6, kQuestionBlockRow, BlockItem::FireFlower},
+    {9, kQuestionBlockRow, BlockItem::Star},
+    {12, kQuestionBlockRow, BlockItem::Coin},
+    {15, kQuestionBlockRow, BlockItem::OneUp},
+};
+
+// Igual que kQuestionBlockItems, pero para los ladrillos dispensadores
+// ('D', Tilemap::isDispenserTile) del escenario de Items -- posiciones
+// distintas, sin superponerse con las de arriba, asi que
+// Game::spawnItemFromQuestionBlock puede buscar en ambas tablas sin
+// ambiguedad.
+constexpr int kDispenserBlockRow = 10;
+constexpr QuestionBlockSpawn kDispenserBlockItems[] = {
+    {19, kDispenserBlockRow, BlockItem::Mushroom},
+    {22, kDispenserBlockRow, BlockItem::Star},
+};
+constexpr float kQuestionBlockAnimFrameDuration = 0.2f;  // s por frame del brillo (3 frames)
 
 // Goomba y Koopas de prueba: el nivel de enemigos tiene paredes en los dos
 // bordes (test_enemies.json), asi que pueden arrancar en cualquier punto
@@ -223,6 +257,17 @@ const char* worldTypeName(WorldType type) {
     }
     return "";
 }
+
+// Para el cartel de modo de ataque de Bowser (overlay de debug, solo en su
+// escenario, tecla T lo cicla -- ver BowserAttackMode en Bowser.h).
+const char* bowserAttackModeName(BowserAttackMode mode) {
+    switch (mode) {
+        case BowserAttackMode::FireOnly: return "FUEGO";
+        case BowserAttackMode::HammerOnly: return "MARTILLO";
+        case BowserAttackMode::Both: return "FUEGO+MARTILLO";
+    }
+    return "";
+}
 }  // namespace
 
 bool Game::init() {
@@ -283,6 +328,9 @@ bool Game::init() {
     if (!mushroomSprite_.loadFromFile(renderer_, "assets/sprites/mushroom.png", Mushroom::kSize, Mushroom::kSize)) {
         return false;
     }
+    if (!oneUpSprite_.loadFromFile(renderer_, "assets/sprites/oneup_mushroom.png", Mushroom::kSize, Mushroom::kSize)) {
+        return false;
+    }
     if (!fireFlowerSprite_.loadFromFile(renderer_, "assets/sprites/fire_flower.png", FireFlower::kSize, FireFlower::kSize)) {
         return false;
     }
@@ -323,6 +371,13 @@ bool Game::init() {
         return false;
     }
     if (!brickBlockSprite_.loadFromFile(renderer_, "assets/sprites/brick_block.png", 16, 16)) {
+        return false;
+    }
+    if (!questionBlockSprite_.loadFromFile(renderer_, "assets/sprites/question_block.png", 16, 16)) {
+        return false;
+    }
+    if (!blockCoinSprite_.loadFromFile(renderer_, "assets/sprites/block_coin.png", BlockCoin::kWidth,
+                                        BlockCoin::kHeight)) {
         return false;
     }
     if (!brickDebrisSprite_.loadFromFile(renderer_, "assets/sprites/brick_debris.png", BrickDebris::kSize,
@@ -427,6 +482,8 @@ void Game::startScenario(TestScenario scenario) {
     fireFlower_.collect();
     star_.collect();
     coin_.collect();
+    blockCoin_.reset();
+    itemEmerge_.active = false;
     goomba_.reset();
     koopaA_.reset();
     koopaB_.reset();
@@ -451,10 +508,16 @@ void Game::startScenario(TestScenario scenario) {
     axe_.reset();
 
     if (scenario == TestScenario::Items) {
-        mushroom_.spawn(kMushroomTestX, kMushroomTestY, true);
-        fireFlower_.spawn(kFireFlowerTestX, kFireFlowerTestY);
-        star_.spawn(kStarTestX, kStarTestY, true);
+        // Mushroom/FireFlower/Star/BlockCoin ya no se ponen de entrada:
+        // salen de sus bloques de interrogacion al golpearlos (ver
+        // checkQuestionBlockHit) -- las teclas F11/F12/F4 siguen pudiendo
+        // soltar los primeros tres sueltos para probarlos sin pasar por el
+        // bloque. La moneda normal (Coin.h) SI se pone de entrada: no sale
+        // de ningun bloque, va quieta puesta en el piso (ver el comentario
+        // de kCoinTestX/Y).
         coin_.spawn(kCoinTestX, kCoinTestY);
+        coinCount_ = 0;
+        livesCount_ = 0;
     } else if (scenario == TestScenario::Enemies) {
         goomba_.spawn(kGoombaTestX, kGoombaTestY, true);
         koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
@@ -602,6 +665,20 @@ void Game::processEvents() {
                 bowser_.spawn(kBowserTestX, kBowserTestY, false);
                 axe_.spawn(kAxeTestX, kAxeTestY);
                 for (BowserFire& fire : bowserFires_) fire.reset();
+            } else if (event.key.keysym.scancode == SDL_SCANCODE_T && scenario_ == TestScenario::Bowser) {
+                // Cicla FireOnly -> HammerOnly -> Both -> FireOnly (ver
+                // BowserAttackMode en Bowser.h) y reinicia todo para
+                // probar el modo nuevo desde cero, mismo criterio que la
+                // tecla Y.
+                const BowserAttackMode current = bowser_.attackMode();
+                const BowserAttackMode next = current == BowserAttackMode::FireOnly     ? BowserAttackMode::HammerOnly
+                                               : current == BowserAttackMode::HammerOnly ? BowserAttackMode::Both
+                                                                                          : BowserAttackMode::FireOnly;
+                bowser_.setAttackMode(next);
+                bowser_.spawn(kBowserTestX, kBowserTestY, false);
+                axe_.spawn(kAxeTestX, kAxeTestY);
+                for (BowserFire& fire : bowserFires_) fire.reset();
+                for (Hammer& hammer : hammers_) hammer.reset();
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
             }
@@ -728,6 +805,13 @@ void Game::checkMushroomPickup(Mario& character) {
         character.x() < mushroom_.x() + Mushroom::kSize && character.x() + character.width() > mushroom_.x() &&
         character.y() < mushroom_.y() + Mushroom::kSize && character.y() + character.height() > mushroom_.y();
     if (!overlap) return;
+
+    if (mushroom_.isOneUp()) {
+        ++livesCount_;
+        spawnScorePopup(mushroom_.x(), mushroom_.y(), "1UP");
+        mushroom_.collect();
+        return;
+    }
 
     if (character.size() == MarioSize::Small) {
         character.startGrow();
@@ -1786,15 +1870,13 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     }
 }
 
-void Game::bumpBrickBlock(int col, int row) {
-    killEnemyOnTopOfTile(col, row);
-
+BlockBump* Game::startBlockBump(int col, int row) {
     // Si esta misma celda ya esta sacudiendose, reinicia el timer en vez de
     // agregar una segunda (un solo golpe a la vez tiene sentido visualmente).
     for (BlockBump& bump : blockBumps_) {
         if (bump.active && bump.col == col && bump.row == row) {
             bump.timer = kBumpDuration;
-            return;
+            return &bump;
         }
     }
     for (BlockBump& bump : blockBumps_) {
@@ -1803,11 +1885,139 @@ void Game::bumpBrickBlock(int col, int row) {
         bump.col = col;
         bump.row = row;
         bump.timer = kBumpDuration;
-        return;
+        bump.hasPendingItem = false;
+        bump.pendingMovingRight = false;
+        return &bump;
     }
     // Pool lleno (con kMaxBlockBumps=2 y un solo Mario/Luigi a la vez
     // golpeando bloques, no debería pasar): se pierde esta sacudida, no es
     // grave, solo visual.
+    return nullptr;
+}
+
+void Game::bumpBrickBlock(int col, int row) {
+    killEnemyOnTopOfTile(col, row);
+    startBlockBump(col, row);
+}
+
+void Game::checkQuestionBlockHit(Mario& character) {
+    int row = 0, col0 = 0, col1 = 0;
+    if (!character.headBumpedThisFrame(row, col0, col1)) return;
+
+    for (int col = col0; col <= col1; ++col) {
+        const bool isQuestion = level_.isQuestionTile(col, row);
+        // Ladrillo dispensador ('D', ver Tilemap::isDispenserTile): misma
+        // logica de golpe/item que el bloque de interrogacion, solo cambia
+        // el sprite (se dibuja como ladrillo normal) y de donde saca el
+        // item (kDispenserBlockItems en vez de kQuestionBlockItems).
+        const bool isDispenser = level_.isDispenserTile(col, row);
+        if (!isQuestion && !isDispenser) continue;
+        const bool used = isQuestion ? level_.isQuestionUsed(col, row) : level_.isDispenserUsed(col, row);
+        // Una vez usado (ya tiro su item) deja de reaccionar del todo, ni
+        // siquiera se sacude -- a pedido del usuario, distinto de como
+        // arranco esto (que se sacudia siempre, este comentario viejo
+        // asumia que asi era en el original).
+        if (used) return;
+        BlockBump* bump = startBlockBump(col, row);
+        if (isQuestion) {
+            level_.markQuestionUsed(col, row);
+        } else {
+            level_.markDispenserUsed(col, row);
+        }
+        killEnemyOnTopOfTile(col, row);
+        // Estilo Super Mario Bros. 3: el item sale hacia el lado OPUESTO
+        // de donde vino el golpe (si el personaje esta a la izquierda
+        // del centro del bloque, el item sale hacia la derecha, y
+        // viceversa) -- no siempre a la derecha como en el original de
+        // 1985.
+        const float blockCenterX = static_cast<float>(col * level_.tileSize()) +
+                                    static_cast<float>(level_.tileSize()) / 2.0f;
+        const float characterCenterX = character.x() + static_cast<float>(character.width()) / 2.0f;
+        const bool movingRight = characterCenterX < blockCenterX;
+        // El item recien sale cuando termina de sacudirse (ver el update()
+        // del pool de blockBumps_), no al toque -- a pedido del usuario. Si
+        // el pool estaba lleno (startBlockBump devolvio nullptr, no deberia
+        // pasar con kMaxBlockBumps=2 y un golpe genuino a la vez) sale de
+        // una en vez de perderse.
+        if (bump != nullptr) {
+            bump->hasPendingItem = true;
+            bump->pendingMovingRight = movingRight;
+        } else {
+            spawnItemFromQuestionBlock(col, row, movingRight);
+        }
+        return;
+    }
+}
+
+void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
+    BlockItem item = BlockItem::Coin;
+    bool found = false;
+    for (const QuestionBlockSpawn& entry : kQuestionBlockItems) {
+        if (entry.col == col && entry.row == row) {
+            item = entry.item;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        for (const QuestionBlockSpawn& entry : kDispenserBlockItems) {
+            if (entry.col == col && entry.row == row) {
+                item = entry.item;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) return;
+
+    const int ts = level_.tileSize();
+    const float blockX = static_cast<float>(col * ts);
+    const float blockTopY = static_cast<float>(row * ts);
+
+    // BlockCoin es aparte (ver el comentario de la clase): tiene su propio
+    // salto en vez de pasar por itemEmerge_, y ademas suma al contador --
+    // no es la Coin normal (esa va quieta puesta en el piso del escenario,
+    // ver kCoinTestX/Y).
+    if (item == BlockItem::Coin) {
+        ++coinCount_;
+        blockCoin_.spawn(blockX + (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f,
+                          blockTopY);
+        return;
+    }
+
+    // Mushroom/FireFlower/Star: ninguno tiene animacion de emerger propia
+    // (ningun otro item/enemigo del elenco la tiene tampoco), asi que
+    // itemEmerge_ la simula ella misma en Game::update -- arranca a la
+    // altura del bloque (tapado por el Z-order, ver el comentario de
+    // ItemEmerge) y sube hasta su altura final de descanso.
+    itemEmerge_.active = true;
+    itemEmerge_.item = item;
+    itemEmerge_.x = blockX;
+    itemEmerge_.startY = blockTopY;
+    itemEmerge_.timer = kItemEmergeDuration;
+    itemEmerge_.movingRight = movingRight;
+    switch (item) {
+        case BlockItem::Mushroom:
+            itemEmerge_.endY = blockTopY - static_cast<float>(Mushroom::kSize);
+            mushroom_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight);
+            break;
+        case BlockItem::OneUp:
+            // Mismo hongo, misma fisica (ver Mushroom::isOneUp): solo cambia
+            // el sprite y el efecto al agarrarlo (checkMushroomPickup).
+            itemEmerge_.endY = blockTopY - static_cast<float>(Mushroom::kSize);
+            mushroom_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight, /*oneUp=*/true);
+            break;
+        case BlockItem::FireFlower:
+            itemEmerge_.endY = blockTopY - static_cast<float>(FireFlower::kSize);
+            fireFlower_.spawn(itemEmerge_.x, itemEmerge_.startY);
+            break;
+        case BlockItem::Star:
+            itemEmerge_.endY = blockTopY - static_cast<float>(StarItem::kSize);
+            star_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight);
+            break;
+        case BlockItem::Coin:
+            break;  // ya se manejo arriba, no llega aca
+    }
 }
 
 void Game::spawnScorePopup(float x, float y, const std::string& text) {
@@ -1932,6 +2142,7 @@ void Game::update(float dt) {
 
     mario_.update(dt, input1_, level_);
     checkBrickBlockHit(mario_);
+    checkQuestionBlockHit(mario_);
     // Solo se llega aca muriendo en 2P con el otro todavia vivo (en 1P o en
     // "murieron los dos" ya se atendio arriba): reaparece en la plataforma
     // mas cercana en vez del spawn del nivel, sin pausar nada.
@@ -1942,6 +2153,7 @@ void Game::update(float dt) {
     if (twoPlayerMode_) {
         luigi_.update(dt, input2_, level_);
         checkBrickBlockHit(luigi_);
+        checkQuestionBlockHit(luigi_);
         if (luigi_.consumeDeathFinished()) {
             respawnNearestPlatform(luigi_);
         }
@@ -1950,21 +2162,63 @@ void Game::update(float dt) {
 
     updateCamera(dt);
 
-    mushroom_.update(dt, level_, kLogicalWidth);
-    checkMushroomPickup(mario_);
-    if (twoPlayerMode_) checkMushroomPickup(luigi_);
+    // Emergiendo de un bloque (ver ItemEmerge en Game.h): la reposiciona a
+    // mano interpolando startY->endY en vez de dejarla actualizar su propia
+    // fisica -- recien cuando termina la ventana vuelve a caminar/animarse
+    // sola mas abajo.
+    if (itemEmerge_.active) {
+        itemEmerge_.timer -= dt;
+        const float progress = std::clamp(1.0f - itemEmerge_.timer / kItemEmergeDuration, 0.0f, 1.0f);
+        const float currentY = itemEmerge_.startY + (itemEmerge_.endY - itemEmerge_.startY) * progress;
+        switch (itemEmerge_.item) {
+            case BlockItem::Mushroom:
+                mushroom_.spawn(itemEmerge_.x, currentY, itemEmerge_.movingRight);
+                break;
+            case BlockItem::OneUp:
+                mushroom_.spawn(itemEmerge_.x, currentY, itemEmerge_.movingRight, /*oneUp=*/true);
+                break;
+            case BlockItem::FireFlower:
+                fireFlower_.spawn(itemEmerge_.x, currentY);
+                break;
+            case BlockItem::Star:
+                star_.spawn(itemEmerge_.x, currentY, itemEmerge_.movingRight);
+                break;
+            case BlockItem::Coin:
+                break;  // BlockCoin no pasa por aca, ver spawnItemFromQuestionBlock
+        }
+        if (itemEmerge_.timer <= 0.0f) {
+            itemEmerge_.active = false;
+        }
+    }
 
-    fireFlower_.update(dt);
-    checkFireFlowerPickup(mario_);
-    if (twoPlayerMode_) checkFireFlowerPickup(luigi_);
+    // OneUp comparte la misma instancia mushroom_ (ver Mushroom::isOneUp),
+    // asi que tiene que frenar update()/checkMushroomPickup mientras emerge
+    // igual que Mushroom -- si no, se lo agarra (y desaparece) apenas
+    // aparece, antes de terminar de salir del bloque.
+    if (!(itemEmerge_.active &&
+          (itemEmerge_.item == BlockItem::Mushroom || itemEmerge_.item == BlockItem::OneUp))) {
+        mushroom_.update(dt, level_, kLogicalWidth);
+        checkMushroomPickup(mario_);
+        if (twoPlayerMode_) checkMushroomPickup(luigi_);
+    }
 
-    star_.update(dt, level_, kLogicalWidth);
-    checkStarPickup(mario_);
-    if (twoPlayerMode_) checkStarPickup(luigi_);
+    if (!(itemEmerge_.active && itemEmerge_.item == BlockItem::FireFlower)) {
+        fireFlower_.update(dt);
+        checkFireFlowerPickup(mario_);
+        if (twoPlayerMode_) checkFireFlowerPickup(luigi_);
+    }
+
+    if (!(itemEmerge_.active && itemEmerge_.item == BlockItem::Star)) {
+        star_.update(dt, level_, kLogicalWidth);
+        checkStarPickup(mario_);
+        if (twoPlayerMode_) checkStarPickup(luigi_);
+    }
 
     coin_.update(dt);
     checkCoinPickup(mario_);
     if (twoPlayerMode_) checkCoinPickup(luigi_);
+
+    blockCoin_.update(dt);
 
     goomba_.update(dt, level_, kLogicalHeight);
     checkGoombaCollision(mario_, marioPrevY);
@@ -2094,6 +2348,16 @@ void Game::update(float dt) {
             break;
         }
     }
+    if (bowser_.consumeHammerThrowRequest()) {
+        // Mismo pool que HammerBro (hammers_): el update()/checkHammerCollision
+        // de mas abajo ya recorre este pool sin importar quien tiro cada uno.
+        for (Hammer& hammer : hammers_) {
+            if (hammer.isAlive()) continue;
+            hammer.spawn(bowser_.hammerOriginX(), bowser_.hammerOriginY(), bowser_.hammerVelocityX(),
+                         bowser_.hammerVelocityY());
+            break;
+        }
+    }
     for (BowserFire& fire : bowserFires_) {
         fire.update(dt, kLogicalWidth, kLogicalHeight);
         checkBowserFireCollision(mario_, fire);
@@ -2130,7 +2394,25 @@ void Game::update(float dt) {
     for (BlockBump& bump : blockBumps_) {
         if (!bump.active) continue;
         bump.timer -= dt;
-        if (bump.timer <= 0.0f) bump.active = false;
+        if (bump.timer <= 0.0f) {
+            bump.active = false;
+            // El item recien aparece aca, cuando termina de sacudirse (ver
+            // checkQuestionBlockHit) -- BlockCoin/ItemEmerge arrancan recien
+            // ahora, no al momento del golpe.
+            if (bump.hasPendingItem) {
+                bump.hasPendingItem = false;
+                spawnItemFromQuestionBlock(bump.col, bump.row, bump.pendingMovingRight);
+            }
+        }
+    }
+    // Brillo compartido por todos los bloques de interrogacion sin usar del
+    // nivel (ver el comentario de questionBlockSprite_ en Game.h): mismo
+    // criterio que el resto del elenco (Coin/FireFlower), 3 frames en fila
+    // y vuelve a arrancar.
+    questionBlockAnimTimer_ += dt;
+    if (questionBlockAnimTimer_ >= kQuestionBlockAnimFrameDuration) {
+        questionBlockAnimTimer_ -= kQuestionBlockAnimFrameDuration;
+        questionBlockAnimFrame_ = (questionBlockAnimFrame_ + 1) % 3;
     }
 
     trySpawnFireball(mario_, marioFireballs_);
@@ -2191,7 +2473,20 @@ void Game::render() {
     for (const BlockBump& bump : blockBumps_) {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
-    level_.render(renderer_, backgroundColorFor(worldType_), brickBlockSprite_, worldRow, cameraX_, bumpingTiles);
+    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
+    // Los items que pueden salir de un bloque van ANTES de dibujar los
+    // bloques (ver el comentario del usuario): mientras esta "emergiendo"
+    // (ItemEmerge) el bloque tiene que quedar tapandolo, no al reves. No
+    // afecta a nada mas: una vez que salio del todo no vuelve a superponerse
+    // con el bloque, da igual el orden.
+    mushroom_.render(renderer_, mushroom_.isOneUp() ? oneUpSprite_ : mushroomSprite_, worldRow, cameraX_);
+    fireFlower_.render(renderer_, fireFlowerSprite_, worldRow, cameraX_);
+    star_.render(renderer_, starSprite_, worldRow, cameraX_);
+    coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
+    // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
+    blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
+    level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
+                        questionBlockAnimFrame_);
     const int camOffset = static_cast<int>(std::lround(cameraX_));
     for (const BlockBump& bump : blockBumps_) {
         if (!bump.active) continue;
@@ -2199,13 +2494,28 @@ void Game::render() {
         // pi): 0 al arrancar y al terminar, maximo a la mitad.
         const float progress = 1.0f - bump.timer / kBumpDuration;
         const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
-        brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize() - camOffset,
-                                bump.row * level_.tileSize() + offsetY, false);
+        // Mismo pool para ladrillo y bloque de interrogacion (ver
+        // startBlockBump): hay que fijarse cual de los dos es esta celda
+        // para dibujarla con el sprite/frame que corresponde, en vez de
+        // asumir siempre ladrillo.
+        if (level_.isQuestionTile(bump.col, bump.row)) {
+            const int frame = level_.isQuestionUsed(bump.col, bump.row) ? Tilemap::kQuestionUsedFrame
+                                                                          : questionBlockAnimFrame_;
+            questionBlockSprite_.draw(renderer_, worldRow, frame, bump.col * level_.tileSize() - camOffset,
+                                       bump.row * level_.tileSize() + offsetY, false);
+        } else if (level_.isDispenserTile(bump.col, bump.row) && level_.isDispenserUsed(bump.col, bump.row)) {
+            // Mismo frame "vacio" que un bloque de interrogacion usado (ver
+            // el comentario de Tilemap::renderBlocks) -- se marca usado
+            // antes de que arranque esta sacudida (checkQuestionBlockHit),
+            // asi que se ve asi durante todo el salto, no solo al terminar.
+            questionBlockSprite_.draw(renderer_, worldRow, Tilemap::kQuestionUsedFrame,
+                                       bump.col * level_.tileSize() - camOffset,
+                                       bump.row * level_.tileSize() + offsetY, false);
+        } else {
+            brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize() - camOffset,
+                                    bump.row * level_.tileSize() + offsetY, false);
+        }
     }
-    mushroom_.render(renderer_, mushroomSprite_, worldRow, cameraX_);
-    fireFlower_.render(renderer_, fireFlowerSprite_, worldRow, cameraX_);
-    star_.render(renderer_, starSprite_, worldRow, cameraX_);
-    coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
     goomba_.render(renderer_, goombaSprite_, worldRow, cameraX_);
     koopaA_.render(renderer_, koopaSprite_, worldRow, cameraX_);
     koopaB_.render(renderer_, koopaSprite_, worldRow, cameraX_);
@@ -2248,7 +2558,15 @@ void Game::render() {
     // Una sola paleta (el fuego no cambia de color por WorldType, ver el
     // comentario de BowserFire.h): sin worldRow.
     for (const BowserFire& fire : bowserFires_) fire.render(renderer_, bowserFireSprite_, cameraX_);
-    bowser_.render(renderer_, bowserSprite_, worldRow, cameraX_);
+    // En castillos usa la paleta Overworld en vez de la Castle (nota de la
+    // hoja de referencia: "By default, Bowser uses the Underground palette,
+    // but a trigger... changes it into the Overworld palette" -- aca no
+    // hay trigger de nivel real todavia, asi que directamente arranca con
+    // la Overworld en Castle). En los demas mundos (F7 los sigue pudiendo
+    // ciclar) usa su fila normal como el resto del elenco.
+    const int bowserWorldRow =
+        worldType_ == WorldType::Castle ? static_cast<int>(WorldType::Overworld) : worldRow;
+    bowser_.render(renderer_, bowserSprite_, bowserWorldRow, cameraX_);
     mario_.render(renderer_, cameraX_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
@@ -2270,6 +2588,26 @@ void Game::render() {
         // Cartel de tipo de mundo (F7 lo cicla), para guiarse mientras se
         // prueban las paletas por WorldType de cada item/enemigo.
         DebugFont::drawText(renderer_, 4, 16, worldTypeName(worldType_), 1, SDL_Color{255, 255, 255, 255});
+        if (scenario_ == TestScenario::Bowser) {
+            // Cartel del modo de ataque (tecla T lo cicla), para saber cual
+            // se esta probando sin tener que adivinar mirando el patron.
+            DebugFont::drawText(renderer_, 4, 24, bowserAttackModeName(bowser_.attackMode()), 1,
+                                 SDL_Color{255, 255, 255, 255});
+        }
+        if (scenario_ == TestScenario::Items) {
+            // Contador de monedas (seccion 6, pieza minima nada mas para
+            // esto -- ver coinCount_ en Game.h): solo BlockCoin lo suma, la
+            // Coin normal puesta en el piso todavia no hace nada al
+            // agarrarla.
+            char coinText[24];
+            std::snprintf(coinText, sizeof(coinText), "COINS:%3d", coinCount_);
+            DebugFont::drawText(renderer_, 4, 24, coinText, 1, SDL_Color{255, 255, 255, 255});
+            // livesCount_: ver el comentario en Game.h, suma cuando se
+            // agarra el hongo 1-UP (checkMushroomPickup).
+            char livesText[24];
+            std::snprintf(livesText, sizeof(livesText), "LIVES:%3d", livesCount_);
+            DebugFont::drawText(renderer_, 4, 32, livesText, 1, SDL_Color{255, 255, 255, 255});
+        }
     }
 
     SDL_RenderPresent(renderer_);

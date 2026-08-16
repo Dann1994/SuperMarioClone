@@ -305,7 +305,11 @@ void Mario::updateVertical(float dt, Input& input) {
     // aunque el jugador ya haya soltado el boton.
     const bool jumpPressed = input.consumePress(Action::Jump);
     if (grounded_ && jumpPressed) {
-        velY_ = -kJumpImpulse;
+        // A velocidad maxima de carrera, salto un poco mas alto (ver el
+        // comentario de kRunJumpImpulse) -- 1px/s de margen por si el
+        // acelerado no llega a pisar el maximo exacto por redondeo de dt.
+        const bool atMaxRunSpeed = std::abs(velX_) >= kMaxRunSpeed - 1.0f;
+        velY_ = -(atMaxRunSpeed ? kRunJumpImpulse : kJumpImpulse);
         grounded_ = false;
     }
 

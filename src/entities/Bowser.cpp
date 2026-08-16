@@ -34,7 +34,15 @@ void Bowser::spawn(float x, float y, bool movingRight) {
     attackTimer_ = randomRange(kAttackIntervalMin, kAttackIntervalMax);
     attackWindupTimer_ = 0.0f;
     attackRecoverTimer_ = 0.0f;
+    // Con Both arranca con fuego (da igual cual, se alterna de ahi en mas);
+    // con los otros dos modos siempre es el mismo (ver el comentario de la
+    // clase).
+    nextAttack_ = attackMode_ == BowserAttackMode::HammerOnly ? AttackType::Hammer : AttackType::Fire;
+    currentAttack_ = nextAttack_;
     fireRequested_ = false;
+    hammerThrowRequested_ = false;
+    hammerBurstRemaining_ = 0;
+    hammerBurstTimer_ = 0.0f;
     fireballHits_ = 0;
     animTimer_ = 0.0f;
     animFrame_ = 0;
@@ -44,6 +52,8 @@ void Bowser::reset() {
     alive_ = false;
     falling_ = false;
     fireRequested_ = false;
+    hammerThrowRequested_ = false;
+    hammerBurstRemaining_ = 0;
 }
 
 void Bowser::faceTowards(float targetX) {
@@ -93,6 +103,17 @@ float Bowser::fireOriginX() const {
 float Bowser::fireOriginY() const { return y_ + kFireOriginYOffset; }
 float Bowser::fireVelocityX() const { return lastFacingRight_ ? kFireSpeedX : -kFireSpeedX; }
 
+bool Bowser::consumeHammerThrowRequest() {
+    const bool value = hammerThrowRequested_;
+    hammerThrowRequested_ = false;
+    return value;
+}
+
+float Bowser::hammerOriginX() const { return x_ + static_cast<float>(kWidth) / 2.0f; }
+float Bowser::hammerOriginY() const { return y_; }
+float Bowser::hammerVelocityX() const { return lastFacingRight_ ? kHammerSpeedX : -kHammerSpeedX; }
+float Bowser::hammerVelocityY() const { return kHammerSpeedY; }
+
 void Bowser::update(float dt, int screenHeight) {
     if (!alive_) return;
 
@@ -125,7 +146,7 @@ void Bowser::update(float dt, int screenHeight) {
     }
     const bool grounded = y_ >= groundY_;
 
-    const bool attacking = attackWindupTimer_ > 0.0f || attackRecoverTimer_ > 0.0f;
+    const bool attacking = attackWindupTimer_ > 0.0f || hammerBurstRemaining_ > 0 || attackRecoverTimer_ > 0.0f;
     if (!attacking) {
         // Patrulla dentro de kPatrolRange alrededor del spawn (ver el
         // comentario de la clase): rebota en esos bordes, no en tiles --
@@ -150,6 +171,10 @@ void Bowser::update(float dt, int screenHeight) {
         attackTimer_ -= dt;
         if (attackTimer_ <= 0.0f) {
             attackWindupTimer_ = kAttackWindupDuration;
+            // Se fija recien ahora (no cambia hasta el proximo ciclo, ver
+            // el comentario de la clase) para que render() sepa durante
+            // todo el amague si le toca cerrar la boca o no.
+            currentAttack_ = nextAttack_;
         } else if (grounded && jumpTimer_ <= 0.0f) {
             velY_ = kJumpImpulse;
             jumpTimer_ = randomRange(kJumpIntervalMin, kJumpIntervalMax);
@@ -158,8 +183,43 @@ void Bowser::update(float dt, int screenHeight) {
         attackWindupTimer_ -= dt;
         if (attackWindupTimer_ <= 0.0f) {
             attackWindupTimer_ = 0.0f;
-            fireRequested_ = true;
-            attackRecoverTimer_ = kAttackRecoverDuration;
+            if (currentAttack_ == AttackType::Fire) {
+                fireRequested_ = true;
+                attackRecoverTimer_ = kAttackRecoverDuration;
+            } else {
+                // Rafaga (ver el comentario de la clase): el primero sale
+                // ya, los otros kHammerBurstCount-1 con intervalo (ver la
+                // rama de hammerBurstRemaining_ mas abajo) -- el descanso
+                // post-ataque recien arranca cuando termina toda la rafaga,
+                // no despues de este primero.
+                hammerThrowRequested_ = true;
+                hammerBurstRemaining_ = kHammerBurstCount - 1;
+                hammerBurstTimer_ = kHammerBurstInterval;
+            }
+            // Decide el que le toca al PROXIMO ciclo (ver AttackMode en el
+            // comentario de la clase): con Both alterna, con los otros dos
+            // modos siempre es el mismo.
+            switch (attackMode_) {
+                case BowserAttackMode::FireOnly:
+                    nextAttack_ = AttackType::Fire;
+                    break;
+                case BowserAttackMode::HammerOnly:
+                    nextAttack_ = AttackType::Hammer;
+                    break;
+                case BowserAttackMode::Both:
+                    nextAttack_ = currentAttack_ == AttackType::Fire ? AttackType::Hammer : AttackType::Fire;
+                    break;
+            }
+        }
+    } else if (hammerBurstRemaining_ > 0) {
+        hammerBurstTimer_ -= dt;
+        if (hammerBurstTimer_ <= 0.0f) {
+            hammerThrowRequested_ = true;
+            --hammerBurstRemaining_;
+            hammerBurstTimer_ = kHammerBurstInterval;
+            if (hammerBurstRemaining_ <= 0) {
+                attackRecoverTimer_ = kAttackRecoverDuration;
+            }
         }
     } else {
         attackRecoverTimer_ -= dt;
@@ -176,14 +236,15 @@ void Bowser::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int world
     int col;
     if (falling_) {
         col = 0;  // reusa el frame de caminata 0, boca abajo (ver mas abajo)
-    } else if (attackWindupTimer_ > 0.0f) {
+    } else if (attackWindupTimer_ > 0.0f && currentAttack_ == AttackType::Fire) {
         // Boca cerrada (columnas 2-3, ver el comentario de la clase): solo
-        // en el amague antes de escupir, ningun otro momento.
+        // en el amague antes de escupir fuego, ningun otro momento (el
+        // amague del martillo usa boca abierta, sin pose propia).
         col = 2 + animFrame_;
     } else {
-        // Boca abierta (columnas 0-1): caminando, o ya disparado el fuego
-        // -- la vuelve a abrir justo al escupirlo, se queda asi durante
-        // kAttackRecoverDuration.
+        // Boca abierta (columnas 0-1): caminando, en el amague/tiro del
+        // martillo, o ya disparado el fuego -- la vuelve a abrir justo al
+        // escupirlo, se queda asi durante kAttackRecoverDuration.
         col = animFrame_;
     }
 

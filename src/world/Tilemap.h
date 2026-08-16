@@ -6,14 +6,17 @@
 
 #include "../render/SpriteSheet.h"
 
-// Grilla de tiles solidos/vacios/plataforma/ladrillo cargada desde un JSON.
+// Grilla de tiles solidos/vacios/plataforma/ladrillo/interrogacion cargada
+// desde un JSON.
 //
 // Formato actual (placeholder minimo, mientras no existe el editor de
 // niveles): un array de strings donde '#' es solido, '=' es plataforma (ver
-// isPlatformTile), 'B' es ladrillo rompible (ver isBrickTile) y '.' es
-// vacio. El editor (seccion 7 de la especificacion) va a reemplazar/ampliar
-// este formato con identidad de nivel, tiles graficos, enemigos, etc. sin
-// cambiar como el juego consume el archivo (misma carpeta /levels).
+// isPlatformTile), 'B' es ladrillo rompible (ver isBrickTile), '?' es
+// bloque de interrogacion (ver isQuestionTile), 'D' es ladrillo
+// dispensador (ver isDispenserTile) y '.' es vacio. El editor (seccion 7 de
+// la especificacion) va a reemplazar/ampliar este formato con identidad de
+// nivel, tiles graficos, enemigos, etc. sin cambiar como el juego consume
+// el archivo (misma carpeta /levels).
 class Tilemap {
 public:
     bool loadFromFile(const std::string& path);
@@ -52,25 +55,72 @@ public:
     void breakTile(int col, int row);
     bool isSolidAtPixel(float x, float y) const;
 
+    // Bloque de interrogacion ('?', seccion 5.3): SIEMPRE solido, se rompa o
+    // no se rompa nada (a diferencia del ladrillo, nunca deja de serlo) --
+    // solo cambia de "sin usar" (anima, tira el item) a "usado" (quieto,
+    // fila 4 del sprite, ver Game::checkQuestionBlockHit) la primera vez que
+    // lo golpean, para siempre. Esta clase solo guarda ese estado, no la
+    // logica de que item le toca a cada uno ni cuando dispararlo -- eso es
+    // de Game.cpp, igual que con isBrickTile/breakTile.
+    bool isQuestionTile(int col, int row) const;
+    bool isQuestionUsed(int col, int row) const;
+    void markQuestionUsed(int col, int row);
+
+    // Ladrillo dispensador ('D'): variante de ladrillo que "actua como el
+    // de interrogacion" (pedido del usuario) -- SIEMPRE solido, nunca se
+    // rompe (a diferencia de isBrickTile/breakTile), y tira un item una
+    // sola vez la primera vez que lo golpean, igual que isQuestionTile.
+    // Se dibuja con el mismo sprite de ladrillo normal (ver renderBlocks),
+    // sin frame especial de "usado" -- un ladrillo no tiene forma obvia de
+    // verse "vacio", a diferencia del bloque de interrogacion.
+    bool isDispenserTile(int col, int row) const;
+    bool isDispenserUsed(int col, int row) const;
+    void markDispenserUsed(int col, int row);
+
+    // Separado en dos pasadas (en vez de un solo render()) para que
+    // Game.cpp pueda dibujar los items que salen de un bloque JUSTO en el
+    // medio (ver el comentario del usuario: el item tiene que quedar
+    // tapado por el bloque mientras "emerge", no encima) -- primero el
+    // terreno (fondo + tiles solidos + plataformas, renderTerrain), despues
+    // los items, despues los bloques (ladrillo/interrogacion, renderBlocks)
+    // que quedan arriba de todo tapando lo que haga falta.
+    //
+    // cameraX: cuanto se desplazo la camara (ver Game::cameraX_) -- se
+    // resta a la posicion en X antes de dibujar, mismo criterio que el
+    // resto del elenco (entidades/render()).
+    void renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, float cameraX = 0.0f) const;
+
     // brickSprite/worldRow: los tiles de ladrillo se dibujan con sprite
     // propio (una fila por WorldType, mismo criterio que el resto del
-    // elenco) en vez del rectangulo plano que usan '#'/'='. cameraX: cuanto
-    // se desplazo la camara (ver Game::cameraX_) -- se resta a la posicion
-    // en X de cada tile antes de dibujar, mismo criterio que el resto del
-    // elenco (entidades/render()). hiddenBrickTiles: ladrillos que Game.cpp
-    // esta dibujando el sola aparte, desplazados (ver Game::checkBrickBlockHit,
-    // sacudida al golpearlo chico sin romperlo) -- esta funcion los salta
-    // aca para no dibujarlos dos veces (uno quieto atras y otro desplazado
-    // encima).
-    void render(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& brickSprite, int worldRow,
-                float cameraX = 0.0f, const std::vector<SDL_Point>& hiddenBrickTiles = {}) const;
+    // elenco) en vez del rectangulo plano que usaban en el terreno.
+    // hiddenBrickTiles: ladrillos que Game.cpp esta dibujando el sola
+    // aparte, desplazados (ver Game::checkBrickBlockHit, sacudida al
+    // golpearlo chico sin romperlo) -- esta funcion los salta aca para no
+    // dibujarlos dos veces (uno quieto atras y otro desplazado encima).
+    // questionSprite/questionAnimFrame: mismo criterio para los bloques de
+    // interrogacion sin usar (los usados van siempre en la columna fija
+    // kQuestionUsedFrame, sin animar) -- tambien se saltan los que esten en
+    // hiddenBrickTiles (mismo pool de sacudida que el ladrillo, ver
+    // Game::startBlockBump).
+    void renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprite, int worldRow, float cameraX = 0.0f,
+                       const std::vector<SDL_Point>& hiddenBrickTiles = {},
+                       const SpriteSheet* questionSprite = nullptr, int questionAnimFrame = 0) const;
+
+    // Columna fija del frame "usado" en question_block.png (ver el
+    // comentario de render()): las primeras kQuestionUsedFrame columnas son
+    // la animacion sin usar.
+    static constexpr int kQuestionUsedFrame = 3;
 
 private:
     int tileSize_ = 16;
     int width_ = 0;
     int height_ = 0;
-    std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#' o 'B' sin romper)
+    std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')
     std::vector<uint8_t> platform_;  // row-major, 1 = plataforma ('=')
     std::vector<uint8_t> brick_;     // row-major, 1 = ladrillo sin romper ('B')
     std::vector<uint8_t> everBrick_; // row-major, 1 = fue 'B' al cargar el nivel (breakTile no lo toca)
+    std::vector<uint8_t> question_;      // row-major, 1 = bloque de interrogacion ('?')
+    std::vector<uint8_t> questionUsed_;  // row-major, 1 = ya lo golpearon una vez
+    std::vector<uint8_t> dispenser_;     // row-major, 1 = ladrillo dispensador ('D')
+    std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon una vez
 };
