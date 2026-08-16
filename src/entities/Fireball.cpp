@@ -38,9 +38,12 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         return;
     }
 
-    // Sin camara todavia, la pantalla visible es directamente [0, screenWidth)
-    // en coordenadas de mundo. Una vez que sale de ahi, desaparece (sin
-    // explosion: no choco contra nada, simplemente se fue de la vista).
+    // screenWidth: pese al nombre, Game.cpp le pasa el ANCHO DEL NIVEL
+    // (level.widthPixels()), no el de la pantalla visible -- en un nivel con
+    // scroll la pantalla visible se mueve con la camara, pero esto solo
+    // tiene que desaparecer cuando sale del nivel entero (por cualquiera de
+    // los dos bordes), no cuando queda fuera de la pantalla actual. Sin
+    // explosion: no choco contra nada, simplemente se fue de la vista.
     if (x_ + kSize < 0.0f || x_ > static_cast<float>(screenWidth)) {
         alive_ = false;
         return;

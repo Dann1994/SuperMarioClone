@@ -85,6 +85,38 @@ const QuestionBlockSpawn* findBlockSpawn(int col, int row) {
 }
 constexpr float kQuestionBlockAnimFrameDuration = 0.2f;  // s por frame del brillo (3 frames)
 
+// Que tan lejos atras del borde izquierdo de la camara tiene que quedar un
+// enemigo/item antes de eliminarlo del todo -- pedido del usuario: en un
+// nivel con scroll, si el jugador sigue de largo y no vuelve, un enemigo
+// (ej. un Koopa rebotando entre dos paredes) se quedaria corriendo/rebotando
+// para siempre en el fondo, fuera de la vista, sin ningun motivo. Se
+// investigo como lo maneja el original: ahi tambien se elimina en base a la
+// posicion de la camara (no de un tramo fijo del nivel, que era el bug que
+// se arreglo antes), por limitaciones de memoria/sprites de la NES -- ese
+// motivo no aplica aca, asi que se usa un margen generoso (una pantalla
+// completa) en vez del margen chico y agresivo del original, total no hay
+// urgencia real de liberar memoria. Nunca se aplica hacia ADELANTE (solo
+// "atras", osea x_ menor a la camara): lo que todavia no se alcanzo tiene
+// que seguir estando ahi cuando la camara llegue.
+constexpr float kOffscreenBehindMargin = static_cast<float>(kLogicalWidth);
+
+// reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
+// segun la clase (ver el comentario de cada una) -- de ahi las dos
+// variantes en vez de una sola con duck typing por nombre de metodo.
+template <typename T>
+void cullIfLeftBehindReset(T& entity, float width, float cameraX) {
+    if (entity.isAlive() && entity.x() + width < cameraX - kOffscreenBehindMargin) {
+        entity.reset();
+    }
+}
+
+template <typename T>
+void cullIfLeftBehindCollect(T& entity, float width, float cameraX) {
+    if (entity.isAlive() && entity.x() + width < cameraX - kOffscreenBehindMargin) {
+        entity.collect();
+    }
+}
+
 // Goomba y Koopas de prueba: el nivel de enemigos tiene paredes en los dos
 // bordes (test_enemies.json), asi que pueden arrancar en cualquier punto
 // del piso. Dos Koopas separados para poder patear uno contra el otro y
@@ -2068,8 +2100,11 @@ SDL_Point Game::findRespawnPoint(float aroundX, int characterHeight) const {
 }
 
 void Game::respawnNearestPlatform(Mario& character) {
-    // Preferentemente en el centro de la pantalla, no en donde murio.
-    const SDL_Point point = findRespawnPoint(kLogicalWidth / 2.0f, character.height());
+    // Preferentemente en el centro de la pantalla (en coordenadas de nivel:
+    // hay que sumarle cuanto scrolleo la camara, si no siempre apunta al
+    // centro de la PRIMERA pantalla aunque ya se haya avanzado de ahi), no
+    // en donde murio.
+    const SDL_Point point = findRespawnPoint(cameraX_ + kLogicalWidth / 2.0f, character.height());
     character.spawn(static_cast<float>(point.x), static_cast<float>(point.y));
     grantRespawnInvincibilityForWorld(character);
 }
@@ -2211,10 +2246,11 @@ void Game::update(float dt) {
     // aparece, antes de terminar de salir del bloque.
     if (!(itemEmerge_.active &&
           (itemEmerge_.item == BlockItem::Mushroom || itemEmerge_.item == BlockItem::OneUp))) {
-        mushroom_.update(dt, level_, kLogicalWidth);
+        mushroom_.update(dt, level_, level_.widthPixels());
         checkMushroomPickup(mario_);
         if (twoPlayerMode_) checkMushroomPickup(luigi_);
     }
+    cullIfLeftBehindCollect(mushroom_, static_cast<float>(Mushroom::kSize), cameraX_);
 
     if (!(itemEmerge_.active && itemEmerge_.item == BlockItem::FireFlower)) {
         fireFlower_.update(dt);
@@ -2223,10 +2259,11 @@ void Game::update(float dt) {
     }
 
     if (!(itemEmerge_.active && itemEmerge_.item == BlockItem::Star)) {
-        star_.update(dt, level_, kLogicalWidth);
+        star_.update(dt, level_, level_.widthPixels());
         checkStarPickup(mario_);
         if (twoPlayerMode_) checkStarPickup(luigi_);
     }
+    cullIfLeftBehindCollect(star_, static_cast<float>(StarItem::kSize), cameraX_);
 
     coin_.update(dt);
     checkCoinPickup(mario_);
@@ -2237,12 +2274,14 @@ void Game::update(float dt) {
     goomba_.update(dt, level_, kLogicalHeight);
     checkGoombaCollision(mario_, marioPrevY);
     if (twoPlayerMode_) checkGoombaCollision(luigi_, luigiPrevY);
+    cullIfLeftBehindReset(goomba_, static_cast<float>(Goomba::kSize), cameraX_);
 
     buzzyBeetle_.update(dt, level_, kLogicalHeight);
     checkBuzzyBeetleCollision(mario_, buzzyBeetle_, marioPrevY);
     if (twoPlayerMode_) checkBuzzyBeetleCollision(luigi_, buzzyBeetle_, luigiPrevY);
     checkBuzzyShellVsGoomba(buzzyBeetle_);
     checkGoombaBuzzyBeetleBounce(goomba_, buzzyBeetle_);
+    cullIfLeftBehindReset(buzzyBeetle_, static_cast<float>(BuzzyBeetle::kSize), cameraX_);
 
     piranhaPlant_.update(dt, isSafeForPiranhaPlant(piranhaPlant_));
     checkPiranhaPlantCollision(mario_, piranhaPlant_);
@@ -2267,9 +2306,10 @@ void Game::update(float dt) {
         }
     }
     for (Hammer& hammer : hammers_) {
-        hammer.update(dt, level_, kLogicalWidth, kLogicalHeight);
+        hammer.update(dt, level_, level_.widthPixels(), kLogicalHeight);
         checkHammerCollision(mario_, hammer);
         if (twoPlayerMode_) checkHammerCollision(luigi_, hammer);
+        cullIfLeftBehindReset(hammer, static_cast<float>(Hammer::kSize), cameraX_);
     }
 
     // Mismo criterio que HammerBro::faceTowards: sigue/mira al personaje
@@ -2292,6 +2332,7 @@ void Game::update(float dt) {
         spiny.update(dt, level_, kLogicalHeight);
         checkSpinyCollision(mario_, spiny);
         if (twoPlayerMode_) checkSpinyCollision(luigi_, spiny);
+        cullIfLeftBehindReset(spiny, static_cast<float>(Spiny::kSize), cameraX_);
     }
     for (size_t i = 0; i < spinies_.size(); ++i) {
         for (size_t j = i + 1; j < spinies_.size(); ++j) {
@@ -2312,13 +2353,16 @@ void Game::update(float dt) {
     }
     checkBlooperCollision(mario_, blooper_);
     if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper_);
+    cullIfLeftBehindReset(blooper_, static_cast<float>(Blooper::kWidth), cameraX_);
 
-    cheepCheepSwim_.update(dt, kLogicalWidth, kLogicalHeight);
+    cheepCheepSwim_.update(dt, level_.widthPixels(), kLogicalHeight);
     checkCheepCheepCollision(mario_, cheepCheepSwim_, marioPrevY);
     if (twoPlayerMode_) checkCheepCheepCollision(luigi_, cheepCheepSwim_, luigiPrevY);
-    cheepCheepSwimOsc_.update(dt, kLogicalWidth, kLogicalHeight);
+    cullIfLeftBehindReset(cheepCheepSwim_, static_cast<float>(CheepCheep::kSize), cameraX_);
+    cheepCheepSwimOsc_.update(dt, level_.widthPixels(), kLogicalHeight);
     checkCheepCheepCollision(mario_, cheepCheepSwimOsc_, marioPrevY);
     if (twoPlayerMode_) checkCheepCheepCollision(luigi_, cheepCheepSwimOsc_, luigiPrevY);
+    cullIfLeftBehindReset(cheepCheepSwimOsc_, static_cast<float>(CheepCheep::kSize), cameraX_);
 
     if (scenario_ == TestScenario::CheepCheepJump) {
         cheepCheepJumpSpawnTimer_ -= dt;
@@ -2328,17 +2372,20 @@ void Game::update(float dt) {
         }
     }
     for (CheepCheep& fish : cheepCheepJumps_) {
-        fish.update(dt, kLogicalWidth, kLogicalHeight);
+        fish.update(dt, level_.widthPixels(), kLogicalHeight);
         checkCheepCheepCollision(mario_, fish, marioPrevY);
         if (twoPlayerMode_) checkCheepCheepCollision(luigi_, fish, luigiPrevY);
+        cullIfLeftBehindReset(fish, static_cast<float>(CheepCheep::kSize), cameraX_);
     }
 
-    bulletBillA_.update(dt, kLogicalWidth, kLogicalHeight);
+    bulletBillA_.update(dt, level_.widthPixels(), kLogicalHeight);
     checkBulletBillCollision(mario_, bulletBillA_, marioPrevY);
     if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillA_, luigiPrevY);
-    bulletBillB_.update(dt, kLogicalWidth, kLogicalHeight);
+    cullIfLeftBehindReset(bulletBillA_, static_cast<float>(BulletBill::kSize), cameraX_);
+    bulletBillB_.update(dt, level_.widthPixels(), kLogicalHeight);
     checkBulletBillCollision(mario_, bulletBillB_, marioPrevY);
     if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillB_, luigiPrevY);
+    cullIfLeftBehindReset(bulletBillB_, static_cast<float>(BulletBill::kSize), cameraX_);
 
     podoboo_.update(dt);
     checkPodobooCollision(mario_, podoboo_);
@@ -2373,9 +2420,10 @@ void Game::update(float dt) {
         }
     }
     for (BowserFire& fire : bowserFires_) {
-        fire.update(dt, kLogicalWidth, kLogicalHeight);
+        fire.update(dt, level_.widthPixels(), kLogicalHeight);
         checkBowserFireCollision(mario_, fire);
         if (twoPlayerMode_) checkBowserFireCollision(luigi_, fire);
+        cullIfLeftBehindReset(fire, static_cast<float>(BowserFire::kWidth), cameraX_);
     }
     checkAxeCollision(mario_, axe_);
     if (twoPlayerMode_) checkAxeCollision(luigi_, axe_);
@@ -2395,6 +2443,7 @@ void Game::update(float dt) {
         checkGoombaKoopaBounce(goomba_, *koopa);
         checkShellVsBuzzyBeetle(*koopa, buzzyBeetle_);
         checkKoopaBuzzyBeetleBounce(*koopa, buzzyBeetle_);
+        cullIfLeftBehindReset(*koopa, static_cast<float>(koopa->width()), cameraX_);
     }
     for (size_t i = 0; i < koopas.size(); ++i) {
         for (size_t j = i + 1; j < koopas.size(); ++j) {
@@ -2404,7 +2453,7 @@ void Game::update(float dt) {
     }
 
     for (ScorePopup& popup : scorePopups_) popup.update(dt);
-    for (BrickDebris& debris : brickDebris_) debris.update(dt, kLogicalWidth, kLogicalHeight);
+    for (BrickDebris& debris : brickDebris_) debris.update(dt, level_.widthPixels(), kLogicalHeight);
     for (BlockBump& bump : blockBumps_) {
         if (!bump.active) continue;
         bump.timer -= dt;
@@ -2431,7 +2480,7 @@ void Game::update(float dt) {
 
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
-        fireball.update(dt, level_, kLogicalWidth);
+        fireball.update(dt, level_, level_.widthPixels());
         checkFireballGoombaCollision(fireball);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
         checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
@@ -2452,7 +2501,7 @@ void Game::update(float dt) {
     if (twoPlayerMode_) {
         trySpawnFireball(luigi_, luigiFireballs_);
         for (Fireball& fireball : luigiFireballs_) {
-            fireball.update(dt, level_, kLogicalWidth);
+            fireball.update(dt, level_, level_.widthPixels());
             checkFireballGoombaCollision(fireball);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
             checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
