@@ -41,6 +41,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         warp.row = entry.at("row").get<int>();
         warp.destCol = entry.at("dest_col").get<int>();
         warp.destRow = entry.at("dest_row").get<int>();
+        warp.dir = entry.value("dir", std::string("down"));
         warps_.push_back(warp);
     }
     areas_.clear();
@@ -57,8 +58,10 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         decoration.type = entry.at("type").get<std::string>();
         decoration.col = entry.at("col").get<int>();
         decoration.row = entry.at("row").get<int>();
+        decoration.front = entry.value("front", false);
         decorations_.push_back(decoration);
     }
+    introArea_ = json.contains("intro") ? json["intro"].value("area", -1) : -1;
     platforms_.clear();
     for (const auto& entry : json.value("platforms", nlohmann::json::array())) {
         LevelPlatform platform;
@@ -107,6 +110,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     coinTile_.assign(static_cast<size_t>(width_) * height_, 0);
     lava_.assign(static_cast<size_t>(width_) * height_, 0);
     hard_.assign(static_cast<size_t>(width_) * height_, 0);
+    invisible_.assign(static_cast<size_t>(width_) * height_, 0);
     bridge_.assign(static_cast<size_t>(width_) * height_, 0);
     everBridge_.assign(static_cast<size_t>(width_) * height_, 0);
 
@@ -115,8 +119,10 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b') ? 1 : 0;
+            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b' ||
+                         c == 'X') ? 1 : 0;
             hard_[i] = (c == 'S') ? 1 : 0;
+            invisible_[i] = (c == 'X') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
             brick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             everBrick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
@@ -288,6 +294,13 @@ bool Tilemap::isHiddenBlockTile(int col, int row) const {
     return hidden_[row * width_ + col] != 0;
 }
 
+bool Tilemap::isInvisibleSolidTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return invisible_[row * width_ + col] != 0;
+}
+
 bool Tilemap::isHardBlockTile(int col, int row) const {
     if (col < 0 || row < 0 || col >= width_ || row >= height_) {
         return false;
@@ -409,7 +422,8 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, c
             // interrogacion, tuberias y el puente se dibujan aparte con su
             // propio sprite (renderBlocks/renderPipes/renderHazards).
             if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
-                isDispenserTile(col, row) || isPipeTile(col, row) || isBridgeTile(col, row)) {
+                isDispenserTile(col, row) || isPipeTile(col, row) || isBridgeTile(col, row) ||
+                isInvisibleSolidTile(col, row)) {
                 continue;
             }
             const int x = col * tileSize_ - camOffset;

@@ -2,6 +2,7 @@
 
 #include <SDL.h>
 #include <array>
+#include <initializer_list>
 
 enum class Action {
     MoveLeft,
@@ -57,6 +58,9 @@ public:
     void resetBindings();
     // Vibracion del mando de este jugador (si tiene uno conectado).
     void rumble(Uint16 strength, Uint32 durationMs);
+    // Control automatico (escenas como la intro del 1-2): mientras esta
+    // activo se ignoran teclado y mando y las acciones las fija `held`.
+    void setScripted(bool active, std::initializer_list<Action> held = {});
 
 private:
     using ActionState = std::array<bool, static_cast<size_t>(Action::Count)>;
@@ -70,6 +74,8 @@ private:
     SDL_GameControllerButton padJumpButton_ = SDL_CONTROLLER_BUTTON_A;
     SDL_GameControllerButton padRunButton_ = SDL_CONTROLLER_BUTTON_X;
     int controllerSlot_;
+    bool scripted_ = false;
+    ActionState scriptedState_{};
     ActionState prevState_{};
     ActionState currState_{};
     ActionState latchedPress_{};

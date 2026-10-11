@@ -69,6 +69,10 @@ bool Game::isMenuState() const {
 
 void Game::openTitle() {
     audio_.stopMusic();
+    cutscene_ = false;
+    pipeTransitionTimer_ = 0.0f;
+    input1_.setScripted(false);
+    input2_.setScripted(false);
     appState_ = AppState::Title;
     campaign_ = false;
     waitingBinding_ = false;

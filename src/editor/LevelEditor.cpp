@@ -43,7 +43,7 @@ constexpr DecorationInfo kDecorations[] = {
     {"castle_small", "CASTILLO", 80, 80},     {"hill_big", "COLINA GRANDE", 80, 48},
     {"hill_small", "COLINA CHICA", 48, 32},   {"bush_big", "ARBUSTO GRANDE", 80, 16},
     {"bush_small", "ARBUSTO CHICO", 48, 16},  {"cloud_big", "NUBE GRANDE", 64, 32},
-    {"cloud_small", "NUBE CHICA", 48, 32},
+    {"cloud_small", "NUBE CHICA", 48, 32},    {"pipe_side", "TUBERIA EN L", 64, 64},
 };
 
 // Contenidos posibles de un bloque '?'/'D'/'H' (campo "item" de "blocks").
@@ -148,6 +148,7 @@ bool LevelEditor::init() {
         {"#", "PISO"},           {"S", "BLOQUE DURO"},       {"B", "LADRILLO"},         {"?", "BLOQUE ?"},
         {"D", "LADRILLO ESPECIAL"}, {"H", "BLOQUE INVISIBLE"}, {"C", "LADRILLO + MONEDA"}, {"o", "MONEDA SUELTA"},
         {"T", "TUBERIA"},        {"=", "PLATAFORMA FIJA"},   {"L", "LAVA"},             {"b", "PUENTE BOWSER"},
+        {"X", "SOLIDO INVISIBLE"},
     };
     for (const auto& entry : tileLabels) {
         tools_.push_back({ToolKind::Tile, Tab::Terrain, entry[0][0], "", "", 1, entry[1]});
@@ -380,7 +381,10 @@ void LevelEditor::placeAt(int col, int row) {
         case ToolKind::Decoration: {
             auto& list = meta_["decorations"];
             if (!list.is_array()) list = nlohmann::json::array();
-            list.push_back({{"type", tool.type}, {"col", col}, {"row", row}});
+            nlohmann::json decoration{{"type", tool.type}, {"col", col}, {"row", row}};
+            // La tuberia en L va delante de los personajes (se meten adentro).
+            if (tool.type == "pipe_side") decoration["front"] = true;
+            list.push_back(decoration);
             break;
         }
         case ToolKind::Platform: {
@@ -1265,6 +1269,8 @@ void LevelEditor::renderOverlays() {
             if (tileAt(c, r) == 'F') {
                 const bool top = tileAt(c, r - 1) != 'F';
                 flagpoleSprite_.draw(renderer_, levelRow, top ? 0 : 1, x, r * kTile, false);
+            } else if (tileAt(c, r) == 'X') {
+                drawRect({x + 2, r * kTile + 2, kTile - 4, kTile - 4}, kGray);
             } else if (tileAt(c, r) == 'H') {
                 drawRect({x + 1, r * kTile + 1, kTile - 2, kTile - 2}, kCyan);
                 drawText(x + 6, r * kTile + 5, "H", kCyan);
@@ -1348,6 +1354,10 @@ void LevelEditor::renderOverlays() {
     }
     // Borde derecho del nivel.
     fillRect({widthTiles() * kTile - cam, 0, 2, kViewHeight}, kRed);
+    // La fila 0 no se ve en el juego (la vista muestra las 15 de abajo,
+    // ver kWorldViewOffsetY en Game.h).
+    fillRect({0, 0, kViewWidth, kTile}, SDL_Color{0, 0, 0, 140});
+    drawText(kViewWidth - 150, 6, "FILA 0: FUERA DE PANTALLA EN EL JUEGO", kGray);
 
     // Seleccion.
     if (hasSelection()) {
@@ -1416,6 +1426,10 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
                 case 'L': lavaSprite_.drawScaled(renderer_, 0, 0, icon); break;
                 case 'b': bridgeSprite_.drawScaled(renderer_, 0, 0, icon); break;
                 case '=': fillRect({icon.x, icon.y + 4, 16, 6}, SDL_Color{214, 168, 116, 255}); break;
+                case 'X':
+                    drawRect(icon, kGray);
+                    drawText(icon.x + 6, icon.y + 5, "X", kGray);
+                    break;
                 default: break;
             }
             break;

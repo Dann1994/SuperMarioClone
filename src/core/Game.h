@@ -50,6 +50,12 @@
 constexpr int kWideLogicalWidth = 426;
 inline int gLogicalWidth = kWideLogicalWidth;
 constexpr int kLogicalHeight = 240;
+// Los niveles miden 16 filas (256 px) y la pantalla 240: la vista muestra
+// las 15 de abajo (como el original, con el HUD encima de las primeras
+// filas de cielo), asi se ven las dos filas de piso. La fila 0 queda fuera
+// de cuadro. Ver Game::beginWorldRender/endWorldRender.
+constexpr int kWorldViewOffsetY = 16;
+constexpr int kWorldViewBottom = kLogicalHeight + kWorldViewOffsetY;
 // Ancho del layout original (HUD, menu): se reparte/centra en gLogicalWidth.
 constexpr int kClassicWidth = 256;
 
@@ -151,6 +157,9 @@ struct PipeWarp {
     int row;      // fila del tope
     float destX;
     float destY;
+    // Boca horizontal (tuberia en L): col/row es la esquina superior
+    // izquierda de la boca (2x2 tiles) y se entra caminando a la derecha.
+    bool side = false;
 };
 
 // Cuanto tarda en "salir" del todo un item que emerge de un bloque (ver
@@ -505,6 +514,13 @@ private:
     // destino. input es la de ESE personaje (input1_/input2_), no la
     // recibe Mario/Luigi (no le hace falta saber de tuberias).
     void checkPipeWarp(Mario& character, Input& input);
+    // Tuberias de boca horizontal (PipeWarp::side): se entra metiendose
+    // caminando. En la escena de introduccion arranca la transicion (jingle
+    // y despues el nivel); si no, viaja de una como las verticales.
+    void checkSideWarp(Mario& character);
+    // Mueve al personaje (y al companero en 2P) al destino del warp.
+    void performWarp(Mario& character, const PipeWarp& warp);
+    void finishIntroPipe();
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
     // fuego lo rompe (breakBrickBlock); chico solo lo sacude sin romperlo
@@ -579,7 +595,10 @@ private:
     std::vector<Koopa*> allKoopas();
     // Area del nivel (Tilemap::areas) que contiene ese X en px.
     int areaIndexAt(float x) const;
-    void renderDecorations();
+    // front: las que van delante de los personajes (LevelDecoration::front).
+    void renderDecorations(bool front);
+    void beginWorldRender();
+    void endWorldRender();
     // Alt+Enter: alterna entre ventana y pantalla completa "de escritorio"
     // (sin bordes, a la resolucion actual de la pantalla, sin cambiar el
     // modo de video -- Alt+Tab no parpadea). La imagen se escala sola
@@ -710,6 +729,12 @@ private:
     int campaignWorld_ = 1;
     int campaignLevel_ = 1;
     // Para la vibracion: si el cuadro anterior ya estaba herido/muriendo.
+    // Escena de introduccion (Tilemap::introArea): Mario camina solo hasta
+    // la tuberia, sin tiempo ni musica. pipeTransitionTimer_ > 0: ya se
+    // metio, suena el jingle y despues aparece en pendingWarp_.
+    bool cutscene_ = false;
+    float pipeTransitionTimer_ = 0.0f;
+    PipeWarp pendingWarp_{};
     bool hurryMusic_ = false;
     float hurryJingleTimer_ = 0.0f;
     // El tema de fin de nivel (bandera o castillo) ya sono.
@@ -889,7 +914,7 @@ private:
 
     // Escenografia de fondo (ver gen_scenery.py y el campo "decorations"
     // del nivel): un sheet de un solo frame por pieza.
-    static constexpr int kDecorationCount = 7;
+    static constexpr int kDecorationCount = 8;
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
 
     // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
@@ -1013,6 +1038,7 @@ private:
     float levelClearTimer_ = 0.0f;
     // Archivo de TestScenario::CustomLevel (ver startWithLevelFile).
     std::string customLevelPath_;
+    SDL_Texture* worldTarget_ = nullptr;
     int customStartCol_ = -1;
     // El nivel ya se esta terminando (bandera agarrada o hacha tocada): el
     // timer deja de descontar.

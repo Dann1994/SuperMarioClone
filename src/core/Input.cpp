@@ -104,8 +104,12 @@ void Input::beginFrame() {
     refreshControllers();
 
     currState_.fill(false);
-    readKeyboard(currState_);
-    readController(currState_);
+    if (scripted_) {
+        currState_ = scriptedState_;
+    } else {
+        readKeyboard(currState_);
+        readController(currState_);
+    }
 
     for (size_t i = 0; i < currState_.size(); ++i) {
         if (currState_[i] && !prevState_[i]) {
@@ -156,5 +160,12 @@ bool Input::consumePress(Action action) {
 }
 
 void Input::clearPresses() {
+    latchedPress_.fill(false);
+}
+
+void Input::setScripted(bool active, std::initializer_list<Action> held) {
+    scripted_ = active;
+    scriptedState_.fill(false);
+    for (Action action : held) scriptedState_[static_cast<size_t>(action)] = true;
     latchedPress_.fill(false);
 }

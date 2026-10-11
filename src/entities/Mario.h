@@ -259,7 +259,10 @@ private:
     // "salto un poco mas alto corriendo a fondo" que ya se habia pedido.
     static constexpr float kGravityAscend = 450.0f;       // px/s^2, salto sostenido (parado/caminando)
     static constexpr float kGravityDescend = 1575.0f;     // px/s^2, caida / salto cortado (parado/caminando)
-    static constexpr float kJumpImpulse = 240.0f;         // px/s, velocidad inicial (parado/caminando)
+    // 255 = 4.25 px/cuadro: con 240 (4 px/cuadro) la altura maxima daba
+    // justo 64 px (v^2 / 2g con kGravityAscend) y parado no alcanzaba para
+    // subirse a los bloques a 4 de altura del principio del 1-1.
+    static constexpr float kJumpImpulse = 255.0f;         // px/s, velocidad inicial (parado/caminando)
     static constexpr float kGravityAscendRun = 562.5f;    // px/s^2, salto sostenido (corriendo a fondo)
     static constexpr float kGravityDescendRun = 2025.0f;  // px/s^2, caida / salto cortado (corriendo a fondo)
     static constexpr float kRunJumpImpulse = 300.0f;      // px/s, velocidad inicial (corriendo a fondo)

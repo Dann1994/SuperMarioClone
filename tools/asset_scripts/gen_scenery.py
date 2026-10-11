@@ -2,7 +2,7 @@
 
 Genera un PNG por pieza en assets/sprites/scenery_<nombre>.png, con fondo
 transparente y paleta Overworld (la de los niveles de superficie, donde
-aparecen): castillo chico, colinas, arbustos y nubes. Son decorados puros
+aparecen): castillo chico, colinas, arbustos, nubes y la tuberia en L. Son decorados puros
 (no colisionan), los ubica el campo "decorations" del JSON del nivel.
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
@@ -20,6 +20,9 @@ PIECES = {
     "bush_small": (200, 704, 248, 720),
     "cloud_small": (344, 632, 392, 664),
     "cloud_big": (616, 608, 680, 640),
+    # Tuberia en L (boca horizontal abajo a la izquierda + tramo vertical):
+    # la de la entrada del 1-2 y la salida del subterraneo, se entra caminando.
+    "pipe_side": (192, 624, 256, 688),
 }
 
 

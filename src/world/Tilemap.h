@@ -39,6 +39,10 @@ struct LevelWarp {           // "warps": tuberia que se entra apretando abajo
     int row = 0;             // fila del tope
     int destCol = 0;         // a donde aparece (tile, esquina sup. izquierda)
     int destRow = 0;
+    // "down" (defecto): tuberia vertical, parado en el tope + abajo.
+    // "right": boca horizontal (tuberia en L) de 2x2 tiles con esquina
+    // superior izquierda en col/row; se entra caminando hacia la derecha.
+    std::string dir;
 };
 struct LevelArea {           // "areas": tramos de columnas con camara propia
     int startCol = 0;
@@ -46,9 +50,10 @@ struct LevelArea {           // "areas": tramos de columnas con camara propia
     std::string world;       // overworld/underground/underwater/castle; "" = el del nivel
 };
 struct LevelDecoration {     // "decorations": escenografia de fondo
-    std::string type;        // castle_small, hill_big, hill_small, bush_big, bush_small, cloud_big, cloud_small
+    std::string type;        // castle_small, hill_big, hill_small, bush_big, bush_small, cloud_big, cloud_small, pipe_side
     int col = 0;             // esquina superior izquierda, en tiles
     int row = 0;
+    bool front = false;      // se dibuja delante de los personajes (la tuberia en L: Mario se mete adentro)
 };
 struct LevelPlatform {       // "platforms": plataformas moviles (ver MovingPlatform.h)
     int col = 0;             // esquina superior izquierda, en tiles
@@ -100,6 +105,15 @@ public:
     const std::vector<LevelArea>& areas() const { return areas_; }
     const std::vector<LevelDecoration>& decorations() const { return decorations_; }
     const std::vector<LevelPlatform>& platforms() const { return platforms_; }
+    // Area de la escena de introduccion (campo "intro": {"area": N}, como
+    // la del 1-2: Mario camina solo hasta meterse en una tuberia), -1 si no
+    // tiene. Ver Game::cutscene_.
+    int introArea() const { return introArea_; }
+
+    // Solido invisible ('X'): bloquea como '#' pero no se dibuja (la parte
+    // de una escenografia que tiene que frenar, como el tramo vertical de la
+    // tuberia en L).
+    bool isInvisibleSolidTile(int col, int row) const;
 
     // Lava ('L', castillos): no es solida, tocarla mata (ver
     // Game::checkLavaDeath). Se dibuja con sprite propio (renderHazards):
@@ -295,6 +309,8 @@ private:
     std::vector<uint8_t> hidden_;        // row-major, 1 = bloque invisible sin revelar ('H')
     std::vector<uint8_t> coinTile_;      // row-major, 1 = moneda suelta sin agarrar ('o')
     std::vector<uint8_t> hard_;          // row-major, 1 = bloque duro ('S')
+    std::vector<uint8_t> invisible_;     // row-major, 1 = solido invisible ('X')
+    int introArea_ = -1;
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')
     std::vector<uint8_t> everBridge_;    // row-major, 1 = fue 'b' al cargar (para restoreBridges)
