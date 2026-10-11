@@ -1,6 +1,8 @@
 #include "Input.h"
 
-#include <cstring>
+#include <algorithm>
+#include <cstdlib>
+#include <vector>
 
 namespace {
 
@@ -22,33 +24,106 @@ const SDL_Scancode kBindingsPlayer2[static_cast<int>(Action::Count)][2] = {
     /* Down      */ {SDL_SCANCODE_DOWN, SDL_SCANCODE_DOWN},
 };
 
+// Zona muerta del stick izquierdo (rango del eje: -32768..32767). Agacharse
+// pide mas recorrido que caminar, para que inclinar el stick en diagonal al
+// correr no lo haga agacharse sin querer.
+constexpr Sint16 kStickMoveDeadzone = 12000;
+constexpr Sint16 kStickDownDeadzone = 24000;
+
+// Mandos abiertos, compartidos por todas las instancias de Input y en orden
+// de conexion: el indice en este vector es el "slot" de cada jugador.
+std::vector<SDL_GameController*> gControllers;
+int gLastJoystickCount = -1;
+
+// Cierra los mandos desconectados y abre los nuevos. SDL_NumJoysticks()
+// refleja los hotplug procesados por el SDL_PumpEvents/SDL_PollEvent mas
+// reciente, asi que alcanza con compararlo contra la ultima pasada para no
+// recorrer la lista de dispositivos en cada frame.
+void refreshControllers() {
+    gControllers.erase(
+        std::remove_if(gControllers.begin(), gControllers.end(),
+                       [](SDL_GameController* controller) {
+                           if (SDL_GameControllerGetAttached(controller)) return false;
+                           SDL_GameControllerClose(controller);
+                           return true;
+                       }),
+        gControllers.end());
+
+    const int count = SDL_NumJoysticks();
+    if (count == gLastJoystickCount) return;
+    gLastJoystickCount = count;
+
+    for (int i = 0; i < count; ++i) {
+        if (!SDL_IsGameController(i)) continue;
+        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(i);
+        const bool alreadyOpen = std::any_of(
+            gControllers.begin(), gControllers.end(), [id](SDL_GameController* controller) {
+                return SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)) == id;
+            });
+        if (alreadyOpen) continue;
+
+        if (SDL_GameController* controller = SDL_GameControllerOpen(i)) {
+            SDL_Log("Mando conectado: %s", SDL_GameControllerName(controller));
+            gControllers.push_back(controller);
+        }
+    }
+}
+
 }  // namespace
 
 Input::Input(ControlProfile profile)
-    : bindings_(profile == ControlProfile::Player1 ? kBindingsPlayer1 : kBindingsPlayer2) {}
+    : bindings_(profile == ControlProfile::Player1 ? kBindingsPlayer1 : kBindingsPlayer2),
+      controllerSlot_(profile == ControlProfile::Player1 ? 0 : 1) {}
 
 void Input::beginFrame() {
     prevState_ = currState_;
 
     SDL_PumpEvents();
-    const Uint8* state = SDL_GetKeyboardState(nullptr);
-    std::memcpy(currState_.data(), state, currState_.size());
+    refreshControllers();
 
-    for (int i = 0; i < static_cast<int>(Action::Count); ++i) {
-        const Action action = static_cast<Action>(i);
-        if (anyScancodeDown(currState_, action) && !anyScancodeDown(prevState_, action)) {
+    currState_.fill(false);
+    readKeyboard(currState_);
+    readController(currState_);
+
+    for (size_t i = 0; i < currState_.size(); ++i) {
+        if (currState_[i] && !prevState_[i]) {
             latchedPress_[i] = true;
         }
     }
 }
 
-bool Input::anyScancodeDown(const std::array<Uint8, SDL_NUM_SCANCODES>& state, Action action) const {
-    const auto& keys = bindings_[static_cast<int>(action)];
-    return state[keys[0]] || state[keys[1]];
+void Input::readKeyboard(ActionState& state) const {
+    const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
+    for (size_t i = 0; i < state.size(); ++i) {
+        const auto& keys = bindings_[i];
+        state[i] = state[i] || keyboard[keys[0]] || keyboard[keys[1]];
+    }
+}
+
+void Input::readController(ActionState& state) const {
+    if (controllerSlot_ >= static_cast<int>(gControllers.size())) return;
+    SDL_GameController* controller = gControllers[controllerSlot_];
+
+    auto button = [controller](SDL_GameControllerButton b) {
+        return SDL_GameControllerGetButton(controller, b) != 0;
+    };
+    const Sint16 stickX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
+    const Sint16 stickY = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
+
+    auto set = [&state](Action action, bool value) {
+        bool& slot = state[static_cast<size_t>(action)];
+        slot = slot || value;
+    };
+    set(Action::MoveLeft, button(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || stickX < -kStickMoveDeadzone);
+    set(Action::MoveRight, button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || stickX > kStickMoveDeadzone);
+    set(Action::Down, button(SDL_CONTROLLER_BUTTON_DPAD_DOWN) ||
+                          (stickY > kStickDownDeadzone && std::abs(stickY) > std::abs(stickX)));
+    set(Action::Jump, button(SDL_CONTROLLER_BUTTON_A));
+    set(Action::Run, button(SDL_CONTROLLER_BUTTON_X));
 }
 
 bool Input::down(Action action) const {
-    return anyScancodeDown(currState_, action);
+    return currState_[static_cast<size_t>(action)];
 }
 
 bool Input::consumePress(Action action) {
@@ -56,4 +131,8 @@ bool Input::consumePress(Action action) {
     const bool value = latch;
     latch = false;
     return value;
+}
+
+void Input::clearPresses() {
+    latchedPress_.fill(false);
 }

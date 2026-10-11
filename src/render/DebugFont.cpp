@@ -49,6 +49,8 @@ const std::unordered_map<char, Glyph>& glyphTable() {
         {'B', {0b111, 0b101, 0b111, 0b101, 0b111}},
         {'H', {0b101, 0b101, 0b111, 0b101, 0b101}},
         {'K', {0b101, 0b101, 0b110, 0b101, 0b101}},
+        // Flecha de seleccion del selector de escenario (navegable con mando).
+        {'>', {0b100, 0b010, 0b001, 0b010, 0b100}},
     };
     return table;
 }

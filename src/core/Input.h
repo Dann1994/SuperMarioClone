@@ -20,8 +20,14 @@ enum class ControlProfile {
     Player2,
 };
 
-// Estado de teclado abstraido en acciones logicas, con su propio set de
-// teclas segun el ControlProfile.
+// Estado de teclado + mando abstraido en acciones logicas, con su propio set
+// de teclas segun el ControlProfile.
+//
+// Mando: se detectan solos al conectarse/desconectarse (hotplug), en orden de
+// conexion -- el primero es de Player1, el segundo de Player2. Se leen con la
+// API SDL_GameController, que normaliza cualquier mando conocido al layout de
+// Xbox: A salta, X corre/tira fuego, cruceta o stick izquierdo para moverse y
+// agacharse. El teclado sigue andando a la par del mando.
 //
 // consumePress() usa un latch: una vez detectado el flanco de "apretar" queda
 // guardado hasta que alguien lo consume, en vez de perderse si esa pasada de
@@ -36,12 +42,19 @@ public:
 
     bool down(Action action) const;
     bool consumePress(Action action);
+    // Descarta las apretadas pendientes: al confirmar un menu con A/Espacio
+    // (que tambien son "saltar") el personaje no tiene que arrancar saltando.
+    void clearPresses();
 
 private:
-    bool anyScancodeDown(const std::array<Uint8, SDL_NUM_SCANCODES>& state, Action action) const;
+    using ActionState = std::array<bool, static_cast<size_t>(Action::Count)>;
+
+    void readKeyboard(ActionState& state) const;
+    void readController(ActionState& state) const;
 
     const SDL_Scancode (*bindings_)[2];
-    std::array<Uint8, SDL_NUM_SCANCODES> prevState_{};
-    std::array<Uint8, SDL_NUM_SCANCODES> currState_{};
-    std::array<bool, static_cast<size_t>(Action::Count)> latchedPress_{};
+    int controllerSlot_;
+    ActionState prevState_{};
+    ActionState currState_{};
+    ActionState latchedPress_{};
 };

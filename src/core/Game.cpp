@@ -534,6 +534,9 @@ bool Game::init() {
 
 void Game::startScenario(TestScenario scenario) {
     scenario_ = scenario;
+    menuSelection_ = static_cast<int>(scenario);
+    input1_.clearPresses();
+    input2_.clearPresses();
     const char* path = "levels/world1/test_items.json";
     if (scenario == TestScenario::Enemies) {
         path = "levels/world1/test_enemies.json";
@@ -665,6 +668,33 @@ void Game::processEvents() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
             running_ = false;
+        } else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
+            // Cualquier mando conectado maneja el menu (no solo el de
+            // Player1). A diferencia de ESC, el mando nunca cierra el juego
+            // desde el selector, para no cerrarlo por error.
+            const Uint8 button = event.cbutton.button;
+            if (appState_ == AppState::ScenarioSelect) {
+                if (button == SDL_CONTROLLER_BUTTON_DPAD_UP) {
+                    moveMenuSelection(-1);
+                } else if (button == SDL_CONTROLLER_BUTTON_DPAD_DOWN) {
+                    moveMenuSelection(1);
+                } else if (button == SDL_CONTROLLER_BUTTON_A || button == SDL_CONTROLLER_BUTTON_START) {
+                    startScenario(static_cast<TestScenario>(menuSelection_));
+                }
+            } else if (button == SDL_CONTROLLER_BUTTON_BACK) {
+                appState_ = AppState::ScenarioSelect;
+            }
+        } else if (event.type == SDL_CONTROLLERAXISMOTION &&
+                   event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
+            constexpr Sint16 kMenuStickPress = 24000;
+            constexpr Sint16 kMenuStickRelease = 8000;
+            const int value = event.caxis.value;
+            if (std::abs(value) < kMenuStickRelease) {
+                menuStickHeld_ = false;
+            } else if (std::abs(value) > kMenuStickPress && !menuStickHeld_) {
+                menuStickHeld_ = true;
+                if (appState_ == AppState::ScenarioSelect) moveMenuSelection(value < 0 ? -1 : 1);
+            }
         } else if (event.type == SDL_KEYDOWN && !event.key.repeat) {
             if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
                 if (appState_ == AppState::Playing) {
@@ -678,26 +708,17 @@ void Game::processEvents() {
             }
 
             if (appState_ == AppState::ScenarioSelect) {
-                if (event.key.keysym.scancode == SDL_SCANCODE_1) {
-                    startScenario(TestScenario::Items);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_2) {
-                    startScenario(TestScenario::Enemies);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_3) {
-                    startScenario(TestScenario::HammerBro);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_4) {
-                    startScenario(TestScenario::LakituSpiny);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_5) {
-                    startScenario(TestScenario::Blooper);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_6) {
-                    startScenario(TestScenario::CheepCheep);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_7) {
-                    startScenario(TestScenario::BulletBill);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_8) {
-                    startScenario(TestScenario::CheepCheepJump);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_9) {
-                    startScenario(TestScenario::Podoboo);
-                } else if (event.key.keysym.scancode == SDL_SCANCODE_0) {
-                    startScenario(TestScenario::Bowser);
+                const SDL_Scancode key = event.key.keysym.scancode;
+                if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) {
+                    // SDL ordena 1..9 y despues 0, igual que las opciones
+                    // del selector (0 = Bowser, la decima).
+                    startScenario(static_cast<TestScenario>(key - SDL_SCANCODE_1));
+                } else if (key == SDL_SCANCODE_UP || key == SDL_SCANCODE_W) {
+                    moveMenuSelection(-1);
+                } else if (key == SDL_SCANCODE_DOWN || key == SDL_SCANCODE_S) {
+                    moveMenuSelection(1);
+                } else if (key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_SPACE) {
+                    startScenario(static_cast<TestScenario>(menuSelection_));
                 }
                 continue;
             }
@@ -2800,18 +2821,24 @@ void Game::renderScenarioSelect() {
     const SDL_Color yellow{252, 216, 88, 255};
     DebugFont::drawText(renderer_, 84, 24, "TEST", 3, white);
 
-    DebugFont::drawText(renderer_, 32, 52, "1 ITEMS", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 68, "2 ENEMIGOS", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 84, "3 HAMMER BRO", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 100, "4 LAKITU", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 116, "5 BLOOPER", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 132, "6 CHEEP CHEEP", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 148, "7 BILL BALA", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 164, "8 CHEEP CHEEP SALTO", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 180, "9 PODOBOO", 2, yellow);
-    DebugFont::drawText(renderer_, 32, 196, "0 BOWSER", 2, yellow);
+    // Mismo orden que TestScenario (menuSelection_ es el indice).
+    static const char* const kOptions[kMenuOptionCount] = {
+        "1 ITEMS",     "2 ENEMIGOS",    "3 HAMMER BRO", "4 LAKITU",
+        "5 BLOOPER",   "6 CHEEP CHEEP", "7 BILL BALA",  "8 CHEEP CHEEP SALTO",
+        "9 PODOBOO",   "0 BOWSER",
+    };
+    for (int i = 0; i < kMenuOptionCount; ++i) {
+        const int y = 52 + i * 16;
+        const bool selected = i == menuSelection_;
+        if (selected) DebugFont::drawText(renderer_, 20, y, ">", 2, white);
+        DebugFont::drawText(renderer_, 32, y, kOptions[i], 2, selected ? white : yellow);
+    }
 
     DebugFont::drawText(renderer_, 8, 222, "1 2 3 4 5 6 7 8 9 0", 1, white);
+}
+
+void Game::moveMenuSelection(int delta) {
+    menuSelection_ = (menuSelection_ + delta + kMenuOptionCount) % kMenuOptionCount;
 }
 
 void Game::run() {

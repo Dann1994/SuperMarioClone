@@ -177,6 +177,9 @@ enum class TestScenario {
     Bowser,
 };
 
+// Cantidad de opciones del selector de escenario (una por TestScenario).
+constexpr int kMenuOptionCount = static_cast<int>(TestScenario::Bowser) + 1;
+
 enum class AppState {
     ScenarioSelect,
     Playing,
@@ -193,6 +196,7 @@ private:
     void update(float dt);
     void render();
     void renderScenarioSelect();
+    void moveMenuSelection(int delta);
     // Carga el nivel del escenario elegido y deja en pie solo las entidades
     // de prueba que le corresponden (las del otro escenario quedan
     // desactivadas, aunque el objeto siga vivo en memoria).
@@ -452,6 +456,14 @@ private:
     int currentFps_ = 0;
     AppState appState_ = AppState::ScenarioSelect;
     TestScenario scenario_ = TestScenario::Items;
+    // Opcion marcada con la flecha en el selector (indice en el orden de
+    // TestScenario). Se mueve con cruceta/stick o flechas/W/S y se confirma
+    // con A/Start o Enter/Espacio; los numeros siguen eligiendo directo.
+    int menuSelection_ = 0;
+    // El stick genera un evento por cada cambio minimo de eje: esto deja
+    // pasar un solo paso de menu por cada inclinacion, hasta que vuelve al
+    // centro.
+    bool menuStickHeld_ = false;
     WorldType worldType_ = WorldType::Overworld;
     bool characterCollisionEnabled_ = true;
     // Desplazamiento horizontal de camara en px de nivel (seccion 3): se le
