@@ -44,3 +44,8 @@ void SpriteSheet::drawSlice(SDL_Renderer* renderer, int row, int col, int offset
     SDL_RenderCopyEx(renderer, texture_, &src, &dst, 0.0, nullptr,
                       flipHorizontal ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
 }
+
+void SpriteSheet::drawScaled(SDL_Renderer* renderer, int row, int col, const SDL_Rect& dst) const {
+    SDL_Rect src{col * frameWidth_, row * frameHeight_, frameWidth_, frameHeight_};
+    SDL_RenderCopy(renderer, texture_, &src, &dst);
+}

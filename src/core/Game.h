@@ -201,9 +201,13 @@ enum class TestScenario {
     // El primer nivel real: levels/world1/1-1.json, todo sale del JSON
     // (enemigos, bloques, tuberias, cuarto bonus, escenografia).
     World1_1,
+    // Un archivo de nivel cualquiera, pasado con --level (lo usa el editor
+    // de niveles para probar lo que se esta editando). No aparece en el
+    // selector.
+    CustomLevel,
 };
 
-// Cantidad de opciones del selector de escenario (una por TestScenario).
+// Cantidad de opciones del selector de escenario (las anteriores a CustomLevel).
 constexpr int kMenuOptionCount = static_cast<int>(TestScenario::World1_1) + 1;
 
 enum class AppState {
@@ -219,6 +223,11 @@ enum class AppState {
 class Game {
 public:
     bool init();
+    // Arranca directo en este archivo de nivel (--level, ver main.cpp) en
+    // vez de en el selector. Llamar antes de run().
+    // startCol >= 0: arranca en esa columna como si fuera un checkpoint
+    // ("probar desde aca" del editor).
+    void startWithLevelFile(const std::string& path, int startCol = -1);
     void run();
     void shutdown();
 
@@ -916,6 +925,9 @@ private:
     SpriteSheet flagSprite_;
     Flagpole flagpole_;
     float levelClearTimer_ = 0.0f;
+    // Archivo de TestScenario::CustomLevel (ver startWithLevelFile).
+    std::string customLevelPath_;
+    int customStartCol_ = -1;
     // El nivel ya se esta terminando (bandera agarrada o hacha tocada): el
     // timer deja de descontar.
     bool levelEnding_ = false;

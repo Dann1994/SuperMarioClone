@@ -23,6 +23,8 @@ cmake --build build
 
 El `.exe` se genera junto con sus DLLs y las carpetas `assets/` y `levels/` copiadas automáticamente al lado.
 
+`./build/mario.exe --level <archivo.json>` arranca directo en ese nivel (sin pasar por el selector); con `--start-col <columna>` además empieza en esa columna, como si fuera un checkpoint.
+
 ## Estado actual
 
 - Game loop a 60 FPS con timestep fijo (delta time)
@@ -118,6 +120,27 @@ El `.exe` se genera junto con sus DLLs y las carpetas `assets/` y `levels/` copi
 - Sprites de lava, puente, plataforma y hacha (`assets/sprites/lava.png`, `bridge.png`, `lift.png`, `axe.png`) generados con `tools/asset_scripts/gen_castle.py`. El hacha es la de "Palette 3 Tiles" (16x16, 3 frames que ciclan de color en sincronía con los `?`, como en el original)
 
 Desarrollo incremental siguiendo la sección 12 de la especificación: un elemento del elenco a la vez.
+
+## Editor de niveles
+
+`./build/mario_editor.exe [archivo.json]` (sección 7 de la especificación): herramienta de desarrollo aparte del juego — se compila junto con él, pero no va en el build final (`cmake -S . -B build -DMARIO_BUILD_EDITOR=OFF` lo saca). Lee y guarda los niveles directamente en la carpeta `levels/` del proyecto (no en la copia de `build/`), en el mismo JSON que consume el juego, y los dibuja con el mismo código que el juego (`Tilemap`), así que lo que se ve es lo que se juega.
+
+Tiene lo básico del editor de Super Mario Maker, adaptado a lo que soporta el juego:
+
+- **Paleta por pestañas** (Terreno / Ítems / Enemigos / Objetos, Tab cambia) con fila de **recientes**; Q/E herramienta anterior/siguiente
+- **Poner**: clic izquierdo (arrastrando pinta tiles). **Agarrar y mover**: clic sobre un enemigo o plataforma ya puesto (la escenografía se agarra solo con una herramienta de escenografía). **Borrar**: clic derecho, o el botón GOMA
+- **Ítems dentro de bloques**: el hongo/flor, estrella, 1-UP o monedas se sueltan sobre un `?`, un bloque invisible o un ladrillo (que pasa a ser ladrillo especial). Sobre un bloque también: I cambia el contenido, +/− los golpes
+- **Sacudir** (S, sobre un enemigo): Koopa verde ↔ rojo. **Alas** (A): Koopa saltarín (verde) o volador (rojo)
+- **Bandera de meta de un clic** (mástil completo + bloque base)
+- **Selección** (botón SELECCIÓN y arrastrar): Ctrl+C copiar, Ctrl+X cortar, Ctrl+V pegar donde esté el mouse, Supr borrar
+- **DESHACER** (Ctrl+Z, hasta 100 pasos) y **BORRAR TODO** (pide confirmación, también se deshace)
+- **Subáreas** (botón SUBÁREA): agrega un tramo subterráneo aparte a la derecha del nivel; se conecta con tuberías: P con el mouse sobre el tope de una tubería y después clic en el destino (P de nuevo sobre la misma tubería borra el warp)
+- **Ajustes del nivel**: W tipo de mundo (superficie, subterráneo, agua, castillo), F2 nombre (`1-2` → se guarda en `levels/world1/1-2.json`), F3 tiempo, Ctrl+←/→ ancho (de a 16 columnas)
+- **Minimapa** clickeable abajo, rueda/flechas/botón del medio para desplazar, G grilla
+- **Probar**: F5 (o PROBAR) guarda y abre el juego en ese nivel; Shift+F5 (o PROBAR ACÁ) arranca desde donde está la vista
+- Archivo: Ctrl+N nuevo, Ctrl+O abrir (lista de `levels/`), Ctrl+S guardar
+
+Las áreas existentes, checkpoints y warps se ven en el editor y se conservan al guardar. No soportado todavía (el juego tampoco lo tiene): enemigos saliendo de tuberías, más tipos de enemigos colocables desde el nivel, autoscroll.
 
 ## Teclas de debug
 

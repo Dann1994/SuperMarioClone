@@ -15,8 +15,12 @@ bool Tilemap::loadFromFile(const std::string& path) {
 
     nlohmann::json json;
     file >> json;
+    return loadFromJson(json);
+}
 
+bool Tilemap::loadFromJson(const nlohmann::json& json) {
     tileSize_ = json.value("tile_size", 16);
+    world_ = json.value("world", std::string());
     name_ = json.value("name", std::string("TEST"));
     timeLimit_ = json.value("time", 400);
     checkpointCols_ = json.value("checkpoints", std::vector<int>{});

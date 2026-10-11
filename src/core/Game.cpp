@@ -571,12 +571,14 @@ void Game::startScenario(TestScenario scenario) {
     coinCount_ = 0;
     livesCount_ = kStartingLives;
     checkpointCol_ = -1;
+    // "Probar desde aca" del editor: la columna pedida cuenta como checkpoint.
+    if (scenario == TestScenario::CustomLevel && customStartCol_ >= 0) checkpointCol_ = customStartCol_;
     loadScenario(scenario);
 }
 
 void Game::loadScenario(TestScenario scenario) {
     scenario_ = scenario;
-    menuSelection_ = static_cast<int>(scenario);
+    if (static_cast<int>(scenario) < kMenuOptionCount) menuSelection_ = static_cast<int>(scenario);
     cameraSnapPending_ = true;
     input1_.clearPresses();
     input2_.clearPresses();
@@ -605,6 +607,8 @@ void Game::loadScenario(TestScenario scenario) {
         path = "levels/world1/test_platforms.json";
     } else if (scenario == TestScenario::World1_1) {
         path = "levels/world1/1-1.json";
+    } else if (scenario == TestScenario::CustomLevel) {
+        path = customLevelPath_.c_str();
     }
     level_.loadFromFile(path);
 
@@ -664,6 +668,8 @@ void Game::loadScenario(TestScenario scenario) {
     } else {
         worldType_ = WorldType::Overworld;
     }
+    // Si el nivel fija su tipo de mundo (campo "world"), manda ese.
+    worldType_ = parseWorldType(level_.world(), worldType_);
     levelWorldType_ = worldType_;
     currentArea_ = -1;  // se resuelve en el primer updateCamera
     mario_.setWorldType(worldType_);
@@ -3658,4 +3664,10 @@ void Game::toggleFullscreen() {
         return;
     }
     SDL_ShowCursor(fullscreen ? SDL_ENABLE : SDL_DISABLE);
+}
+
+void Game::startWithLevelFile(const std::string& path, int startCol) {
+    customLevelPath_ = path;
+    customStartCol_ = startCol;
+    startScenario(TestScenario::CustomLevel);
 }

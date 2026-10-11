@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SDL.h>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -70,6 +71,10 @@ struct LevelEntity {         // "entities": enemigos del nivel
 class Tilemap {
 public:
     bool loadFromFile(const std::string& path);
+    // Mismo formato que el archivo, ya parseado: lo usa el editor de niveles
+    // (src/editor), que edita el JSON en memoria y reconstruye el Tilemap
+    // para dibujarlo con exactamente el mismo codigo que el juego.
+    bool loadFromJson(const nlohmann::json& json);
 
     int tileSize() const { return tileSize_; }
     // Identidad del nivel para el HUD (campo "name" del JSON, ej. "1-1";
@@ -77,6 +82,9 @@ public:
     // (campo "time", 400 por defecto como la mayoria de los niveles del
     // original -- ver Game::timeRemaining_).
     const std::string& name() const { return name_; }
+    // Tipo de mundo del nivel (campo "world": overworld/underground/
+    // underwater/castle), "" si el JSON no lo fija -- ahi decide el juego.
+    const std::string& world() const { return world_; }
     int timeLimit() const { return timeLimit_; }
     // Checkpoints a mitad de nivel (campo "checkpoints" del JSON, lista de
     // columnas, vacia si no tiene): invisibles como en el original, se
@@ -276,6 +284,7 @@ public:
 private:
     int tileSize_ = 16;
     std::string name_ = "TEST";
+    std::string world_;
     int timeLimit_ = 400;
     std::vector<int> checkpointCols_;
     std::vector<LevelBlock> blocks_;

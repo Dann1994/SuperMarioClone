@@ -21,6 +21,11 @@ public:
     // la pose de tirar fuego (torso propio + piernas del frame de movimiento actual).
     void drawSlice(SDL_Renderer* renderer, int row, int col, int offsetY, int height,
                     int destX, int destY, bool flipHorizontal) const;
+    // Dibuja el frame estirado/achicado a dst (los iconos de la paleta del
+    // editor de niveles, que tienen que entrar en una celda fija).
+    void drawScaled(SDL_Renderer* renderer, int row, int col, const SDL_Rect& dst) const;
+    int frameWidth() const { return frameWidth_; }
+    int frameHeight() const { return frameHeight_; }
     bool isLoaded() const { return texture_ != nullptr; }
     // Cantidad de filas del sheet (alto de la textura / alto de frame). Sirve
     // para calcular offsets de bloque, como en las variantes de paleta de estrella.

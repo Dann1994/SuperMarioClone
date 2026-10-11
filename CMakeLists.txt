@@ -15,6 +15,8 @@ find_package(SDL2_ttf REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
 file(GLOB_RECURSE MARIO_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+# El editor de niveles es un ejecutable aparte (ver mas abajo).
+list(FILTER MARIO_SOURCES EXCLUDE REGEX ".*/src/editor/.*")
 
 add_executable(mario WIN32 ${MARIO_SOURCES})
 
@@ -66,3 +68,26 @@ add_custom_target(copy_assets ALL
         ${CMAKE_SOURCE_DIR}/levels $<TARGET_FILE_DIR:mario>/levels
 )
 add_dependencies(mario copy_assets)
+
+# Editor de niveles (seccion 7 de la especificacion): herramienta de
+# desarrollo, ejecutable aparte que NO va en el build final -- configurar con
+# -DMARIO_BUILD_EDITOR=OFF para no compilarlo. Comparte con el juego el
+# dibujo del nivel (src/world, src/render) y lee/guarda los niveles
+# directamente en la carpeta levels/ del proyecto (MARIO_SOURCE_DIR), no en
+# la copia de build/.
+option(MARIO_BUILD_EDITOR "Compilar el editor de niveles (herramienta de desarrollo)" ON)
+if(MARIO_BUILD_EDITOR)
+    file(GLOB EDITOR_SOURCES CONFIGURE_DEPENDS src/editor/*.cpp src/world/*.cpp src/render/*.cpp)
+    add_executable(mario_editor WIN32 ${EDITOR_SOURCES})
+    target_include_directories(mario_editor PRIVATE src)
+    target_link_libraries(mario_editor PRIVATE
+        SDL2::SDL2main
+        SDL2::SDL2
+        SDL2_image::SDL2_image
+        nlohmann_json::nlohmann_json
+    )
+    target_compile_definitions(mario_editor PRIVATE MARIO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    # Mismo directorio de salida que mario: usa los assets y DLLs que copia
+    # ese target, y F5 lanza mario.exe desde ahi.
+    add_dependencies(mario_editor mario copy_assets)
+endif()
