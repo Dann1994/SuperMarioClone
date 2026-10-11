@@ -329,6 +329,10 @@ const char* bowserAttackModeName(BowserAttackMode mode) {
 }  // namespace
 
 bool Game::init() {
+    // Que Windows no estire la imagen por su cuenta en pantallas con
+    // escalado (125%, 150%...): asi la pantalla completa usa la resolucion
+    // real y se ve nitido. Tiene que ir antes de SDL_Init.
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         SDL_Log("SDL_Init fallo: %s", SDL_GetError());
         return false;
@@ -382,10 +386,20 @@ bool Game::init() {
         audio_.load(Sfx::GameOver, sfxDir + "gameover.wav");
     }
 
+    // Ventana inicial: el multiplo entero mas grande de la resolucion
+    // logica que entre en ~85% del escritorio (con DPI real, un x3 fijo
+    // quedaba chico en pantallas grandes y gigante en las chicas).
+    int windowScale = 3;
+    SDL_Rect usable;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0) {
+        const int fitW = static_cast<int>(usable.w * 0.85f) / kLogicalWidth;
+        const int fitH = static_cast<int>(usable.h * 0.85f) / kLogicalHeight;
+        windowScale = std::max(1, std::min(fitW, fitH));
+    }
     window_ = SDL_CreateWindow(
         "Super Mario Clone",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        kLogicalWidth * 3, kLogicalHeight * 3,
+        kLogicalWidth * windowScale, kLogicalHeight * windowScale,
         SDL_WINDOW_RESIZABLE);
     if (!window_) {
         SDL_Log("SDL_CreateWindow fallo: %s", SDL_GetError());
@@ -767,6 +781,12 @@ void Game::processEvents() {
                 if (appState_ == AppState::ScenarioSelect) moveMenuSelection(value < 0 ? -1 : 1);
             }
         } else if (event.type == SDL_KEYDOWN && !event.key.repeat) {
+            // Alt+Enter: pantalla completa (antes que nada, asi el Enter no
+            // confirma tambien una opcion del selector).
+            if (event.key.keysym.scancode == SDL_SCANCODE_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
+                toggleFullscreen();
+                continue;
+            }
             if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
                 if (appState_ != AppState::ScenarioSelect) {
                     // Primer ESC: volver al selector, no cerrar el juego de
@@ -3627,4 +3647,13 @@ void Game::renderOutsideAreaMask() {
         const SDL_Rect band{right, 0, kLogicalWidth - right, kLogicalHeight};
         SDL_RenderFillRect(renderer_, &band);
     }
+}
+
+void Game::toggleFullscreen() {
+    const bool fullscreen = (SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    if (SDL_SetWindowFullscreen(window_, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
+        SDL_Log("No se pudo cambiar a pantalla completa: %s", SDL_GetError());
+        return;
+    }
+    SDL_ShowCursor(fullscreen ? SDL_ENABLE : SDL_DISABLE);
 }

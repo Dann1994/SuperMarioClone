@@ -558,6 +558,12 @@ private:
     // Area del nivel (Tilemap::areas) que contiene ese X en px.
     int areaIndexAt(float x) const;
     void renderDecorations();
+    // Alt+Enter: alterna entre ventana y pantalla completa "de escritorio"
+    // (sin bordes, a la resolucion actual de la pantalla, sin cambiar el
+    // modo de video -- Alt+Tab no parpadea). La imagen se escala sola
+    // (SDL_RenderSetLogicalSize) manteniendo 16:9. El cursor se esconde en
+    // pantalla completa.
+    void toggleFullscreen();
     // Tapa con el color de fondo lo que se ve fuera del area actual (la
     // pantalla 16:9 es mas ancha que los niveles de una sola pantalla y que
     // el cuarto bonus: sin esto se veria el nivel de al lado).
