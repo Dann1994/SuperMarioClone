@@ -46,13 +46,29 @@ public:
     // (que tambien son "saltar") el personaje no tiene que arrancar saltando.
     void clearPresses();
 
+    // Reasignar controles (menu de configuracion, seccion 10.2): tecla de
+    // cada accion (reemplaza las dos de fabrica) y botones del mando para
+    // saltar/correr (los de moverse son siempre cruceta/stick).
+    SDL_Scancode keyBinding(Action action) const { return bindings_[static_cast<size_t>(action)][0]; }
+    void setKeyBinding(Action action, SDL_Scancode key);
+    SDL_GameControllerButton padJumpButton() const { return padJumpButton_; }
+    SDL_GameControllerButton padRunButton() const { return padRunButton_; }
+    void setPadButtons(SDL_GameControllerButton jump, SDL_GameControllerButton run);
+    void resetBindings();
+    // Vibracion del mando de este jugador (si tiene uno conectado).
+    void rumble(Uint16 strength, Uint32 durationMs);
+
 private:
     using ActionState = std::array<bool, static_cast<size_t>(Action::Count)>;
 
     void readKeyboard(ActionState& state) const;
     void readController(ActionState& state) const;
 
-    const SDL_Scancode (*bindings_)[2];
+    using Bindings = std::array<std::array<SDL_Scancode, 2>, static_cast<size_t>(Action::Count)>;
+    ControlProfile profile_;
+    Bindings bindings_{};
+    SDL_GameControllerButton padJumpButton_ = SDL_CONTROLLER_BUTTON_A;
+    SDL_GameControllerButton padRunButton_ = SDL_CONTROLLER_BUTTON_X;
     int controllerSlot_;
     ActionState prevState_{};
     ActionState currState_{};

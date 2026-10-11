@@ -37,18 +37,20 @@
 #include "../world/Tilemap.h"
 #include "../world/WorldType.h"
 #include "Input.h"
+#include "Settings.h"
+#include "Text.h"
 
 // Resolucion interna: el alto del NES (240, asi los niveles no cambian) con
-// ancho 16:9 (240 * 16 / 9 = 426.67 -> 426). La ventana puede ser mas
-// grande, SDL2 escala automaticamente (ver seccion 3 de la especificacion:
-// resolucion ajustable, ventana/pantalla completa, este valor logico se
-// mantiene fijo aunque la ventana cambie de tamano). El 4:3 original era
-// 256 de ancho -- elegir entre los dos queda para el menu de configuracion
-// (seccion 10.2); los niveles mas angostos que la pantalla se centran (ver
-// Game::updateCamera/renderOutsideAreaMask).
-constexpr int kLogicalWidth = 426;
+// ancho 16:9 (240 * 16 / 9 = 426.67 -> 426) o 4:3 (256, el original),
+// segun la opcion "Proporcion" del menu de configuracion (seccion 10.2, ver
+// Game::applySettings) -- por eso es una variable y no una constante. La
+// ventana puede ser mas grande, SDL2 escala automaticamente (este valor
+// logico no cambia con el tamano de la ventana). Los niveles mas angostos
+// que la pantalla se centran (ver Game::updateCamera/renderOutsideAreaMask).
+constexpr int kWideLogicalWidth = 426;
+inline int gLogicalWidth = kWideLogicalWidth;
 constexpr int kLogicalHeight = 240;
-// Ancho del layout original (HUD, menu): se reparte/centra en kLogicalWidth.
+// Ancho del layout original (HUD, menu): se reparte/centra en gLogicalWidth.
 constexpr int kClassicWidth = 256;
 
 // Maximo de bolas de fuego en pantalla por personaje, como en el original.
@@ -211,6 +213,9 @@ enum class TestScenario {
 constexpr int kMenuOptionCount = static_cast<int>(TestScenario::World1_1) + 1;
 
 enum class AppState {
+    // Pantalla de titulo con el menu principal (seccion 10.1).
+    Title,
+    // Modo prueba: el selector de escenarios de prueba.
     ScenarioSelect,
     // Pantalla negra "WORLD x-y / MARIO x N" antes de cada intento, como el
     // original (al empezar el nivel y despues de perder una vida).
@@ -218,6 +223,14 @@ enum class AppState {
     Playing,
     // Se acabaron las vidas: cartel de GAME OVER y el nivel arranca de cero.
     GameOver,
+    // Menu de pausa (seccion 10.3), con el juego congelado atras.
+    Paused,
+    // Configuracion (seccion 10.2) y su submenu de controles.
+    Settings,
+    Controls,
+    Credits,
+    // Despues del ultimo nivel que existe: "fin de la demo".
+    DemoEnd,
 };
 
 class Game {
@@ -573,6 +586,46 @@ private:
     // (SDL_RenderSetLogicalSize) manteniendo 16:9. El cursor se esconde en
     // pantalla completa.
     void toggleFullscreen();
+
+    // --- Menus (seccion 10, implementados en GameMenus.cpp) ---
+    // Navegacion comun a teclado y mando (seccion 10.4).
+    enum class MenuInput { None, Up, Down, Left, Right, Confirm, Back };
+    bool isMenuState() const;
+    void handleMenuEvent(const SDL_Event& event);
+    MenuInput menuInputFromEvent(const SDL_Event& event);
+    void openTitle();
+    void openScenarioSelect();
+    void openPause();
+    void openSettings(AppState returnTo);
+    void handleTitleInput(MenuInput input);
+    void handlePauseInput(MenuInput input);
+    void handleSettingsInput(MenuInput input);
+    void handleControlsInput(MenuInput input);
+    // Cambia el valor de la opcion `index` del menu de configuracion
+    // (direction -1/+1; Confirm usa +1).
+    void changeSetting(int index, int direction);
+    // Aplica settings_ a la ventana, el audio, el idioma y los controles.
+    void applySettings();
+    void applyWindowSize();
+    void renderTitle();
+    void renderPauseMenu();
+    void renderSettings();
+    void renderControls();
+    void renderCredits();
+    void renderDemoEnd();
+    void drawCentered(int y, const std::string& text, int scale, SDL_Color color);
+    // Lista vertical con flecha en la seleccion; disabled grisa la opcion.
+    void drawMenuList(int x, int y, int step, const std::vector<std::string>& items, int selection,
+                      const std::vector<bool>& disabled = {});
+
+    // --- Partida (1 o 2 jugadores): niveles levels/world{W}/{W}-{L}.json en
+    // orden; despues del ultimo que exista, "fin de la demo".
+    void startCampaign(bool twoPlayers);
+    static std::string campaignLevelPath(int world, int level);
+    void onLevelCleared();
+    // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
+    void updateRumble();
+    void renderFpsCorner();
     // Tapa con el color de fondo lo que se ve fuera del area actual (la
     // pantalla 16:9 es mas ancha que los niveles de una sola pantalla y que
     // el cuarto bonus: sin esto se veria el nivel de al lado).
@@ -620,7 +673,7 @@ private:
     bool running_ = false;
     bool showDebugOverlay_ = true;
     int currentFps_ = 0;
-    AppState appState_ = AppState::ScenarioSelect;
+    AppState appState_ = AppState::Title;
     TestScenario scenario_ = TestScenario::Items;
     // Opcion marcada con la flecha en el selector (indice en el orden de
     // TestScenario). Se mueve con cruceta/stick o flechas/W/S y se confirma
@@ -630,6 +683,23 @@ private:
     // pasar un solo paso de menu por cada inclinacion, hasta que vuelve al
     // centro.
     bool menuStickHeld_ = false;
+    bool menuStickHeldX_ = false;
+
+    Settings settings_;
+    int titleSelection_ = 0;
+    int pauseSelection_ = 0;
+    int settingsSelection_ = 0;
+    int controlsSelection_ = 0;
+    AppState settingsReturnState_ = AppState::Title;
+    // Esperando la tecla/boton nuevo de una fila del menu de controles.
+    bool waitingBinding_ = false;
+    // Partida en curso (vs. modo prueba o --level).
+    bool campaign_ = false;
+    int campaignWorld_ = 1;
+    int campaignLevel_ = 1;
+    // Para la vibracion: si el cuadro anterior ya estaba herido/muriendo.
+    bool marioWasHurt_ = false;
+    bool luigiWasHurt_ = false;
     WorldType worldType_ = WorldType::Overworld;
     bool characterCollisionEnabled_ = true;
     // Desplazamiento horizontal de camara en px de nivel (seccion 3): se le

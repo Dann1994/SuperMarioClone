@@ -54,7 +54,7 @@ constexpr float kBrickCoinAnimFrameDuration = 0.12f;  // s por frame del giro, i
 // urgencia real de liberar memoria. Nunca se aplica hacia ADELANTE (solo
 // "atras", osea x_ menor a la camara): lo que todavia no se alcanzo tiene
 // que seguir estando ahi cuando la camara llegue.
-constexpr float kOffscreenBehindMargin = static_cast<float>(kLogicalWidth);
+constexpr float kOffscreenBehindMargin = static_cast<float>(kWideLogicalWidth);
 
 // Velocidad maxima (px/s) con la que la camara de 2P se acerca a su
 // objetivo (ver Game::updateCamera) -- mas del doble de Mario::kMaxRunSpeed.
@@ -384,22 +384,32 @@ bool Game::init() {
         audio_.load(Sfx::HurryUp, sfxDir + "hurryup.wav");
         audio_.load(Sfx::TimeTally, sfxDir + "beep.wav");
         audio_.load(Sfx::GameOver, sfxDir + "gameover.wav");
+        audio_.load(Sfx::Pause, sfxDir + "pause.wav");
     }
+
+    // Configuracion guardada (seccion 10.2): la proporcion define el ancho
+    // logico, y tiene que estar antes de crear la ventana.
+    settings_.load();
+    gLogicalWidth = settings_.widescreen ? kWideLogicalWidth : kClassicWidth;
+    setEnglish(settings_.english);
 
     // Ventana inicial: el multiplo entero mas grande de la resolucion
     // logica que entre en ~85% del escritorio (con DPI real, un x3 fijo
-    // quedaba chico en pantallas grandes y gigante en las chicas).
+    // quedaba chico en pantallas grandes y gigante en las chicas), o el que
+    // eligio el jugador.
     int windowScale = 3;
     SDL_Rect usable;
-    if (SDL_GetDisplayUsableBounds(0, &usable) == 0) {
-        const int fitW = static_cast<int>(usable.w * 0.85f) / kLogicalWidth;
+    if (settings_.windowScale > 0) {
+        windowScale = settings_.windowScale;
+    } else if (SDL_GetDisplayUsableBounds(0, &usable) == 0) {
+        const int fitW = static_cast<int>(usable.w * 0.85f) / gLogicalWidth;
         const int fitH = static_cast<int>(usable.h * 0.85f) / kLogicalHeight;
         windowScale = std::max(1, std::min(fitW, fitH));
     }
     window_ = SDL_CreateWindow(
         "Super Mario Clone",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        kLogicalWidth * windowScale, kLogicalHeight * windowScale,
+        gLogicalWidth * windowScale, kLogicalHeight * windowScale,
         SDL_WINDOW_RESIZABLE);
     if (!window_) {
         SDL_Log("SDL_CreateWindow fallo: %s", SDL_GetError());
@@ -417,8 +427,9 @@ bool Game::init() {
     // con escalado entero, una ventana maximizada en 1920 de ancho quedaba
     // en 426x4 = 1704 con bordes negros grandes. Sigue siendo "nearest"
     // (SDL_HINT_RENDER_SCALE_QUALITY por defecto), los pixeles no se borronean.
-    SDL_RenderSetLogicalSize(renderer_, kLogicalWidth, kLogicalHeight);
+    SDL_RenderSetLogicalSize(renderer_, gLogicalWidth, kLogicalHeight);
     SDL_RenderSetIntegerScale(renderer_, SDL_FALSE);
+    applySettings();
 
     if (!mario_.loadSprite(renderer_, "assets/sprites/mario_small.png",
                             "assets/sprites/mario_big.png", "assets/sprites/mario_fire.png")) {
@@ -760,7 +771,20 @@ void Game::processEvents() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
             running_ = false;
-        } else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
+            continue;
+        }
+        // Alt+Enter: pantalla completa, en cualquier pantalla (antes que
+        // nada, asi el Enter no confirma tambien una opcion).
+        if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_RETURN &&
+            (event.key.keysym.mod & KMOD_ALT)) {
+            toggleFullscreen();
+            continue;
+        }
+        if (isMenuState()) {
+            handleMenuEvent(event);
+            continue;
+        }
+        if (event.type == SDL_CONTROLLERBUTTONDOWN) {
             // Cualquier mando conectado maneja el menu (no solo el de
             // Player1). A diferencia de ESC, el mando nunca cierra el juego
             // desde el selector, para no cerrarlo por error.
@@ -772,9 +796,12 @@ void Game::processEvents() {
                     moveMenuSelection(1);
                 } else if (button == SDL_CONTROLLER_BUTTON_A || button == SDL_CONTROLLER_BUTTON_START) {
                     startScenario(static_cast<TestScenario>(menuSelection_));
+                } else if (button == SDL_CONTROLLER_BUTTON_B || button == SDL_CONTROLLER_BUTTON_BACK) {
+                    openTitle();
                 }
-            } else if (button == SDL_CONTROLLER_BUTTON_BACK) {
-                appState_ = AppState::ScenarioSelect;
+            } else if (appState_ == AppState::Playing &&
+                       (button == SDL_CONTROLLER_BUTTON_START || button == SDL_CONTROLLER_BUTTON_BACK)) {
+                openPause();
             }
         } else if (event.type == SDL_CONTROLLERAXISMOTION &&
                    event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
@@ -788,19 +815,15 @@ void Game::processEvents() {
                 if (appState_ == AppState::ScenarioSelect) moveMenuSelection(value < 0 ? -1 : 1);
             }
         } else if (event.type == SDL_KEYDOWN && !event.key.repeat) {
-            // Alt+Enter: pantalla completa (antes que nada, asi el Enter no
-            // confirma tambien una opcion del selector).
-            if (event.key.keysym.scancode == SDL_SCANCODE_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
-                toggleFullscreen();
-                continue;
-            }
-            if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-                if (appState_ != AppState::ScenarioSelect) {
-                    // Primer ESC: volver al selector, no cerrar el juego de
-                    // una (asi no se pierde el progreso por error).
-                    appState_ = AppState::ScenarioSelect;
+            const SDL_Scancode pressed = event.key.keysym.scancode;
+            if (pressed == SDL_SCANCODE_ESCAPE || (pressed == SDL_SCANCODE_RETURN && appState_ == AppState::Playing)) {
+                // ESC/Enter jugando: pausa. ESC en el modo prueba o en las
+                // pantallas negras: vuelve al menu principal (ahi esta
+                // SALIR, ESC ya no cierra el juego de golpe).
+                if (appState_ == AppState::Playing) {
+                    openPause();
                 } else {
-                    running_ = false;
+                    openTitle();
                 }
                 continue;
             }
@@ -913,7 +936,7 @@ void Game::processEvents() {
                     // Luigi pudo haber quedado en cualquier lado del nivel
                     // (fuera de pantalla si Mario ya avanzo): entra en la
                     // pantalla actual, igual que al reaparecer.
-                    const SDL_Point point = findRespawnPoint(cameraX_ + kLogicalWidth / 2.0f, luigi_.height());
+                    const SDL_Point point = findRespawnPoint(cameraX_ + gLogicalWidth / 2.0f, luigi_.height());
                     luigi_.spawn(static_cast<float>(point.x), static_cast<float>(point.y));
                 }
             }
@@ -2346,7 +2369,7 @@ void Game::respawnNearestPlatform(Mario& character) {
     // hay que sumarle cuanto scrolleo la camara, si no siempre apunta al
     // centro de la PRIMERA pantalla aunque ya se haya avanzado de ahi), no
     // en donde murio.
-    const SDL_Point point = findRespawnPoint(cameraX_ + kLogicalWidth / 2.0f, character.height());
+    const SDL_Point point = findRespawnPoint(cameraX_ + gLogicalWidth / 2.0f, character.height());
     character.spawn(static_cast<float>(point.x), static_cast<float>(point.y));
     grantRespawnInvincibilityForWorld(character);
 }
@@ -2417,10 +2440,10 @@ void Game::updateCamera(float dt) {
     // sola pantalla de 256px, el cuarto bonus) queda centrada: la camara
     // arranca antes del area y lo que sobra a los costados lo tapa
     // renderOutsideAreaMask.
-    const float minCameraX = areaWidth < static_cast<float>(kLogicalWidth)
-        ? areaLeft - (static_cast<float>(kLogicalWidth) - areaWidth) / 2.0f
+    const float minCameraX = areaWidth < static_cast<float>(gLogicalWidth)
+        ? areaLeft - (static_cast<float>(gLogicalWidth) - areaWidth) / 2.0f
         : areaLeft;
-    const float maxCameraX = std::max(minCameraX, areaLeft + areaWidth - static_cast<float>(kLogicalWidth));
+    const float maxCameraX = std::max(minCameraX, areaLeft + areaWidth - static_cast<float>(gLogicalWidth));
     if (areaIndex != currentArea_) {
         // Recien entro (o volvio) a esta area: cambia el tipo de mundo
         // (fondo/paletas) y la camara salta directo, sin barrido.
@@ -2430,7 +2453,7 @@ void Game::updateCamera(float dt) {
         luigi_.setWorldType(worldType_);
         cameraSnapPending_ = true;
     }
-    const float targetX = std::clamp(focusX - static_cast<float>(kLogicalWidth) / 2.0f, minCameraX, maxCameraX);
+    const float targetX = std::clamp(focusX - static_cast<float>(gLogicalWidth) / 2.0f, minCameraX, maxCameraX);
     const float previousCameraX = cameraX_;
     if (!twoPlayerMode_ || cameraSnapPending_) {
         cameraX_ = targetX;
@@ -2462,7 +2485,7 @@ void Game::keepCharactersOnScreen() {
         // tenia en pantalla al agarrarla, y despues se va al castillo).
         if (character->isOnFlagpole()) continue;
         const float minX = cameraX_;
-        const float maxX = cameraX_ + static_cast<float>(kLogicalWidth - character->width());
+        const float maxX = cameraX_ + static_cast<float>(gLogicalWidth - character->width());
         if (character->x() < minX) {
             character->nudgeX(minX - character->x());
             if (character->velocityX() < 0.0f) character->setVelocityX(0.0f);
@@ -2498,11 +2521,18 @@ void Game::update(float dt) {
             input1_.clearPresses();
             input2_.clearPresses();
         } else {
-            startScenario(scenario_);  // GAME OVER: el nivel de cero
+            // GAME OVER: de cero; en una partida, desde el primer nivel del
+            // mundo (seccion 6).
+            if (campaign_) {
+                campaignLevel_ = 1;
+                customLevelPath_ = campaignLevelPath(campaignWorld_, campaignLevel_);
+            }
+            startScenario(scenario_);
         }
         return;
     }
     if (appState_ != AppState::Playing) return;
+    updateRumble();
     if (bridgeCollapsing_) {
         updateBridgeCollapse(dt);
         return;
@@ -2937,6 +2967,19 @@ void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderClear(renderer_);
 
+    if (appState_ == AppState::Title || appState_ == AppState::Settings || appState_ == AppState::Controls ||
+        appState_ == AppState::Credits || appState_ == AppState::DemoEnd) {
+        switch (appState_) {
+            case AppState::Title: renderTitle(); break;
+            case AppState::Settings: renderSettings(); break;
+            case AppState::Controls: renderControls(); break;
+            case AppState::Credits: renderCredits(); break;
+            default: renderDemoEnd(); break;
+        }
+        renderFpsCorner();
+        SDL_RenderPresent(renderer_);
+        return;
+    }
     if (appState_ == AppState::ScenarioSelect) {
         renderScenarioSelect();
         SDL_RenderPresent(renderer_);
@@ -2959,10 +3002,10 @@ void Game::render() {
     for (const BlockBump& bump : blockBumps_) {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
-    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, kLogicalWidth,
+    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, gLogicalWidth,
                          cameraX_);
     renderDecorations();
-    level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, kLogicalWidth, cameraX_);
+    level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, gLogicalWidth, cameraX_);
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
@@ -3079,8 +3122,7 @@ void Game::render() {
 
     if (levelClearTimer_ > 0.0f) {
         // Placeholder hasta tener HUD/paso al nivel siguiente (seccion 6).
-        DebugFont::drawText(renderer_, (kLogicalWidth - 14 * 8) / 2, 100, "NIVEL COMPLETO", 2,
-                            SDL_Color{255, 255, 255, 255});
+        drawCentered(100, tr(Txt::CourseClear), 2, SDL_Color{255, 255, 255, 255});
     }
 
     renderOutsideAreaMask();
@@ -3115,8 +3157,11 @@ void Game::render() {
             std::snprintf(livesText, sizeof(livesText), "LIVES:%3d", livesCount_);
             DebugFont::drawText(renderer_, 4, 68, livesText, 1, SDL_Color{255, 255, 255, 255});
         }
+    } else {
+        renderFpsCorner();
     }
 
+    if (appState_ == AppState::Paused) renderPauseMenu();
     SDL_RenderPresent(renderer_);
 }
 
@@ -3125,13 +3170,13 @@ void Game::renderScenarioSelect() {
     // eligio nivel). Fuente bitmap propia (DebugFont) -- placeholder hasta
     // tener fuentes reales para menus (seccion 10).
     SDL_SetRenderDrawColor(renderer_, 92, 148, 252, 255);
-    SDL_Rect background{0, 0, kLogicalWidth, kLogicalHeight};
+    SDL_Rect background{0, 0, gLogicalWidth, kLogicalHeight};
     SDL_RenderFillRect(renderer_, &background);
 
     const SDL_Color white{255, 255, 255, 255};
     const SDL_Color yellow{252, 216, 88, 255};
     // Layout armado para 256px, centrado en la pantalla real.
-    const int ox = (kLogicalWidth - kClassicWidth) / 2;
+    const int ox = (gLogicalWidth - kClassicWidth) / 2;
     DebugFont::drawText(renderer_, ox + 84, 24, "TEST", 3, white);
 
     // Mismo orden que TestScenario (menuSelection_ es el indice).
@@ -3247,7 +3292,7 @@ void Game::updateLevelClear(float dt) {
     }
     if (levelClearTimer_ > 0.0f) {
         levelClearTimer_ -= dt;
-        if (levelClearTimer_ <= 0.0f) appState_ = AppState::ScenarioSelect;
+        if (levelClearTimer_ <= 0.0f) onLevelCleared();
     } else if (timeTallying_) {
         // El tiempo que sobro pasa a puntos de a una unidad, rapido.
         const float before = std::ceil(timeRemaining_);
@@ -3330,7 +3375,7 @@ void Game::renderHud() {
     const SDL_Color white{255, 255, 255, 255};
     constexpr int kTitleY = 8;
     constexpr int kValueY = 20;
-    auto column = [](int classicX) { return classicX * kLogicalWidth / kClassicWidth; };
+    auto column = [](int classicX) { return classicX * gLogicalWidth / kClassicWidth; };
     const int marioX = column(24);
     const int coinX = column(96);
     const int worldX = column(144);
@@ -3388,15 +3433,15 @@ void Game::checkPitDeath(Mario& character) {
 void Game::renderLevelIntro() {
     const SDL_Color white{255, 255, 255, 255};
     const std::string world = "WORLD " + level_.name();
-    DebugFont::drawText(renderer_, (kLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
+    DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
     char text[16];
     std::snprintf(text, sizeof(text), "MARIO x %d", livesCount_);
-    DebugFont::drawText(renderer_, (kLogicalWidth - static_cast<int>(std::strlen(text)) * 8) / 2, 120, text, 2,
+    DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(std::strlen(text)) * 8) / 2, 120, text, 2,
                         white);
 }
 
 void Game::renderGameOver() {
-    DebugFont::drawText(renderer_, (kLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
+    DebugFont::drawText(renderer_, (gLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
 }
 
 void Game::awardEnemyPoints(float x, float y, int points) {
@@ -3450,7 +3495,7 @@ void Game::spawnLevelEntities() {
             continue;
         }
         // Un tile mas alla del borde derecho: aparece justo fuera de vista.
-        if (x > cameraX_ + static_cast<float>(kLogicalWidth) + ts) continue;
+        if (x > cameraX_ + static_cast<float>(gLogicalWidth) + ts) continue;
 
         // row es la fila del enemigo: los pies sobre el borde de abajo.
         const float feetY = static_cast<float>(entity.row + 1) * ts;
@@ -3513,7 +3558,7 @@ void Game::renderDecorations() {
         for (int i = 0; i < kDecorationCount; ++i) {
             if (decoration.type != kDecorations[i].type) continue;
             const int x = decoration.col * ts - camOffset;
-            if (x + kDecorations[i].width < 0 || x > kLogicalWidth) break;
+            if (x + kDecorations[i].width < 0 || x > gLogicalWidth) break;
             decorationSprites_[i].draw(renderer_, 0, 0, x, decoration.row * ts, false);
             break;
         }
@@ -3651,8 +3696,8 @@ void Game::renderOutsideAreaMask() {
         const SDL_Rect band{0, 0, left, kLogicalHeight};
         SDL_RenderFillRect(renderer_, &band);
     }
-    if (right < kLogicalWidth) {
-        const SDL_Rect band{right, 0, kLogicalWidth - right, kLogicalHeight};
+    if (right < gLogicalWidth) {
+        const SDL_Rect band{right, 0, gLogicalWidth - right, kLogicalHeight};
         SDL_RenderFillRect(renderer_, &band);
     }
 }
@@ -3664,6 +3709,11 @@ void Game::toggleFullscreen() {
         return;
     }
     SDL_ShowCursor(fullscreen ? SDL_ENABLE : SDL_DISABLE);
+    // Alt+Enter tambien queda guardado como la opcion "Pantalla" del menu.
+    if (settings_.fullscreen == fullscreen) {
+        settings_.fullscreen = !fullscreen;
+        settings_.save();
+    }
 }
 
 void Game::startWithLevelFile(const std::string& path, int startCol) {

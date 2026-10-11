@@ -33,6 +33,7 @@ enum class Sfx {
     HurryUp,
     TimeTally,
     GameOver,
+    Pause,
     Count,
 };
 
@@ -60,6 +61,9 @@ public:
     // No hace nada si ese efecto no se pudo cargar (falta el archivo, por
     // ejemplo) -- no es motivo para frenar el juego, solo se pierde el sonido.
     void play(Sfx id) const;
+    // Volumen de todos los efectos, 0 (mudo) a MIX_MAX_VOLUME (128), ver
+    // la opcion de volumen del menu de configuracion.
+    void setVolume(int volume);
 
 private:
     bool initialized_ = false;

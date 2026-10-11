@@ -1,0 +1,78 @@
+#include "Text.h"
+
+#include <array>
+#include <cstddef>
+
+namespace {
+
+bool gEnglish = false;
+
+struct Entry {
+    const char* es;
+    const char* en;
+};
+
+// Mismo orden que Txt.
+constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
+    {"1 JUGADOR", "1 PLAYER GAME"},
+    {"2 JUGADORES", "2 PLAYER GAME"},
+    {"CONTINUAR", "CONTINUE"},
+    {"SELECCIONAR MUNDO", "WORLD SELECT"},
+    {"CONFIGURACION", "OPTIONS"},
+    {"MODO PRUEBA", "TEST MODE"},
+    {"CREDITOS", "CREDITS"},
+    {"SALIR", "QUIT"},
+
+    {"PAUSA", "PAUSED"},
+    {"REANUDAR", "RESUME"},
+    {"REINICIAR NIVEL", "RESTART LEVEL"},
+    {"SALIR AL MENU", "QUIT TO MENU"},
+
+    {"PANTALLA", "DISPLAY"},
+    {"VENTANA", "WINDOWED"},
+    {"COMPLETA", "FULLSCREEN"},
+    {"TAMANO DE VENTANA", "WINDOW SIZE"},
+    {"AUTO", "AUTO"},
+    {"PROPORCION", "ASPECT RATIO"},
+    {"MOSTRAR FPS", "SHOW FPS"},
+    {"VOLUMEN GENERAL", "MASTER VOLUME"},
+    {"VOLUMEN MUSICA", "MUSIC VOLUME"},
+    {"VOLUMEN EFECTOS", "SFX VOLUME"},
+    {"(SIN MUSICA TODAVIA)", "(NO MUSIC YET)"},
+    {"IDIOMA", "LANGUAGE"},
+    {"ESPANOL", "ENGLISH"},
+    {"VIBRACION DEL MANDO", "GAMEPAD RUMBLE"},
+    {"CONTROLES", "CONTROLS"},
+    {"VOLVER", "BACK"},
+    {"SI", "ON"},
+    {"NO", "OFF"},
+
+    {"JUGADOR 1 (TECLADO)", "PLAYER 1 (KEYBOARD)"},
+    {"JUGADOR 2 (TECLADO)", "PLAYER 2 (KEYBOARD)"},
+    {"MANDO (LOS DOS)", "GAMEPAD (BOTH)"},
+    {"IZQUIERDA", "LEFT"},
+    {"DERECHA", "RIGHT"},
+    {"SALTAR", "JUMP"},
+    {"CORRER / FUEGO", "RUN / FIRE"},
+    {"ABAJO", "DOWN"},
+    {"APRETA UNA TECLA (ESC CANCELA)", "PRESS A KEY (ESC CANCELS)"},
+    {"APRETA UN BOTON DEL MANDO (ESC CANCELA)", "PRESS A GAMEPAD BUTTON (ESC CANCELS)"},
+    {"RESTAURAR DE FABRICA", "RESET TO DEFAULTS"},
+
+    {"NIVEL COMPLETO", "COURSE CLEAR"},
+    {"FIN DE LA DEMO", "END OF DEMO"},
+    {"GRACIAS POR JUGAR", "THANK YOU FOR PLAYING"},
+    {"ENTER / A: ELEGIR    ESC / B: VOLVER", "ENTER / A: SELECT    ESC / B: BACK"},
+    {"< > : CAMBIAR VALOR", "< > : CHANGE VALUE"},
+    {"ENTER / A: CAMBIAR    ESC / B: VOLVER", "ENTER / A: CHANGE    ESC / B: BACK"},
+    {"(PROXIMAMENTE)", "(COMING SOON)"},
+}};
+
+}  // namespace
+
+void setEnglish(bool english) { gEnglish = english; }
+
+const char* tr(Txt id) {
+    const Entry& entry = kTexts[static_cast<size_t>(id)];
+    return gEnglish ? entry.en : entry.es;
+}

@@ -72,8 +72,30 @@ void refreshControllers() {
 }  // namespace
 
 Input::Input(ControlProfile profile)
-    : bindings_(profile == ControlProfile::Player1 ? kBindingsPlayer1 : kBindingsPlayer2),
-      controllerSlot_(profile == ControlProfile::Player1 ? 0 : 1) {}
+    : profile_(profile), controllerSlot_(profile == ControlProfile::Player1 ? 0 : 1) {
+    resetBindings();
+}
+
+void Input::resetBindings() {
+    const auto& defaults = profile_ == ControlProfile::Player1 ? kBindingsPlayer1 : kBindingsPlayer2;
+    for (size_t i = 0; i < bindings_.size(); ++i) bindings_[i] = {defaults[i][0], defaults[i][1]};
+    padJumpButton_ = SDL_CONTROLLER_BUTTON_A;
+    padRunButton_ = SDL_CONTROLLER_BUTTON_X;
+}
+
+void Input::setKeyBinding(Action action, SDL_Scancode key) {
+    bindings_[static_cast<size_t>(action)] = {key, key};
+}
+
+void Input::setPadButtons(SDL_GameControllerButton jump, SDL_GameControllerButton run) {
+    padJumpButton_ = jump;
+    padRunButton_ = run;
+}
+
+void Input::rumble(Uint16 strength, Uint32 durationMs) {
+    if (controllerSlot_ >= static_cast<int>(gControllers.size())) return;
+    SDL_GameControllerRumble(gControllers[controllerSlot_], strength, strength, durationMs);
+}
 
 void Input::beginFrame() {
     prevState_ = currState_;
@@ -118,8 +140,8 @@ void Input::readController(ActionState& state) const {
     set(Action::MoveRight, button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || stickX > kStickMoveDeadzone);
     set(Action::Down, button(SDL_CONTROLLER_BUTTON_DPAD_DOWN) ||
                           (stickY > kStickDownDeadzone && std::abs(stickY) > std::abs(stickX)));
-    set(Action::Jump, button(SDL_CONTROLLER_BUTTON_A));
-    set(Action::Run, button(SDL_CONTROLLER_BUTTON_X));
+    set(Action::Jump, button(padJumpButton_));
+    set(Action::Run, button(padRunButton_));
 }
 
 bool Input::down(Action action) const {

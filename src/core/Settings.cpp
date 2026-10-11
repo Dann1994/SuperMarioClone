@@ -1,0 +1,68 @@
+#include "Settings.h"
+
+#include <SDL.h>
+
+#include <algorithm>
+#include <fstream>
+#include <nlohmann/json.hpp>
+
+namespace {
+
+std::string settingsPath() {
+    char* base = SDL_GetPrefPath("SuperMarioClone", "SuperMarioClone");
+    std::string path = base ? std::string(base) + "settings.json" : "settings.json";
+    SDL_free(base);
+    return path;
+}
+
+}  // namespace
+
+bool Settings::load() {
+    std::ifstream file(settingsPath());
+    if (!file.is_open()) return false;
+    nlohmann::json json;
+    try {
+        file >> json;
+    } catch (const std::exception&) {
+        return false;  // archivo roto: se queda con los valores de fabrica
+    }
+    fullscreen = json.value("fullscreen", fullscreen);
+    windowScale = std::clamp(json.value("window_scale", windowScale), 0, 6);
+    widescreen = json.value("widescreen", widescreen);
+    showFps = json.value("show_fps", showFps);
+    masterVolume = std::clamp(json.value("master_volume", masterVolume), 0, 10);
+    musicVolume = std::clamp(json.value("music_volume", musicVolume), 0, 10);
+    sfxVolume = std::clamp(json.value("sfx_volume", sfxVolume), 0, 10);
+    english = json.value("language", std::string("es")) == "en";
+    vibration = json.value("vibration", vibration);
+    if (json.contains("keys")) {
+        try {
+            keys = json["keys"].get<std::array<std::array<int, 5>, 2>>();
+        } catch (const std::exception&) {
+        }
+    }
+    padJumpButton = json.value("pad_jump_button", padJumpButton);
+    padRunButton = json.value("pad_run_button", padRunButton);
+    return true;
+}
+
+bool Settings::save() const {
+    nlohmann::json json{
+        {"fullscreen", fullscreen},
+        {"window_scale", windowScale},
+        {"widescreen", widescreen},
+        {"show_fps", showFps},
+        {"master_volume", masterVolume},
+        {"music_volume", musicVolume},
+        {"sfx_volume", sfxVolume},
+        {"language", english ? "en" : "es"},
+        {"vibration", vibration},
+        {"keys", keys},
+        {"pad_jump_button", padJumpButton},
+        {"pad_run_button", padRunButton},
+    };
+    std::ofstream file(settingsPath());
+    if (!file.is_open()) return false;
+    file << json.dump(2) << '\n';
+    return true;
+}

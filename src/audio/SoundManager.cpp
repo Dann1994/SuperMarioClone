@@ -56,3 +56,8 @@ void SoundManager::play(Sfx id) const {
     // anterior si todavia estaba sonando en vez de solaparse con el mismo.
     Mix_PlayChannel(static_cast<int>(id), chunk, 0);
 }
+
+void SoundManager::setVolume(int volume) {
+    if (!initialized_) return;
+    Mix_Volume(-1, volume);  // -1 = todos los canales (uno por efecto)
+}
