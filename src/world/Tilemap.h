@@ -30,6 +30,12 @@ public:
     bool loadFromFile(const std::string& path);
 
     int tileSize() const { return tileSize_; }
+    // Identidad del nivel para el HUD (campo "name" del JSON, ej. "1-1";
+    // "TEST" si no lo tiene) y tiempo limite en unidades del timer clasico
+    // (campo "time", 400 por defecto como la mayoria de los niveles del
+    // original -- ver Game::timeRemaining_).
+    const std::string& name() const { return name_; }
+    int timeLimit() const { return timeLimit_; }
     int widthTiles() const { return width_; }
     int heightTiles() const { return height_; }
     int widthPixels() const { return width_ * tileSize_; }
@@ -177,6 +183,8 @@ public:
 
 private:
     int tileSize_ = 16;
+    std::string name_ = "TEST";
+    int timeLimit_ = 400;
     int width_ = 0;
     int height_ = 0;
     std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')

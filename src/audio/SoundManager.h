@@ -30,6 +30,8 @@ enum class Sfx {
     BowserFire,
     BillFirework,
     Flagpole,
+    HurryUp,
+    TimeTally,
     Count,
 };
 

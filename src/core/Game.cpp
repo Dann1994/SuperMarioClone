@@ -120,6 +120,16 @@ constexpr float kCameraCatchUpSpeed = 360.0f;
 // primero entra al castillo, antes de volver al selector.
 constexpr float kLevelClearDuration = 2.5f;
 
+// Timer de nivel (seccion 6), con los valores del original: cada unidad del
+// contador dura 24 cuadros (0.4s), y al llegar a 100 suena el aviso de
+// apuro. Al terminar el nivel lo que sobra se cuenta a 50 puntos por unidad,
+// rapido (kTallyUnitsPerSecond) y con un "bip" cada tanto.
+constexpr float kTimeUnitSeconds = 0.4f;
+constexpr float kHurryUpThreshold = 100.0f;
+constexpr int kTallyPointsPerUnit = 50;
+constexpr float kTallyUnitsPerSecond = 120.0f;
+constexpr float kTallySoundInterval = 0.06f;
+
 // reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
 // variantes en vez de una sola con duck typing por nombre de metodo.
@@ -391,6 +401,8 @@ bool Game::init() {
         audio_.load(Sfx::BowserFire, sfxDir + "fire.wav");
         audio_.load(Sfx::BillFirework, sfxDir + "billfirework.wav");
         audio_.load(Sfx::Flagpole, sfxDir + "flagpole.wav");
+        audio_.load(Sfx::HurryUp, sfxDir + "hurryup.wav");
+        audio_.load(Sfx::TimeTally, sfxDir + "beep.wav");
     }
 
     window_ = SDL_CreateWindow(
@@ -585,6 +597,12 @@ void Game::startScenario(TestScenario scenario) {
         flagpole_.reset();
     }
     levelClearTimer_ = 0.0f;
+    // Cada escenario de prueba arranca como un nivel nuevo: todavia no hay
+    // partida que se arrastre de un nivel al otro (seccion 6).
+    score_ = 0;
+    coinCount_ = 0;
+    timeTallying_ = false;
+    resetLevelTimer();
 
     // Nivel de agua (seccion 5.5): arranca directo en Underwater en vez del
     // Overworld por defecto -- F7 lo sigue pudiendo ciclar manualmente
@@ -1039,9 +1057,9 @@ void Game::checkCoinPickup(Mario& character) {
         character.y() < coin_.y() + Coin::kSize && character.y() + character.height() > coin_.y();
     if (!overlap) return;
 
-    // Sin contador de monedas/vidas todavia (seccion 6): por ahora solo se
-    // recolecta (sin popup de puntaje, la moneda no lo tiene en el original).
+    // Sin popup de puntaje: la moneda no lo tiene en el original.
     coin_.collect();
+    collectCoin();
     audio_.play(Sfx::Coin);
 }
 
@@ -1998,7 +2016,7 @@ void Game::checkBrickBlockHit(Mario& character) {
 void Game::collectTopCoinIfAny(int col, int row) {
     if (!level_.hasCoinOnTop(col, row)) return;
     level_.collectTopCoin(col, row);
-    ++coinCount_;
+    collectCoin();
     const int ts = level_.tileSize();
     const float x = static_cast<float>(col * ts) +
                     (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f;
@@ -2009,6 +2027,7 @@ void Game::collectTopCoinIfAny(int col, int row) {
 
 void Game::breakBrickBlock(int col, int row) {
     level_.breakTile(col, row);
+    addScore(50);
     audio_.play(Sfx::Brick);
 
     const int ts = level_.tileSize();
@@ -2173,7 +2192,7 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
     // no es la Coin normal (esa va quieta puesta en el piso del escenario,
     // ver kCoinTestX/Y).
     if (item == BlockItem::Coin) {
-        ++coinCount_;
+        collectCoin();
         blockCoin_.spawn(blockX + (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f,
                           blockTopY);
         audio_.play(Sfx::Coin);
@@ -2217,6 +2236,11 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
 }
 
 void Game::spawnScorePopup(float x, float y, const std::string& text) {
+    // Los popups numericos son puntos de verdad ("1UP" no): se suman aca
+    // para no repetir el valor en cada lugar que muestra uno.
+    if (!text.empty() && std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        addScore(std::atoi(text.c_str()));
+    }
     for (ScorePopup& popup : scorePopups_) {
         if (popup.isAlive()) continue;
         popup.spawn(x, y, text);
@@ -2263,6 +2287,7 @@ void Game::respawnAtCheckpoint(Mario& character, float spawnX, float spawnY) {
     // Placeholder hasta que exista un sistema de checkpoints real (seccion
     // 6): vuelve al spawn original del nivel.
     character.spawn(spawnX, spawnY);
+    resetLevelTimer();
     // Puede quedar lejos de la camara actual: si se acercara de a poco,
     // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
     cameraSnapPending_ = true;
@@ -2394,6 +2419,8 @@ void Game::update(float dt) {
         }
         return;
     }
+
+    updateLevelTimer(dt);
 
     // Guardados de antes de mover: para saber si un enemigo lo pisa "de
     // arriba" hace falta ver si los pies YA estaban por encima antes de
@@ -2901,32 +2928,32 @@ void Game::render() {
         DebugFont::drawText(renderer_, 72, 100, "NIVEL COMPLETO", 2, SDL_Color{255, 255, 255, 255});
     }
 
+    renderHud();
+
+    // Debajo del HUD.
     if (showDebugOverlay_) {
         char fpsText[32];
         std::snprintf(fpsText, sizeof(fpsText), "FPS:%3d", currentFps_);
-        DebugFont::drawText(renderer_, 4, 4, fpsText, 2, SDL_Color{255, 255, 255, 255});
+        DebugFont::drawText(renderer_, 4, 40, fpsText, 2, SDL_Color{255, 255, 255, 255});
         // Cartel de tipo de mundo (F7 lo cicla), para guiarse mientras se
         // prueban las paletas por WorldType de cada item/enemigo.
-        DebugFont::drawText(renderer_, 4, 16, worldTypeName(worldType_), 1, SDL_Color{255, 255, 255, 255});
+        DebugFont::drawText(renderer_, 4, 52, worldTypeName(worldType_), 1, SDL_Color{255, 255, 255, 255});
         if (scenario_ == TestScenario::Bowser) {
             // Cartel del modo de ataque (tecla T lo cicla), para saber cual
             // se esta probando sin tener que adivinar mirando el patron.
-            DebugFont::drawText(renderer_, 4, 24, bowserAttackModeName(bowser_.attackMode()), 1,
+            DebugFont::drawText(renderer_, 4, 60, bowserAttackModeName(bowser_.attackMode()), 1,
                                  SDL_Color{255, 255, 255, 255});
         }
         if (scenario_ == TestScenario::Items) {
-            // Contador de monedas (seccion 6, pieza minima nada mas para
-            // esto -- ver coinCount_ en Game.h): solo BlockCoin lo suma, la
-            // Coin normal puesta en el piso todavia no hace nada al
-            // agarrarla.
+            // Contador de monedas (tambien en el HUD, ver Game::collectCoin).
             char coinText[24];
             std::snprintf(coinText, sizeof(coinText), "COINS:%3d", coinCount_);
-            DebugFont::drawText(renderer_, 4, 24, coinText, 1, SDL_Color{255, 255, 255, 255});
+            DebugFont::drawText(renderer_, 4, 60, coinText, 1, SDL_Color{255, 255, 255, 255});
             // livesCount_: ver el comentario en Game.h, suma cuando se
             // agarra el hongo 1-UP (checkMushroomPickup).
             char livesText[24];
             std::snprintf(livesText, sizeof(livesText), "LIVES:%3d", livesCount_);
-            DebugFont::drawText(renderer_, 4, 32, livesText, 1, SDL_Color{255, 255, 255, 255});
+            DebugFont::drawText(renderer_, 4, 68, livesText, 1, SDL_Color{255, 255, 255, 255});
         }
     }
 
@@ -3048,7 +3075,100 @@ void Game::updateFlagpoleSequence(float dt) {
     if (levelClearTimer_ > 0.0f) {
         levelClearTimer_ -= dt;
         if (levelClearTimer_ <= 0.0f) appState_ = AppState::ScenarioSelect;
+    } else if (timeTallying_) {
+        // El tiempo que sobro pasa a puntos de a una unidad, rapido.
+        const float before = std::ceil(timeRemaining_);
+        timeRemaining_ = std::max(0.0f, timeRemaining_ - kTallyUnitsPerSecond * dt);
+        addScore(static_cast<int>(before - std::ceil(timeRemaining_)) * kTallyPointsPerUnit);
+        tallySoundTimer_ -= dt;
+        if (tallySoundTimer_ <= 0.0f && timeRemaining_ > 0.0f) {
+            tallySoundTimer_ = kTallySoundInterval;
+            audio_.play(Sfx::TimeTally);
+        }
+        if (timeRemaining_ <= 0.0f) {
+            timeTallying_ = false;
+            levelClearTimer_ = kLevelClearDuration;
+        }
     } else if (mario_.hasFinishedLevel() || (twoPlayerMode_ && luigi_.hasFinishedLevel())) {
-        levelClearTimer_ = kLevelClearDuration;
+        timeTallying_ = true;
+        tallySoundTimer_ = 0.0f;
     }
+}
+
+void Game::collectCoin() {
+    ++coinCount_;
+    addScore(200);
+    if (coinCount_ >= 100) {
+        coinCount_ -= 100;
+        ++livesCount_;
+        audio_.play(Sfx::OneUp);
+    }
+}
+
+void Game::resetLevelTimer() {
+    timeRemaining_ = static_cast<float>(level_.timeLimit());
+    hurryUpPlayed_ = timeRemaining_ <= kHurryUpThreshold;
+}
+
+void Game::updateLevelTimer(float dt) {
+    if (timeRemaining_ <= 0.0f || flagpole_.isLowering()) return;
+    timeRemaining_ = std::max(0.0f, timeRemaining_ - dt / kTimeUnitSeconds);
+    if (!hurryUpPlayed_ && timeRemaining_ <= kHurryUpThreshold) {
+        hurryUpPlayed_ = true;
+        audio_.play(Sfx::HurryUp);
+    }
+    if (timeRemaining_ <= 0.0f) {
+        // Se acabo el tiempo: mueren todos, sin importar tamano/estrella.
+        if (mario_.killInstantly()) audio_.play(Sfx::Death);
+        if (twoPlayerMode_ && luigi_.killInstantly()) audio_.play(Sfx::Death);
+    }
+}
+
+namespace {
+
+// Moneda chica del HUD (6x8), dibujada a mano: la de los sprites mide 16px
+// y no entra en el renglon de texto.
+void drawHudCoin(SDL_Renderer* renderer, int x, int y) {
+    static const char* const kRows[8] = {
+        ".####.", "#oooo#", "#o##o#", "#o##o#", "#o##o#", "#o##o#", "#oooo#", ".####.",
+    };
+    for (int row = 0; row < 8; ++row) {
+        for (int col = 0; col < 6; ++col) {
+            const char c = kRows[row][col];
+            if (c == '.') continue;
+            if (c == '#') {
+                SDL_SetRenderDrawColor(renderer, 136, 64, 0, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 252, 188, 60, 255);
+            }
+            SDL_Rect pixel{x + col, y + row, 1, 1};
+            SDL_RenderFillRect(renderer, &pixel);
+        }
+    }
+}
+
+}  // namespace
+
+void Game::renderHud() {
+    // Mismo layout que el original (grilla de 8px, ver DebugFont a escala 2:
+    // 8px por caracter): titulos arriba, valores abajo.
+    const SDL_Color white{255, 255, 255, 255};
+    constexpr int kTitleY = 8;
+    constexpr int kValueY = 20;
+
+    DebugFont::drawText(renderer_, 24, kTitleY, "MARIO", 2, white);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%06d", std::min(score_, 999999));
+    DebugFont::drawText(renderer_, 24, kValueY, text, 2, white);
+
+    drawHudCoin(renderer_, 96, kValueY + 1);
+    std::snprintf(text, sizeof(text), "x%02d", coinCount_);
+    DebugFont::drawText(renderer_, 104, kValueY, text, 2, white);
+
+    DebugFont::drawText(renderer_, 144, kTitleY, "WORLD", 2, white);
+    DebugFont::drawText(renderer_, 152, kValueY, level_.name(), 2, white);
+
+    DebugFont::drawText(renderer_, 200, kTitleY, "TIME", 2, white);
+    std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
+    DebugFont::drawText(renderer_, 208, kValueY, text, 2, white);
 }

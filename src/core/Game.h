@@ -377,6 +377,23 @@ private:
     // arranca el cierre del nivel (levelClearTimer_) cuando el primero
     // entra al castillo.
     void updateFlagpoleSequence(float dt);
+
+    // Puntaje/monedas/timer (seccion 6) y el HUD clasico que los muestra
+    // (renderHud: MARIO + puntaje, monedas, WORLD + nombre del nivel, TIME).
+    void addScore(int points) { score_ += points; }
+    // Suma una moneda (+200 puntos, como el original) y cada 100 da una
+    // vida extra -- unico lugar donde se cuentan, sea cual sea la moneda
+    // (la del piso, la que salta de un bloque o la parada arriba de un
+    // ladrillo).
+    void collectCoin();
+    // Vuelve el timer al tiempo limite del nivel (al empezarlo, o al
+    // reaparecer en el checkpoint despues de que mueren todos).
+    void resetLevelTimer();
+    // Descuenta el tiempo en juego normal: al llegar a 100 avisa con
+    // hurryup.wav, y en 0 mueren todos (Mario::killInstantly). Se frena en
+    // cuanto alguien agarra la bandera.
+    void updateLevelTimer(float dt);
+    void renderHud();
     // Tuberia (seccion 5.3): si el personaje esta parado (grounded) justo
     // arriba del TOPE de una tuberia (Tilemap::isPipeTopTile) y aprieta
     // abajo, lo teletransporta al destino configurado en kPipeWarps -- sin
@@ -572,16 +589,25 @@ private:
 
     // La moneda que salta de un bloque (BlockCoin.h, distinta de Coin.h de
     // arriba -- ver el comentario de spawnItemFromQuestionBlock): tiene su
-    // propio salto, no pasa por itemEmerge_. coinCount_ es el contador
-    // (seccion 6, pieza minima nada mas para esto: no hay guardado ni
-    // 100 monedas = 1UP todavia) que suma cada vez que aparece una, mostrado
-    // en el overlay de debug. livesCount_ es la otra pieza minima de la
+    // propio salto, no pasa por itemEmerge_. coinCount_ es el contador de
+    // monedas del HUD (seccion 6, ver collectCoin: cada 100 da una vida).
+    // livesCount_ es la otra pieza minima de la
     // seccion 6, sumada por checkMushroomPickup cuando el hongo agarrado es
     // el 1-UP (ver BlockItem::OneUp).
     SpriteSheet blockCoinSprite_;
     BlockCoin blockCoin_;
     int coinCount_ = 0;
     int livesCount_ = 0;
+    int score_ = 0;
+    // Tiempo restante en unidades del timer clasico (cada unidad son 24
+    // cuadros del original, ver kTimeUnitSeconds en Game.cpp): el HUD
+    // muestra la parte entera redondeada para arriba.
+    float timeRemaining_ = 0.0f;
+    bool hurryUpPlayed_ = false;
+    // Fin de nivel: el tiempo que sobro se pasa a puntos (50 por unidad)
+    // antes del cartel de nivel completo, como en el original.
+    bool timeTallying_ = false;
+    float tallySoundTimer_ = 0.0f;
 
     // Tuberia (seccion 5.3): sprite propio, 2 columnas (0=tope, 1=cuerpo) x
     // una fila por WorldType, cada celda de 32x16 (dos tiles de ancho de una
