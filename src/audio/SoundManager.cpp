@@ -7,6 +7,13 @@ SoundManager::~SoundManager() {
 }
 
 void SoundManager::shutdown() {
+    if (initialized_) Mix_HaltMusic();
+    for (Mix_Music*& track : music_) {
+        if (track != nullptr) {
+            Mix_FreeMusic(track);
+            track = nullptr;
+        }
+    }
     for (Mix_Chunk*& chunk : chunks_) {
         if (chunk != nullptr) {
             Mix_FreeChunk(chunk);
@@ -60,4 +67,50 @@ void SoundManager::play(Sfx id) const {
 void SoundManager::setVolume(int volume) {
     if (!initialized_) return;
     Mix_Volume(-1, volume);  // -1 = todos los canales (uno por efecto)
+}
+
+bool SoundManager::loadMusic(Music id, const std::string& path) {
+    if (!initialized_) return false;
+    Mix_Music* track = Mix_LoadMUS(path.c_str());
+    if (track == nullptr) {
+        SDL_Log("No se pudo cargar la musica %s: %s", path.c_str(), Mix_GetError());
+        return false;
+    }
+    music_[static_cast<size_t>(id)] = track;
+    return true;
+}
+
+void SoundManager::playMusic(Music id, bool loop) {
+    if (!initialized_ || id == Music::None) return;
+    if (id == currentMusic_ && Mix_PlayingMusic()) return;
+    Mix_Music* track = music_[static_cast<size_t>(id)];
+    currentMusic_ = id;
+    if (track == nullptr) return;
+    Mix_PlayMusic(track, loop ? -1 : 0);
+}
+
+void SoundManager::stopMusic() {
+    if (!initialized_) return;
+    Mix_HaltMusic();
+    // Si estaba en pausa (menu de pausa), que el proximo tema no arranque
+    // pausado.
+    Mix_ResumeMusic();
+    currentMusic_ = Music::None;
+}
+
+void SoundManager::pauseMusic() {
+    if (initialized_) Mix_PauseMusic();
+}
+
+void SoundManager::resumeMusic() {
+    if (initialized_) Mix_ResumeMusic();
+}
+
+Music SoundManager::currentMusic() const {
+    if (!initialized_ || !Mix_PlayingMusic()) return Music::None;
+    return currentMusic_;
+}
+
+void SoundManager::setMusicVolume(int volume) {
+    if (initialized_) Mix_VolumeMusic(volume);
 }

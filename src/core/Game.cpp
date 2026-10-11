@@ -385,6 +385,7 @@ bool Game::init() {
         audio_.load(Sfx::TimeTally, sfxDir + "beep.wav");
         audio_.load(Sfx::GameOver, sfxDir + "gameover.wav");
         audio_.load(Sfx::Pause, sfxDir + "pause.wav");
+        loadMusic();
     }
 
     // Configuracion guardada (seccion 10.2): la proporcion define el ancho
@@ -763,6 +764,7 @@ void Game::loadScenario(TestScenario scenario) {
     }
 
     appState_ = AppState::LevelIntro;
+    resetLevelMusic();
     appStateTimer_ = kLevelIntroDuration;
 }
 
@@ -2533,6 +2535,7 @@ void Game::update(float dt) {
     }
     if (appState_ != AppState::Playing) return;
     updateRumble();
+    updateMusic(dt);
     if (bridgeCollapsing_) {
         updateBridgeCollapse(dt);
         return;
@@ -3140,6 +3143,9 @@ void Game::render() {
         std::snprintf(camText, sizeof(camText), "CAM:%d MX:%d A:%d", static_cast<int>(std::lround(cameraX_)),
                       static_cast<int>(mario_.x()), currentArea_);
         DebugFont::drawText(renderer_, 60, 52, camText, 1, SDL_Color{255, 255, 255, 255});
+        // Que tema esta sonando (ver GameMusic.cpp).
+        DebugFont::drawText(renderer_, 160, 52, std::string("MUS:") + musicName(audio_.currentMusic()), 1,
+                            SDL_Color{255, 255, 255, 255});
         if (scenario_ == TestScenario::Bowser) {
             // Cartel del modo de ataque (tecla T lo cicla), para saber cual
             // se esta probando sin tener que adivinar mirando el patron.
@@ -3334,6 +3340,7 @@ void Game::updateLevelTimer(float dt) {
     if (!hurryUpPlayed_ && timeRemaining_ <= kHurryUpThreshold) {
         hurryUpPlayed_ = true;
         audio_.play(Sfx::HurryUp);
+        startHurryMusic();
     }
     if (timeRemaining_ <= 0.0f) {
         // Se acabo el tiempo: mueren todos, sin importar tamano/estrella.
@@ -3404,7 +3411,7 @@ void Game::onAllPlayersDied() {
         livesCount_ = 0;
         appState_ = AppState::GameOver;
         appStateTimer_ = kGameOverDuration;
-        audio_.play(Sfx::GameOver);
+        audio_.playMusic(Music::GameOver, false);
         return;
     }
     // Reintento: el nivel vuelve a su estado inicial (bloques, enemigos,

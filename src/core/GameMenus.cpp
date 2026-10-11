@@ -68,6 +68,7 @@ bool Game::isMenuState() const {
 }
 
 void Game::openTitle() {
+    audio_.stopMusic();
     appState_ = AppState::Title;
     campaign_ = false;
     waitingBinding_ = false;
@@ -81,6 +82,7 @@ void Game::openScenarioSelect() {
 void Game::openPause() {
     appState_ = AppState::Paused;
     pauseSelection_ = kPauseResume;
+    audio_.pauseMusic();
     audio_.play(Sfx::Pause);
 }
 
@@ -239,6 +241,7 @@ void Game::handlePauseInput(MenuInput input) {
     }
     if (input == MenuInput::Back) {
         appState_ = AppState::Playing;
+        audio_.resumeMusic();
         audio_.play(Sfx::Pause);
         return;
     }
@@ -246,6 +249,7 @@ void Game::handlePauseInput(MenuInput input) {
     switch (pauseSelection_) {
         case kPauseResume:
             appState_ = AppState::Playing;
+            audio_.resumeMusic();
             audio_.play(Sfx::Pause);
             break;
         case kPauseRestart:
@@ -376,6 +380,7 @@ void Game::applySettings() {
     }
 
     audio_.setVolume(MIX_MAX_VOLUME * settings_.masterVolume * settings_.sfxVolume / 100);
+    audio_.setMusicVolume(MIX_MAX_VOLUME * settings_.masterVolume * settings_.musicVolume / 100);
 
     // Controles: los de fabrica y encima los reasignados.
     for (int player = 0; player < 2; ++player) {
@@ -444,6 +449,7 @@ void Game::onLevelCleared() {
     const std::string next = campaignLevelPath(world, level);
     if (!std::filesystem::exists(next)) {
         appState_ = AppState::DemoEnd;
+        audio_.playMusic(Music::Ending, false);
         return;
     }
     campaignWorld_ = world;
@@ -576,8 +582,6 @@ void Game::renderSettings() {
         DebugFont::drawText(renderer_, left, y + 2, labels[i], 1, color);
         DebugFont::drawText(renderer_, right, y + 2, values[i], 1, color);
     }
-    // Aclaracion abajo (al lado del valor no entra en 4:3).
-    if (settingsSelection_ == kSetMusic) drawCentered(200, tr(Txt::NoMusicYet), 1, kMenuGray);
     drawCentered(210, tr(Txt::ValueHint), 1, kMenuDim);
     drawCentered(220, tr(Txt::MenuHint), 1, kMenuDim);
 }

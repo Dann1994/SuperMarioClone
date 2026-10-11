@@ -625,6 +625,18 @@ private:
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
     void updateRumble();
+
+    // --- Musica (GameMusic.cpp) ---
+    void loadMusic();
+    // El tema que corresponde ahora: el del tipo de mundo, o la estrella
+    // (version rapida si queda poco tiempo).
+    Music levelMusic() const;
+    // Al (re)cargar el nivel: corta la musica y arranca de cero.
+    void resetLevelMusic();
+    // Llega a 100 de tiempo: corta, aviso de apuro y tema acelerado.
+    void startHurryMusic();
+    void updateMusic(float dt);
+    static const char* musicName(Music music);
     void renderFpsCorner();
     // Tapa con el color de fondo lo que se ve fuera del area actual (la
     // pantalla 16:9 es mas ancha que los niveles de una sola pantalla y que
@@ -698,6 +710,10 @@ private:
     int campaignWorld_ = 1;
     int campaignLevel_ = 1;
     // Para la vibracion: si el cuadro anterior ya estaba herido/muriendo.
+    bool hurryMusic_ = false;
+    float hurryJingleTimer_ = 0.0f;
+    // El tema de fin de nivel (bandera o castillo) ya sono.
+    bool endJinglePlayed_ = false;
     bool marioWasHurt_ = false;
     bool luigiWasHurt_ = false;
     WorldType worldType_ = WorldType::Overworld;

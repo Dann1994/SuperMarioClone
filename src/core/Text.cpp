@@ -38,7 +38,6 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"VOLUMEN GENERAL", "MASTER VOLUME"},
     {"VOLUMEN MUSICA", "MUSIC VOLUME"},
     {"VOLUMEN EFECTOS", "SFX VOLUME"},
-    {"(SIN MUSICA TODAVIA)", "(NO MUSIC YET)"},
     {"IDIOMA", "LANGUAGE"},
     {"ESPANOL", "ENGLISH"},
     {"VIBRACION DEL MANDO", "GAMEPAD RUMBLE"},

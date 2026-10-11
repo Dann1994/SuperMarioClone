@@ -10,7 +10,7 @@ enum class Txt {
     Paused, Resume, RestartLevel, QuitToMenu,
     // Configuracion
     Display, Windowed, Fullscreen, WindowSize, Auto, AspectRatio, ShowFps, MasterVolume, MusicVolume,
-    SfxVolume, NoMusicYet, Language, LanguageName, Vibration, Controls, Back, On, Off,
+    SfxVolume, Language, LanguageName, Vibration, Controls, Back, On, Off,
     // Controles
     Player1, Player2, Gamepad, Left, Right, Jump, Run, Down, PressKey, PressButton, ResetDefaults,
     // Carteles y ayudas

@@ -37,10 +37,35 @@ enum class Sfx {
     Count,
 };
 
+// Musica (seccion 8.2: OGG en loop), assets/sound/music/*.ogg generados con
+// tools/asset_scripts/gen_music.py. Los temas que se repiten traen las
+// etiquetas LOOPSTART/LOOPLENGTH que SDL_mixer respeta: la intro suena una
+// vez y despues repite exacto el ciclo. Los *Fast son la version acelerada
+// de cuando queda poco tiempo.
+enum class Music {
+    Overworld,
+    Underground,
+    Underwater,
+    Castle,
+    Invincibility,
+    OverworldFast,
+    UndergroundFast,
+    UnderwaterFast,
+    CastleFast,
+    InvincibilityFast,
+    LevelComplete,
+    CastleComplete,
+    GameOver,
+    IntoPipe,
+    Ending,
+    Count,
+    None = Count,
+};
+
 // Envoltorio fino sobre SDL_mixer (RAII, mismo criterio que SpriteSheet):
-// carga todos los efectos de una (ver Game::init) y los reproduce por id de
-// evento con play(). Sin musica todavia (seccion 8.2 pide OGG en loop, no
-// hay ninguna pista pedida/provista todavia).
+// carga todos los efectos y la musica de una (ver Game::init), reproduce los
+// efectos por id de evento con play() y un tema de musica a la vez con
+// playMusic().
 class SoundManager {
 public:
     ~SoundManager();
@@ -65,7 +90,21 @@ public:
     // la opcion de volumen del menu de configuracion.
     void setVolume(int volume);
 
+    bool loadMusic(Music id, const std::string& path);
+    // loop: repite (respetando el punto de loop del archivo) o suena una vez.
+    // No hace nada si ya esta sonando ese mismo tema.
+    void playMusic(Music id, bool loop);
+    void stopMusic();
+    void pauseMusic();
+    void resumeMusic();
+    // El tema que se pidio por ultima vez (None si se freno o termino uno
+    // que no repite).
+    Music currentMusic() const;
+    void setMusicVolume(int volume);  // 0 a MIX_MAX_VOLUME (128)
+
 private:
     bool initialized_ = false;
     std::array<Mix_Chunk*, static_cast<size_t>(Sfx::Count)> chunks_{};
+    std::array<Mix_Music*, static_cast<size_t>(Music::Count)> music_{};
+    Music currentMusic_ = Music::None;
 };
