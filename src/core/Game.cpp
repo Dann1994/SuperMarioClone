@@ -537,6 +537,7 @@ bool Game::init() {
     if (!flagSprite_.loadFromFile(renderer_, "assets/sprites/flag.png", 16, 16)) {
         return false;
     }
+    if (!terrainSprite_.loadFromFile(renderer_, "assets/sprites/terrain.png", 16, 16)) return false;
     if (!lavaSprite_.loadFromFile(renderer_, "assets/sprites/lava.png", 16, 16)) return false;
     if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
     if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
@@ -2952,7 +2953,8 @@ void Game::render() {
     for (const BlockBump& bump : blockBumps_) {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
-    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
+    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, kLogicalWidth,
+                         cameraX_);
     renderDecorations();
     level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, kLogicalWidth, cameraX_);
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);

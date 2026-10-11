@@ -922,6 +922,8 @@ private:
 
     // Castillo: puente que se derrumba (tramos pendientes, de adelante para
     // atras) y espera entre que Bowser cae y el cierre del nivel.
+    // Piso ('#') y bloque duro ('S'), ver Tilemap::renderTerrain.
+    SpriteSheet terrainSprite_;
     SpriteSheet lavaSprite_;
     SpriteSheet bridgeSprite_;
     bool bridgeCollapsing_ = false;

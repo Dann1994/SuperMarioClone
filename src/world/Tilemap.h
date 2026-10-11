@@ -230,7 +230,15 @@ public:
     // cameraX: cuanto se desplazo la camara (ver Game::cameraX_) -- se
     // resta a la posicion en X antes de dibujar, mismo criterio que el
     // resto del elenco (entidades/render()).
-    void renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, float cameraX = 0.0f) const;
+    // terrainSprite/worldRow: los solidos comunes se dibujan con sprite
+    // (assets/sprites/terrain.png, ver gen_terrain.py): '#' como piso y 'S'
+    // como bloque duro, una fila por WorldType.
+    // viewWidth: ancho de la pantalla en px (solo se dibujan las columnas visibles).
+    void renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& terrainSprite,
+                       int worldRow, int viewWidth, float cameraX = 0.0f) const;
+    // Bloque duro ('S', el biselado de las escaleras y de la base de la
+    // bandera): solido igual que '#', solo cambia el dibujo.
+    bool isHardBlockTile(int col, int row) const;
 
     // brickSprite/worldRow: los tiles de ladrillo se dibujan con sprite
     // propio (una fila por WorldType, mismo criterio que el resto del
@@ -277,6 +285,7 @@ private:
     std::vector<LevelDecoration> decorations_;
     std::vector<uint8_t> hidden_;        // row-major, 1 = bloque invisible sin revelar ('H')
     std::vector<uint8_t> coinTile_;      // row-major, 1 = moneda suelta sin agarrar ('o')
+    std::vector<uint8_t> hard_;          // row-major, 1 = bloque duro ('S')
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')
     std::vector<uint8_t> everBridge_;    // row-major, 1 = fue 'b' al cargar (para restoreBridges)

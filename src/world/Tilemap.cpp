@@ -102,6 +102,7 @@ bool Tilemap::loadFromFile(const std::string& path) {
     hidden_.assign(static_cast<size_t>(width_) * height_, 0);
     coinTile_.assign(static_cast<size_t>(width_) * height_, 0);
     lava_.assign(static_cast<size_t>(width_) * height_, 0);
+    hard_.assign(static_cast<size_t>(width_) * height_, 0);
     bridge_.assign(static_cast<size_t>(width_) * height_, 0);
     everBridge_.assign(static_cast<size_t>(width_) * height_, 0);
 
@@ -110,7 +111,8 @@ bool Tilemap::loadFromFile(const std::string& path) {
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b') ? 1 : 0;
+            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b') ? 1 : 0;
+            hard_[i] = (c == 'S') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
             brick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             everBrick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
@@ -282,6 +284,13 @@ bool Tilemap::isHiddenBlockTile(int col, int row) const {
     return hidden_[row * width_ + col] != 0;
 }
 
+bool Tilemap::isHardBlockTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return hard_[row * width_ + col] != 0;
+}
+
 bool Tilemap::isLavaTile(int col, int row) const {
     if (col < 0 || row < 0 || col >= width_ || row >= height_) {
         return false;
@@ -380,7 +389,8 @@ bool Tilemap::isSolidAtPixel(float x, float y) const {
     return isSolidTile(static_cast<int>(x) / tileSize_, static_cast<int>(y) / tileSize_);
 }
 
-void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, float cameraX) const {
+void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& terrainSprite,
+                            int worldRow, int viewWidth, float cameraX) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     SDL_SetRenderDrawColor(renderer, backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a);
     // El fondo es un color plano: cubre toda la pantalla (nullptr = todo el
@@ -389,18 +399,18 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, f
     // Game::updateCamera) y el rectangulo del nivel no la cubriria entera.
     SDL_RenderFillRect(renderer, nullptr);
 
-    SDL_SetRenderDrawColor(renderer, 151, 87, 40, 255);
     for (int row = 0; row < height_; ++row) {
         for (int col = 0; col < width_; ++col) {
             // Los ladrillos (normales y dispensadores), bloques de
-            // interrogacion y tuberias se dibujan aparte con sprite propio
-            // (renderBlocks/renderPipes) -- no como este rectangulo plano.
+            // interrogacion, tuberias y el puente se dibujan aparte con su
+            // propio sprite (renderBlocks/renderPipes/renderHazards).
             if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
                 isDispenserTile(col, row) || isPipeTile(col, row) || isBridgeTile(col, row)) {
                 continue;
             }
-            SDL_Rect tileRect{col * tileSize_ - camOffset, row * tileSize_, tileSize_, tileSize_};
-            SDL_RenderFillRect(renderer, &tileRect);
+            const int x = col * tileSize_ - camOffset;
+            if (x + tileSize_ < 0 || x > viewWidth) continue;
+            terrainSprite.draw(renderer, worldRow, isHardBlockTile(col, row) ? 1 : 0, x, row * tileSize_, false);
         }
     }
 
