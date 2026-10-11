@@ -112,6 +112,10 @@ constexpr float kBrickCoinAnimFrameDuration = 0.12f;  // s por frame del giro, i
 // que seguir estando ahi cuando la camara llegue.
 constexpr float kOffscreenBehindMargin = static_cast<float>(kLogicalWidth);
 
+// Velocidad maxima (px/s) con la que la camara de 2P se acerca a su
+// objetivo (ver Game::updateCamera) -- mas del doble de Mario::kMaxRunSpeed.
+constexpr float kCameraCatchUpSpeed = 360.0f;
+
 // reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
 // variantes en vez de una sola con duck typing por nombre de metodo.
@@ -535,6 +539,7 @@ bool Game::init() {
 void Game::startScenario(TestScenario scenario) {
     scenario_ = scenario;
     menuSelection_ = static_cast<int>(scenario);
+    cameraSnapPending_ = true;
     input1_.clearPresses();
     input2_.clearPresses();
     const char* path = "levels/world1/test_items.json";
@@ -809,6 +814,13 @@ void Game::processEvents() {
                 for (Hammer& hammer : hammers_) hammer.reset();
             } else if (event.key.keysym.scancode == SDL_SCANCODE_M) {
                 twoPlayerMode_ = !twoPlayerMode_;
+                if (twoPlayerMode_) {
+                    // Luigi pudo haber quedado en cualquier lado del nivel
+                    // (fuera de pantalla si Mario ya avanzo): entra en la
+                    // pantalla actual, igual que al reaparecer.
+                    const SDL_Point point = findRespawnPoint(cameraX_ + kLogicalWidth / 2.0f, luigi_.height());
+                    luigi_.spawn(static_cast<float>(point.x), static_cast<float>(point.y));
+                }
             }
         }
     }
@@ -1919,6 +1931,22 @@ void Game::checkPipeWarp(Mario& character, Input& input) {
         if (!level_.isPipeTopTile(warp.col, warp.row)) continue;  // por si el nivel cambio
         character.spawn(warp.destX, warp.destY);
         audio_.play(Sfx::Pipe);
+        // En 2P el companero viaja con el (si no, keepCharactersOnScreen()
+        // no tendria pantalla que los contenga a los dos): aparece al lado,
+        // del primer costado que no quede metido en una pared.
+        Mario& partner = &character == &mario_ ? luigi_ : mario_;
+        if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+            const float ts = static_cast<float>(level_.tileSize());
+            float partnerX = warp.destX;
+            for (const float offset : {-ts, ts}) {
+                if (isAreaFree(warp.destX + offset, warp.destY, partner.width(), partner.height())) {
+                    partnerX = warp.destX + offset;
+                    break;
+                }
+            }
+            partner.spawn(partnerX, warp.destY);
+        }
+        cameraSnapPending_ = true;
         return;
     }
 }
@@ -2213,6 +2241,9 @@ void Game::respawnAtCheckpoint(Mario& character, float spawnX, float spawnY) {
     // Placeholder hasta que exista un sistema de checkpoints real (seccion
     // 6): vuelve al spawn original del nivel.
     character.spawn(spawnX, spawnY);
+    // Puede quedar lejos de la camara actual: si se acercara de a poco,
+    // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
+    cameraSnapPending_ = true;
     grantRespawnInvincibilityForWorld(character);
 }
 
@@ -2231,23 +2262,76 @@ void Game::grantRespawnInvincibilityForWorld(Mario& character) {
 }
 
 void Game::updateCamera(float dt) {
-    // El de mas adelante (mayor X) es quien "empuja" la camara -- en 1P es
-    // directamente Mario. No sigue al que se quedo atras: asi no retrocede
-    // sola si un personaje se da vuelta, solo importa hasta donde llego el
-    // que mas avanzo.
-    const float leaderX = twoPlayerMode_ ? std::max(mario_.x(), luigi_.x()) : mario_.x();
-    // Centrada en el personaje, pero sin mostrar mas alla de los bordes del
-    // nivel -- si el nivel entero entra en una pantalla (los escenarios
-    // viejos, sin scroll), maxCameraX da <= 0 y se clampea a 0 siempre.
+    // 1P: centrada en Mario. 2P: centrada en el punto medio entre los dos,
+    // asi los dos entran en pantalla mientras esten a menos de un ancho de
+    // pantalla (keepCharactersOnScreen() se encarga de que nunca se separen
+    // mas que eso). El que esta cayendo muerto no cuenta: la camara sigue
+    // solo al que quedo vivo hasta que el otro reaparece.
+    const bool marioActive = !mario_.isInDeathSequence();
+    const bool luigiActive = twoPlayerMode_ && !luigi_.isInDeathSequence();
+    float focusX = mario_.x();
+    if (marioActive && luigiActive) {
+        focusX = (mario_.x() + luigi_.x()) / 2.0f;
+    } else if (luigiActive) {
+        focusX = luigi_.x();
+    }
+    // Sin mostrar mas alla de los bordes del nivel -- si el nivel entero
+    // entra en una pantalla (los escenarios viejos, sin scroll),
+    // maxCameraX da <= 0 y se clampea a 0 siempre.
     const float maxCameraX = std::max(0.0f, static_cast<float>(level_.widthPixels() - kLogicalWidth));
+    const float targetX = std::clamp(focusX - static_cast<float>(kLogicalWidth) / 2.0f, 0.0f, maxCameraX);
     const float previousCameraX = cameraX_;
-    cameraX_ = std::clamp(leaderX - static_cast<float>(kLogicalWidth) / 2.0f, 0.0f, maxCameraX);
+    if (!twoPlayerMode_ || cameraSnapPending_) {
+        cameraX_ = targetX;
+    } else {
+        // En 2P el objetivo salta de golpe cuando uno muere (pasa a seguir
+        // solo al otro) o reaparece: se acerca a velocidad limitada en vez
+        // de cortar de un cuadro al otro. kCameraCatchUpSpeed es mas del
+        // doble de kMaxRunSpeed, asi que siguiendo normal nunca se queda
+        // atras.
+        const float step = kCameraCatchUpSpeed * dt;
+        cameraX_ += std::clamp(targetX - cameraX_, -step, step);
+    }
+    cameraSnapPending_ = false;
     // Ver el comentario de cameraScrollSpeed_ en Game.h (equivalente a
     // ScrollAmount en el original): 0 en vez de un valor real cuando la
     // camara esta pegada a un borde del nivel (clampeada), aunque el
     // personaje se siga moviendo -- ahi no esta "empujando" la camara de
     // verdad aunque corra.
     cameraScrollSpeed_ = dt > 0.0f ? (cameraX_ - previousCameraX) / dt : 0.0f;
+}
+
+void Game::keepCharactersOnScreen() {
+    if (!twoPlayerMode_) return;
+    for (Mario* character : {&mario_, &luigi_}) {
+        // El que cae muerto sale de pantalla a proposito (y despues
+        // reaparece), no se lo frena.
+        if (character->isInDeathSequence()) continue;
+        const float minX = cameraX_;
+        const float maxX = cameraX_ + static_cast<float>(kLogicalWidth - character->width());
+        if (character->x() < minX) {
+            character->nudgeX(minX - character->x());
+            if (character->velocityX() < 0.0f) character->setVelocityX(0.0f);
+        } else if (character->x() > maxX) {
+            character->nudgeX(maxX - character->x());
+            if (character->velocityX() > 0.0f) character->setVelocityX(0.0f);
+        }
+    }
+}
+
+bool Game::isAreaFree(float x, float y, int width, int height) const {
+    const int ts = level_.tileSize();
+    const int col0 = static_cast<int>(std::floor(x / ts));
+    const int col1 = static_cast<int>(std::floor((x + width - 1.0f) / ts));
+    const int row0 = static_cast<int>(std::floor(y / ts));
+    const int row1 = static_cast<int>(std::floor((y + height - 1.0f) / ts));
+    if (col0 < 0 || col1 >= level_.widthTiles()) return false;
+    for (int col = col0; col <= col1; ++col) {
+        for (int row = row0; row <= row1; ++row) {
+            if (level_.isSolidTile(col, row)) return false;
+        }
+    }
+    return true;
 }
 
 void Game::update(float dt) {
@@ -2323,6 +2407,7 @@ void Game::update(float dt) {
     }
 
     updateCamera(dt);
+    keepCharactersOnScreen();
 
     // Emergiendo de un bloque (ver ItemEmerge en Game.h): la reposiciona a
     // mano interpolando startY->endY en vez de dejarla actualizar su propia

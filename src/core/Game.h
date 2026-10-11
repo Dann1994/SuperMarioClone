@@ -441,13 +441,22 @@ private:
     // solo lugar para este criterio en vez de repetirlo en las dos
     // funciones de respawn de arriba.
     void grantRespawnInvincibilityForWorld(Mario& character);
-    // Recalcula cameraX_ para que siga al personaje mas adelantado (el de
-    // mayor X; en 1P es directamente Mario), sin dejar ver mas alla de los
-    // bordes del nivel (se clampea a [0, ancho del nivel - pantalla] --
-    // 0 si el nivel entero entra en una pantalla, como los escenarios
-    // viejos que no scrollean). Tambien actualiza cameraScrollSpeed_ (por
-    // eso necesita dt). Ver el comentario de cameraX_/cameraScrollSpeed_.
+    // Recalcula cameraX_ para que siga a Mario (1P) o al punto medio entre
+    // Mario y Luigi (2P, sin contar al que esta cayendo muerto), sin dejar
+    // ver mas alla de los bordes del nivel (se clampea a [0, ancho del
+    // nivel - pantalla] -- 0 si el nivel entero entra en una pantalla, como
+    // los escenarios viejos que no scrollean). Tambien actualiza
+    // cameraScrollSpeed_ (por eso necesita dt). Ver el comentario de
+    // cameraX_/cameraScrollSpeed_.
     void updateCamera(float dt);
+    // 2P: los bordes de la pantalla son paredes para los dos, asi ninguno
+    // puede alejarse tanto del otro que la camara no los contenga -- el que
+    // va adelante queda frenado en el borde derecho hasta que el otro lo
+    // alcance (mismo criterio que el co-op de los Mario modernos).
+    void keepCharactersOnScreen();
+    // true si una caja de ese tamano en (x, y) no toca ningun tile solido
+    // ni se sale del nivel por los costados.
+    bool isAreaFree(float x, float y, int width, int height) const;
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
@@ -480,6 +489,11 @@ private:
     // centro/borde del nivel) el Lakitu acelera, si no, va lento aunque el
     // personaje se mueva (todavia no llego a mover la camara).
     float cameraScrollSpeed_ = 0.0f;
+    // Pide que el proximo updateCamera() salte directo al objetivo en vez
+    // de acercarse de a poco (2P): al empezar un nivel, al pasar por una
+    // tuberia o al volver al checkpoint, donde la camara anterior ya no
+    // tiene nada que ver con donde estan los personajes.
+    bool cameraSnapPending_ = true;
     // Modo 1 jugador (solo Mario) vs 2 jugadores simultaneos (ver seccion
     // "Ideas anotadas" del README): cambia como se maneja la muerte -- en 1P
     // Mario muriendo congela y vuelve al checkpoint (como el juego clasico,

@@ -113,7 +113,7 @@ Todas provisorias, para probar mecánicas antes de tener sus disparadores reales
 
 No estaban en la especificación original, pero surgieron probando el prototipo y vale la pena no perderlas de vista:
 
-- **Modo cooperativo simultáneo**: Mario y Luigi en pantalla al mismo tiempo. Ya andando (togglable con `M`, ver `twoPlayerMode_` en `src/core/Game.h`), incluyendo colisión entre los dos y manejo de muerte propio. Falta: selección de modo desde un menú real (por ahora es debug), cámara que siga a ambos.
+- **Modo cooperativo simultáneo**: Mario y Luigi en pantalla al mismo tiempo. Ya andando (togglable con `M`, ver `twoPlayerMode_` en `src/core/Game.h`), incluyendo colisión entre los dos y manejo de muerte propio. Cámara compartida (`Game::updateCamera`/`keepCharactersOnScreen`): sigue el punto medio entre los dos, y los bordes de la pantalla son paredes para ambos — el que va adelante queda frenado en el borde derecho hasta que el otro lo alcanza (como el co-op de los Mario modernos). Mientras uno cae muerto la cámara sigue solo al vivo, acercándose a velocidad limitada (`kCameraCatchUpSpeed`) en vez de cortar de golpe. Al activar 2P con `M`, Luigi aparece en la pantalla actual; al pasar por una tubería el compañero viaja también y aparece al lado. Falta: selección de modo desde un menú real (por ahora es debug).
 - **Modo clásico de dos jugadores por turnos**: como el Mario original — un jugador a la vez en pantalla, se alternan turno por turno (vida/intento) en vez de jugar simultáneo. Todavía no empezado (el modo 1 jugador actual es solo Mario solo, sin alternancia con Luigi).
 
 Falta definir cómo se elige el modo (probablemente desde el menú principal, sección 10.1 de la especificación, una vez que exista).
