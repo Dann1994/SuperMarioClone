@@ -22,7 +22,9 @@
 // cualquier alto -- esta clase deduce sola cual es el "caño" (izquierda vs
 // derecha) y cual es el "tope" (la fila de mas arriba de un tramo vertical
 // contiguo de 'T') mirando los vecinos, no hace falta un caracter distinto
-// para cada parte.
+// para cada parte. 'F' es el mastil de la bandera de meta (ver
+// findFlagpole): una columna vertical contigua, la fila de arriba es la
+// bola del tope.
 class Tilemap {
 public:
     bool loadFromFile(const std::string& path);
@@ -118,6 +120,15 @@ public:
     bool isPipeTopTile(int col, int row) const;
     bool isPipeLeftHalf(int col, int row) const;
 
+    // Mastil de la bandera de meta ('F', seccion 5.3): no es solido (se
+    // atraviesa, lo agarra Game::checkFlagpoleGrab), y lo dibuja la entidad
+    // Flagpole, no esta clase. El bloque base de abajo es un '#' comun.
+    // findFlagpole devuelve el primer tramo vertical de 'F' del nivel
+    // (columna, fila del tope = la bola, ultima fila del mastil); false si
+    // el nivel no tiene bandera.
+    bool isFlagpoleTile(int col, int row) const;
+    bool findFlagpole(int& col, int& topRow, int& bottomRow) const;
+
     // Separado en dos pasadas (en vez de un solo render()) para que
     // Game.cpp pueda dibujar los items que salen de un bloque JUSTO en el
     // medio (ver el comentario del usuario: el item tiene que quedar
@@ -180,4 +191,5 @@ private:
     std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
     std::vector<uint8_t> dispenserHits_; // row-major, cuantas veces lo golpearon hasta ahora
     std::vector<uint8_t> pipe_;          // row-major, 1 = tuberia ('T')
+    std::vector<uint8_t> flagpole_;      // row-major, 1 = mastil de la bandera ('F')
 };

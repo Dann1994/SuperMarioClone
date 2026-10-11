@@ -72,7 +72,7 @@ void Mario::setInvincible(bool on, float duration) {
 }
 
 bool Mario::takeDamage() {
-    if (invincible_ || hurtInvincible_ || inDamageSequence_) return false;
+    if (invincible_ || hurtInvincible_ || inDamageSequence_ || isOnFlagpole()) return false;
     if (size_ == MarioSize::Small) return false;  // "morir", todavia no implementado
 
     inDamageSequence_ = true;
@@ -148,6 +148,7 @@ void Mario::updateGrowSequence(float dt) {
 bool Mario::startDeath() {
     if (size_ != MarioSize::Small) return false;
     if (invincible_ || hurtInvincible_ || inDamageSequence_ || inGrowSequence_ || inDeathSequence_) return false;
+    if (isOnFlagpole()) return false;
 
     inDeathSequence_ = true;
     deathSequenceTimer_ = kDeathDuration;
@@ -193,6 +194,7 @@ void Mario::spawn(float x, float y) {
     velX_ = 0.0f;
     velY_ = 0.0f;
     grounded_ = false;
+    flagpolePhase_ = FlagpolePhase::None;
 }
 
 void Mario::update(float dt, Input& input, const Tilemap& level) {
@@ -201,6 +203,12 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
         // otro jugador sigue jugando normal, este cae con la pose de
         // "muerto" hasta que termina la secuencia.
         updateDeathSequence(dt);
+        return;
+    }
+
+    if (isOnFlagpole()) {
+        // Secuencia automatica de fin de nivel: ignora el input.
+        updateFlagpole(dt, level);
         return;
     }
 
@@ -461,6 +469,7 @@ constexpr int kAnimRowThrow = 7;
 constexpr int kAnimRowSwim = 6;
 constexpr int kAnimRowDie = 4;  // solo existe en el sheet chico (grande/fuego tiene "duck" en ese indice)
 constexpr int kAnimRowDuck = 4; // solo existe en los sheets grande/fuego (el chico tiene "die" en ese indice)
+constexpr int kAnimRowClimb = 5; // trepar/bajar por el mastil, 2 frames (todos los sheets)
 constexpr int kWalkFrameCount = 3;
 constexpr int kSwimFrameCount = 5;
 // Segun la hoja de referencia: la pose de tirar fuego solo reemplaza los 24px
@@ -543,6 +552,7 @@ void Mario::updateAnimation(float dt, const Input& input) {
 }
 
 void Mario::render(SDL_Renderer* renderer, float cameraX) const {
+    if (hasFinishedLevel()) return;  // ya entro al castillo
     const int drawXBase = static_cast<int>(std::lround(x_ - cameraX)) - (kSpriteFrameWidth - currentWidth()) / 2;
     // El frame del sprite es mas alto que el hitbox real (ver el comentario
     // de kSmallHitboxWidth en Mario.h): se dibuja mas arriba de y_ por esta
@@ -562,6 +572,7 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         case MarioAnim::Jump: row = kAnimRowJump; col = 0; break;
         case MarioAnim::Swim: row = kAnimRowSwim; col = swimFrame_; break;
         case MarioAnim::Duck: row = kAnimRowDuck; col = 0; break;
+        case MarioAnim::Climb: row = kAnimRowClimb; col = climbFrame_; break;
         case MarioAnim::Throw: break;  // no se asigna como estado real, ver mas abajo
     }
 
@@ -631,4 +642,87 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
     }
 
     sprite.draw(renderer, row + rowOffset, col, drawX, drawY, !facingRight_);
+}
+
+void Mario::startFlagpoleGrab(float poleCenterX, float bottomY, float exitTargetX) {
+    if (isOnFlagpole() || inDeathSequence_) return;
+    flagpolePhase_ = FlagpolePhase::Slide;
+    flagpolePoleX_ = poleCenterX;
+    flagpoleBottomY_ = bottomY;
+    flagpoleExitX_ = exitTargetX;
+    flagpoleTimer_ = 0.0f;
+    climbFrame_ = 0;
+    velX_ = 0.0f;
+    velY_ = 0.0f;
+    throwAnimTimer_ = 0.0f;
+    facingRight_ = true;
+    animState_ = MarioAnim::Climb;
+    // Colgado a la izquierda del palo: el borde derecho del sprite (las
+    // manos de la pose de trepar) apenas lo pisa. El sprite se dibuja
+    // centrado sobre el hitbox (ver render()), de ahi el ajuste.
+    const int spriteMargin = (kSpriteFrameWidth - currentWidth()) / 2;
+    x_ = poleCenterX + 1.0f - static_cast<float>(currentWidth() + spriteMargin);
+}
+
+void Mario::releaseFromFlagpole() {
+    if (flagpolePhase_ != FlagpolePhase::Bottom) return;
+    // Se pasa al otro lado del palo, mirando hacia el (sprite espejado).
+    flagpolePhase_ = FlagpolePhase::Flip;
+    flagpoleTimer_ = kFlagpoleFlipDuration;
+    facingRight_ = false;
+    const int spriteMargin = (kSpriteFrameWidth - currentWidth()) / 2;
+    x_ = flagpolePoleX_ - 1.0f + static_cast<float>(spriteMargin);
+}
+
+void Mario::updateFlagpole(float dt, const Tilemap& level) {
+    switch (flagpolePhase_) {
+        case FlagpolePhase::Slide: {
+            y_ += kFlagpoleSlideSpeed * dt;
+            flagpoleTimer_ += dt;
+            if (flagpoleTimer_ >= kClimbFrameInterval) {
+                flagpoleTimer_ = 0.0f;
+                climbFrame_ = 1 - climbFrame_;
+            }
+            const float bottomTop = flagpoleBottomY_ - static_cast<float>(currentHeight());
+            if (y_ >= bottomTop) {
+                y_ = bottomTop;
+                climbFrame_ = 0;
+                flagpolePhase_ = FlagpolePhase::Bottom;
+            }
+            break;
+        }
+        case FlagpolePhase::Bottom:
+            break;  // espera a releaseFromFlagpole()
+        case FlagpolePhase::Flip:
+            flagpoleTimer_ -= dt;
+            if (flagpoleTimer_ <= 0.0f) {
+                flagpolePhase_ = FlagpolePhase::Walk;
+                facingRight_ = true;
+                animState_ = MarioAnim::Walk;
+                walkFrame_ = 0;
+                walkAnimTimer_ = 0.0f;
+                flagpoleTimer_ = 0.0f;
+            }
+            break;
+        case FlagpolePhase::Walk:
+            // Se baja del bloque base y camina solo, con gravedad normal.
+            velX_ = kMaxWalkSpeed;
+            velY_ = std::min(velY_ + kGravityDescend * dt, kMaxFallSpeed);
+            moveAndCollide(dt, level);
+            walkAnimTimer_ += dt;
+            if (walkAnimTimer_ >= kClimbFrameInterval * 1.5f) {
+                walkAnimTimer_ = 0.0f;
+                walkFrame_ = (walkFrame_ + 1) % kWalkFrameCount;
+            }
+            // El tope de tiempo es un seguro por si algo del nivel le corta
+            // el paso (una pared antes de la puerta): no se queda trabado.
+            flagpoleTimer_ += dt;
+            if (x_ >= flagpoleExitX_ || flagpoleTimer_ >= kFlagpoleWalkMaxDuration) {
+                flagpolePhase_ = FlagpolePhase::Done;
+            }
+            break;
+        case FlagpolePhase::Done:
+        case FlagpolePhase::None:
+            break;
+    }
 }

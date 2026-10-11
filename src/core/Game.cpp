@@ -116,6 +116,10 @@ constexpr float kOffscreenBehindMargin = static_cast<float>(kLogicalWidth);
 // objetivo (ver Game::updateCamera) -- mas del doble de Mario::kMaxRunSpeed.
 constexpr float kCameraCatchUpSpeed = 360.0f;
 
+// Segundos que queda el cartel de "nivel completo" despues de que el
+// primero entra al castillo, antes de volver al selector.
+constexpr float kLevelClearDuration = 2.5f;
+
 // reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
 // variantes en vez de una sola con duck typing por nombre de metodo.
@@ -386,6 +390,7 @@ bool Game::init() {
         audio_.load(Sfx::Fireball, sfxDir + "fireball.wav");
         audio_.load(Sfx::BowserFire, sfxDir + "fire.wav");
         audio_.load(Sfx::BillFirework, sfxDir + "billfirework.wav");
+        audio_.load(Sfx::Flagpole, sfxDir + "flagpole.wav");
     }
 
     window_ = SDL_CreateWindow(
@@ -518,6 +523,12 @@ bool Game::init() {
     if (!axeSprite_.loadFromFile(renderer_, "assets/sprites/axe.png", Axe::kWidth, Axe::kHeight)) {
         return false;
     }
+    if (!flagpoleSprite_.loadFromFile(renderer_, "assets/sprites/flagpole.png", 16, 16)) {
+        return false;
+    }
+    if (!flagSprite_.loadFromFile(renderer_, "assets/sprites/flag.png", 16, 16)) {
+        return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
@@ -561,8 +572,19 @@ void Game::startScenario(TestScenario scenario) {
         path = "levels/world1/test_podoboo.json";
     } else if (scenario == TestScenario::Bowser) {
         path = "levels/world1/test_bowser.json";
+    } else if (scenario == TestScenario::Flagpole) {
+        path = "levels/world1/test_flagpole.json";
     }
     level_.loadFromFile(path);
+
+    // Bandera de meta: la pone el propio nivel (tiles 'F'), no el escenario.
+    int poleCol = 0, poleTopRow = 0, poleBottomRow = 0;
+    if (level_.findFlagpole(poleCol, poleTopRow, poleBottomRow)) {
+        flagpole_.setup(poleCol, poleTopRow, poleBottomRow, level_.tileSize());
+    } else {
+        flagpole_.reset();
+    }
+    levelClearTimer_ = 0.0f;
 
     // Nivel de agua (seccion 5.5): arranca directo en Underwater en vez del
     // Overworld por defecto -- F7 lo sigue pudiendo ciclar manualmente
@@ -2267,8 +2289,13 @@ void Game::updateCamera(float dt) {
     // pantalla (keepCharactersOnScreen() se encarga de que nunca se separen
     // mas que eso). El que esta cayendo muerto no cuenta: la camara sigue
     // solo al que quedo vivo hasta que el otro reaparece.
-    const bool marioActive = !mario_.isInDeathSequence();
-    const bool luigiActive = twoPlayerMode_ && !luigi_.isInDeathSequence();
+    // Tampoco cuenta el que ya se bajo de la bandera y camina al castillo
+    // (o ya entro): sale de pantalla a proposito.
+    auto followable = [](const Mario& character) {
+        return !character.isInDeathSequence() && (!character.isOnFlagpole() || character.isHoldingFlagpole());
+    };
+    const bool marioActive = followable(mario_);
+    const bool luigiActive = twoPlayerMode_ && followable(luigi_);
     float focusX = mario_.x();
     if (marioActive && luigiActive) {
         focusX = (mario_.x() + luigi_.x()) / 2.0f;
@@ -2307,6 +2334,9 @@ void Game::keepCharactersOnScreen() {
         // El que cae muerto sale de pantalla a proposito (y despues
         // reaparece), no se lo frena.
         if (character->isInDeathSequence()) continue;
+        // Idem el que esta en la secuencia de la bandera (la camara ya lo
+        // tenia en pantalla al agarrarla, y despues se va al castillo).
+        if (character->isOnFlagpole()) continue;
         const float minX = cameraX_;
         const float maxX = cameraX_ + static_cast<float>(kLogicalWidth - character->width());
         if (character->x() < minX) {
@@ -2626,6 +2656,9 @@ void Game::update(float dt) {
     }
     checkAxeCollision(mario_, axe_);
     if (twoPlayerMode_) checkAxeCollision(luigi_, axe_);
+    checkFlagpoleGrab(mario_);
+    if (twoPlayerMode_) checkFlagpoleGrab(luigi_);
+    updateFlagpoleSequence(dt);
 
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
@@ -2755,6 +2788,7 @@ void Game::render() {
     }
     level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
+    flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
     // bloques (ver el comentario del usuario): mientras esta "emergiendo"
     // (ItemEmerge) el bloque tiene que quedar tapandolo, no al reves. No
@@ -2862,6 +2896,11 @@ void Game::render() {
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
+    if (levelClearTimer_ > 0.0f) {
+        // Placeholder hasta tener HUD/paso al nivel siguiente (seccion 6).
+        DebugFont::drawText(renderer_, 72, 100, "NIVEL COMPLETO", 2, SDL_Color{255, 255, 255, 255});
+    }
+
     if (showDebugOverlay_) {
         char fpsText[32];
         std::snprintf(fpsText, sizeof(fpsText), "FPS:%3d", currentFps_);
@@ -2910,10 +2949,10 @@ void Game::renderScenarioSelect() {
     static const char* const kOptions[kMenuOptionCount] = {
         "1 ITEMS",     "2 ENEMIGOS",    "3 HAMMER BRO", "4 LAKITU",
         "5 BLOOPER",   "6 CHEEP CHEEP", "7 BILL BALA",  "8 CHEEP CHEEP SALTO",
-        "9 PODOBOO",   "0 BOWSER",
+        "9 PODOBOO",   "0 BOWSER",      "  META",
     };
     for (int i = 0; i < kMenuOptionCount; ++i) {
-        const int y = 52 + i * 16;
+        const int y = 48 + i * 15;
         const bool selected = i == menuSelection_;
         if (selected) DebugFont::drawText(renderer_, 20, y, ">", 2, white);
         DebugFont::drawText(renderer_, 32, y, kOptions[i], 2, selected ? white : yellow);
@@ -2970,4 +3009,46 @@ void Game::shutdown() {
     if (window_) SDL_DestroyWindow(window_);
     IMG_Quit();
     SDL_Quit();
+}
+
+void Game::checkFlagpoleGrab(Mario& character) {
+    if (!flagpole_.isActive() || character.isOnFlagpole() || character.isInDeathSequence()) return;
+    if (!flagpole_.touches(character.x(), character.y(), character.width(), character.height())) return;
+
+    // Puntaje segun la altura del agarre, como en el original: cuanto mas
+    // arriba (pies respecto del pie del mastil), mas puntos -- el tope
+    // exacto da 5000.
+    const float poleHeight = flagpole_.bottomY() - flagpole_.topY();
+    const float grabHeight = flagpole_.bottomY() - (character.y() + static_cast<float>(character.height()));
+    const float ratio = poleHeight > 0.0f ? grabHeight / poleHeight : 0.0f;
+    const char* points = ratio >= 0.9f ? "5000" : ratio >= 0.65f ? "2000" : ratio >= 0.4f ? "800"
+                       : ratio >= 0.2f ? "400" : "100";
+    spawnScorePopup(flagpole_.poleCenterX() + 4.0f, character.y(), points);
+
+    // La puerta del castillo: 5 tiles despues del mastil, sin pasarse del
+    // final del nivel (todavia no hay castillo dibujado, ver Flagpole.h).
+    const float ts = static_cast<float>(level_.tileSize());
+    const float exitX = std::min(flagpole_.poleCenterX() + 5.0f * ts,
+                                 static_cast<float>(level_.widthPixels()) - ts);
+    character.startFlagpoleGrab(flagpole_.poleCenterX(), flagpole_.bottomY(), exitX);
+    if (!flagpole_.isLowering()) {
+        flagpole_.startLowering();
+        audio_.play(Sfx::Flagpole);
+    }
+}
+
+void Game::updateFlagpoleSequence(float dt) {
+    if (!flagpole_.isActive()) return;
+    flagpole_.update(dt);
+    if (flagpole_.isFlagDown()) {
+        if (mario_.isWaitingAtFlagpoleBottom()) mario_.releaseFromFlagpole();
+        if (twoPlayerMode_ && luigi_.isWaitingAtFlagpoleBottom()) luigi_.releaseFromFlagpole();
+    }
+
+    if (levelClearTimer_ > 0.0f) {
+        levelClearTimer_ -= dt;
+        if (levelClearTimer_ <= 0.0f) appState_ = AppState::ScenarioSelect;
+    } else if (mario_.hasFinishedLevel() || (twoPlayerMode_ && luigi_.hasFinishedLevel())) {
+        levelClearTimer_ = kLevelClearDuration;
+    }
 }

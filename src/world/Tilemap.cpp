@@ -31,6 +31,7 @@ bool Tilemap::loadFromFile(const std::string& path) {
     dispenserUsed_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenserHits_.assign(static_cast<size_t>(width_) * height_, 0);
     pipe_.assign(static_cast<size_t>(width_) * height_, 0);
+    flagpole_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
@@ -45,10 +46,32 @@ bool Tilemap::loadFromFile(const std::string& path) {
             question_[i] = (c == '?') ? 1 : 0;
             dispenser_[i] = (c == 'D') ? 1 : 0;
             pipe_[i] = (c == 'T') ? 1 : 0;
+            flagpole_[i] = (c == 'F') ? 1 : 0;
         }
     }
 
     return true;
+}
+
+bool Tilemap::isFlagpoleTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return flagpole_[row * width_ + col] != 0;
+}
+
+bool Tilemap::findFlagpole(int& col, int& topRow, int& bottomRow) const {
+    for (int c = 0; c < width_; ++c) {
+        for (int r = 0; r < height_; ++r) {
+            if (!isFlagpoleTile(c, r)) continue;
+            col = c;
+            topRow = r;
+            bottomRow = r;
+            while (isFlagpoleTile(c, bottomRow + 1)) ++bottomRow;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Tilemap::isSolidTile(int col, int row) const {

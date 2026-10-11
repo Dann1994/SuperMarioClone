@@ -18,6 +18,7 @@
 #include "../entities/Coin.h"
 #include "../entities/FireFlower.h"
 #include "../entities/Fireball.h"
+#include "../entities/Flagpole.h"
 #include "../entities/Goomba.h"
 #include "../entities/Hammer.h"
 #include "../entities/HammerBro.h"
@@ -175,10 +176,13 @@ enum class TestScenario {
     CheepCheepJump,
     Podoboo,
     Bowser,
+    // Tramo final de un nivel (escalera + bandera de meta, como el 1-1),
+    // test_flagpole.json. Sin tecla numerica: se elige con la flecha.
+    Flagpole,
 };
 
 // Cantidad de opciones del selector de escenario (una por TestScenario).
-constexpr int kMenuOptionCount = static_cast<int>(TestScenario::Bowser) + 1;
+constexpr int kMenuOptionCount = static_cast<int>(TestScenario::Flagpole) + 1;
 
 enum class AppState {
     ScenarioSelect,
@@ -365,6 +369,14 @@ private:
     // Tocar el hacha derrota a Bowser de una sola vez (ver Axe.h) y hace
     // desaparecer el hacha misma.
     void checkAxeCollision(Mario& character, Axe& axe);
+    // Bandera de meta (seccion 5.3, ver Flagpole.h): si el personaje toca el
+    // mastil lo agarra (Mario::startFlagpoleGrab), suena flagpole.wav, sale
+    // el puntaje segun la altura del agarre y la bandera empieza a bajar.
+    void checkFlagpoleGrab(Mario& character);
+    // Avanza la bandera, suelta a los que esperan abajo cuando ya bajo, y
+    // arranca el cierre del nivel (levelClearTimer_) cuando el primero
+    // entra al castillo.
+    void updateFlagpoleSequence(float dt);
     // Tuberia (seccion 5.3): si el personaje esta parado (grounded) justo
     // arriba del TOPE de una tuberia (Tilemap::isPipeTopTile) y aprieta
     // abajo, lo teletransporta al destino configurado en kPipeWarps -- sin
@@ -723,6 +735,15 @@ private:
     std::array<BowserFire, kMaxBowserFires> bowserFires_;
     SpriteSheet axeSprite_;
     Axe axe_;
+
+    // Bandera de meta: solo existe en los niveles que tienen tiles 'F' (ver
+    // startScenario). levelClearTimer_ > 0 = nivel completado, se muestra
+    // el cartel y al llegar a 0 vuelve al selector -- placeholder hasta que
+    // exista el paso al nivel siguiente (seccion 6).
+    SpriteSheet flagpoleSprite_;
+    SpriteSheet flagSprite_;
+    Flagpole flagpole_;
+    float levelClearTimer_ = 0.0f;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

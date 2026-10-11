@@ -17,6 +17,7 @@ enum class MarioAnim {
     Throw,
     Swim,
     Duck,
+    Climb,
 };
 
 enum class MarioSize {
@@ -180,7 +181,30 @@ public:
     // true una sola vez, justo cuando termina la secuencia (se resetea al leerlo).
     bool consumeDeathFinished();
 
+    // Bandera de meta (seccion 5.3, ver Flagpole.h): al agarrar el mastil
+    // deja de responder al input y hace la secuencia clasica sola --
+    // baja deslizandose pegado al palo (pose de trepar), espera abajo hasta
+    // que Game avisa que la bandera termino de bajar (releaseFromFlagpole),
+    // se pasa al otro lado del palo mirando hacia el, y despues camina solo
+    // hacia la derecha hasta exitTargetX (la puerta del castillo), donde
+    // desaparece. Mientras dure no recibe danio ni muere.
+    void startFlagpoleGrab(float poleCenterX, float bottomY, float exitTargetX);
+    void releaseFromFlagpole();
+    bool isOnFlagpole() const { return flagpolePhase_ != FlagpolePhase::None; }
+    // Todavia agarrado al palo (bajando, esperando abajo o pasandose al
+    // otro lado) -- quieto al lado del mastil, a diferencia de la caminata.
+    bool isHoldingFlagpole() const {
+        return flagpolePhase_ == FlagpolePhase::Slide || flagpolePhase_ == FlagpolePhase::Bottom ||
+               flagpolePhase_ == FlagpolePhase::Flip;
+    }
+    bool isWaitingAtFlagpoleBottom() const { return flagpolePhase_ == FlagpolePhase::Bottom; }
+    // Ya entro al castillo (no se dibuja mas).
+    bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
+
 private:
+    enum class FlagpolePhase { None, Slide, Bottom, Flip, Walk, Done };
+
+    void updateFlagpole(float dt, const Tilemap& level);
     void updateHorizontal(float dt, const Input& input);
     void updateVertical(float dt, Input& input);
     void moveAndCollide(float dt, const Tilemap& level);
@@ -341,4 +365,16 @@ private:
     bool inDeathSequence_ = false;
     float deathSequenceTimer_ = 0.0f;
     bool deathFinished_ = false;
+
+    FlagpolePhase flagpolePhase_ = FlagpolePhase::None;
+    float flagpolePoleX_ = 0.0f;
+    float flagpoleBottomY_ = 0.0f;
+    float flagpoleExitX_ = 0.0f;
+    float flagpoleTimer_ = 0.0f;
+    int climbFrame_ = 0;
+    // Mismo valor que Flagpole::kLowerSpeed (la bandera baja a la par).
+    static constexpr float kFlagpoleSlideSpeed = 120.0f;  // px/s
+    static constexpr float kClimbFrameInterval = 0.08f;   // s entre los 2 frames de trepar al bajar
+    static constexpr float kFlagpoleFlipDuration = 0.4f;  // s del otro lado del palo antes de bajarse
+    static constexpr float kFlagpoleWalkMaxDuration = 4.0f; // s maximos caminando hacia el castillo
 };

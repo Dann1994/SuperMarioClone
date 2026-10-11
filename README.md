@@ -83,6 +83,13 @@ El `.exe` se genera junto con sus DLLs y las carpetas `assets/` y `levels/` copi
   - El sprite del bloque (`brick_block.png`) y de los pedazos (`brick_debris.png`) salieron de `Documentaciones/Objetos.png`, con las 4 paletas por `WorldType` de siempre. El bloque lo dibuja el propio `Tilemap::render()` (recibe el sprite y `worldRow`, en vez del rectángulo plano que usan `'#'`/`'='`)
   - El nivel de Hammer Bro usa esto para **las dos** plataformas (ya no queda ninguna plataforma-de-un-solo-sentido ahí, ambas son bloques de ladrillo de verdad) — bajas y cerca del piso a propósito para que Mario llegue de un salto: la de abajo (donde arranca el Hammer Bro) está a 32px del piso, la de arriba a 64px más — alcanzable de un segundo salto parado sobre la de abajo. Mario aparece fuera de esas columnas, así que cae de largo hasta el piso principal en vez de aterrizar arriba, quedando bien parado debajo para poder saltar y romperlas
   - **Un agujero hecho rompiendo un ladrillo en el medio de una plataforma sí hace que el Hammer Bro se caiga caminando** (`Tilemap::wasBrickTile`, distinto de `isBrickTile`: sigue devolviendo `true` después de romperlo, nunca se limpia). El chequeo de "le teme a los bordes" de `HammerBro::applyHorizontalWithWallBounce` usa esto para diferenciar un agujero a propósito (cruza caminando y se cae, física normal) del borde real de la plataforma (ahí sí se da vuelta como siempre) — mismo dato, comportamiento distinto según si el hueco lo hizo un golpe o ya estaba en el diseño del nivel
+- Bandera de meta (sección 5.3, `Flagpole` + secuencia en `Mario`): tile nuevo `'F'` en el JSON del nivel, una columna vertical contigua (la fila de arriba es la bola), con un `'#'` común abajo como bloque base. No es sólida. Al tocar el mástil, el personaje lo agarra y hace la secuencia clásica solo, sin input:
+  - Baja deslizándose pegado al palo con la pose de trepar, mientras la bandera baja a la misma velocidad (suena `flagpole.wav`)
+  - Espera abajo a que termine de bajar la bandera, se pasa al otro lado del palo mirándolo, y después se baja del bloque base y camina solo hasta la "puerta del castillo" (5 tiles después del mástil; el castillo todavía no se dibuja), donde desaparece
+  - Puntaje según la altura del agarre: 5000 en el tope, después 2000/800/400/100 (por ahora solo el popup, no hay puntaje acumulado)
+  - Mientras dura no recibe daño ni muere, y la cámara de 2P no lo frena contra los bordes. Cuando el primero entra al castillo aparece "NIVEL COMPLETO" y a los 2.5s vuelve al selector (placeholder hasta tener paso al nivel siguiente)
+  - Escenario de prueba propio: **META** en el selector (`test_flagpole.json`, la escalera de 8 escalones del final del 1-1 + mástil). No tiene tecla numérica: se elige con la flecha
+  - Sprites (`assets/sprites/flagpole.png`: bola + tramo de mástil; `flag.png`: bandera), una fila por `WorldType`, generados con `tools/asset_scripts/gen_flagpole.py` desde `Documentaciones/Tiles.png` y `Objetos.png`
 
 Desarrollo incremental siguiendo la sección 12 de la especificación: un elemento del elenco a la vez.
 
@@ -124,4 +131,10 @@ Falta definir cómo se elige el modo (probablemente desde el menú principal, se
 
 ```
 python tools/asset_scripts/gen_star.py assets/sprites/<nombre>.png assets/sprites/<nombre>_star.png
+```
+
+`tools/asset_scripts/gen_flagpole.py` (necesita Pillow) recorta el mástil y la bandera de meta (`assets/sprites/flagpole.png` y `flag.png`), con fondo transparente y una fila por `WorldType`. Correrlo parado en la raíz del proyecto:
+
+```
+python tools/asset_scripts/gen_flagpole.py
 ```

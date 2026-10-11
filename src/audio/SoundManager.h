@@ -29,6 +29,7 @@ enum class Sfx {
     Fireball,
     BowserFire,
     BillFirework,
+    Flagpole,
     Count,
 };
 
