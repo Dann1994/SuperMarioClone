@@ -123,7 +123,7 @@ Desarrollo incremental siguiendo la sección 12 de la especificación: un elemen
 
 ## Editor de niveles
 
-`./build/mario_editor.exe [archivo.json]` (sección 7 de la especificación): herramienta de desarrollo aparte del juego — se compila junto con él, pero no va en el build final (`cmake -S . -B build -DMARIO_BUILD_EDITOR=OFF` lo saca). Lee y guarda los niveles directamente en la carpeta `levels/` del proyecto (no en la copia de `build/`), en el mismo JSON que consume el juego, y los dibuja con el mismo código que el juego (`Tilemap`), así que lo que se ve es lo que se juega.
+`./build/mario_editor.exe [archivo.json]` (sección 7 de la especificación): por ahora una herramienta aparte del juego para armar los niveles principales (`cmake -S . -B build -DMARIO_BUILD_EDITOR=OFF` la saca del build); más adelante se integra al juego como opción del menú (ver "Ideas anotadas"). Lee y guarda los niveles directamente en la carpeta `levels/` del proyecto (no en la copia de `build/`), en el mismo JSON que consume el juego, y los dibuja con el mismo código que el juego (`Tilemap`), así que lo que se ve es lo que se juega.
 
 Tiene lo básico del editor de Super Mario Maker, adaptado a lo que soporta el juego:
 
@@ -174,6 +174,8 @@ No estaban en la especificación original, pero surgieron probando el prototipo 
 - **Modo clásico de dos jugadores por turnos**: como el Mario original — un jugador a la vez en pantalla, se alternan turno por turno (vida/intento) en vez de jugar simultáneo. Todavía no empezado (el modo 1 jugador actual es solo Mario solo, sin alternancia con Luigi).
 
 Falta definir cómo se elige el modo (probablemente desde el menú principal, sección 10.1 de la especificación, una vez que exista).
+
+- **Editor de niveles como opción del juego** (cambia la sección 7 de la especificación, que lo dejaba fuera del build final): por ahora `mario_editor.exe` es la herramienta para armar los niveles principales; más adelante se integra al juego como una opción del menú (estilo Super Mario Maker), para que cualquiera arme y juegue sus propios niveles. Ya está pensado para eso: comparte el dibujo del nivel con el juego (`Tilemap`) y guarda el mismo JSON. Para integrarlo falta: pasarlo de ejecutable aparte a un estado/pantalla del juego, que los niveles del jugador se guarden en una carpeta propia (no en `levels/` del proyecto), y "probar" sin abrir otro proceso.
 
 ## Scripts de assets
 
