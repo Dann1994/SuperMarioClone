@@ -465,6 +465,27 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
             }
         }
     }
+
+    // Plataformas moviles: solo cayendo (o quieto encima) y si los pies
+    // estaban por encima del tope antes de moverse (el que va montado ya
+    // viene alineado, Game lo arrastra con la plataforma antes de esto).
+    platformIndex_ = -1;
+    if (!grounded_ && velY_ >= 0.0f && platforms_ != nullptr) {
+        constexpr float kPlatformSnapPx = 3.0f;
+        const float oldBottom = y_ + static_cast<float>(height);
+        const float newBottom = newY + static_cast<float>(height);
+        for (size_t i = 0; i < platforms_->size(); ++i) {
+            const SDL_FRect& platform = (*platforms_)[i];
+            if (platform.w <= 0.0f) continue;
+            if (x_ >= platform.x + platform.w || x_ + static_cast<float>(width) <= platform.x) continue;
+            if (oldBottom > platform.y + kPlatformSnapPx || newBottom < platform.y) continue;
+            newY = platform.y - static_cast<float>(height);
+            velY_ = 0.0f;
+            grounded_ = true;
+            platformIndex_ = static_cast<int>(i);
+            break;
+        }
+    }
     y_ = newY;
 }
 

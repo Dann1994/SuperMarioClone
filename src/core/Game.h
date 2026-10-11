@@ -26,6 +26,7 @@
 #include "../entities/Koopa.h"
 #include "../entities/Lakitu.h"
 #include "../entities/Mario.h"
+#include "../entities/MovingPlatform.h"
 #include "../entities/Mushroom.h"
 #include "../entities/PiranhaPlant.h"
 #include "../entities/Podoboo.h"
@@ -188,6 +189,9 @@ enum class TestScenario {
     // Tramo final de un nivel (escalera + bandera de meta, como el 1-1),
     // test_flagpole.json. Sin tecla numerica: se elige con la flecha.
     Flagpole,
+    // Plataformas moviles de todos los tipos (test_platforms.json). Sin
+    // tecla numerica: se elige con la flecha.
+    Platforms,
     // El primer nivel real: levels/world1/1-1.json, todo sale del JSON
     // (enemigos, bloques, tuberias, cuarto bonus, escenografia).
     World1_1,
@@ -420,6 +424,27 @@ private:
     // Tocar el hacha derrota a Bowser de una sola vez (ver Axe.h) y hace
     // desaparecer el hacha misma.
     void checkAxeCollision(Mario& character, Axe& axe);
+    // Puente de Bowser (ver Tilemap::isBridgeTile): al tocar el hacha todo
+    // se congela y el puente se derrumba de a un tramo, de la punta del
+    // hacha hacia atras; al terminar Bowser cae a la lava, el juego sigue y
+    // a los kCastleClearDelay segundos arranca el cierre del nivel (cuenta
+    // del tiempo + cartel, ver updateLevelClear).
+    void startBridgeCollapse();
+    void updateBridgeCollapse(float dt);
+    // Vuelve el castillo de prueba al estado inicial (teclas Y/T).
+    void resetCastleSequence();
+    // Tocar la lava mata (sin el saltito, como caer a un pozo).
+    void checkLavaDeath(Mario& character);
+    // Plataformas moviles (ver MovingPlatform.h): las mueve, arrastra a los
+    // que estaban parados encima el cuadro anterior y actualiza
+    // platformRects_ (lo que Mario::moveAndCollide usa para apoyarse).
+    // Despues de mover a los personajes, updatePlatformRiders anota en cual
+    // quedo cada uno (riding, -1 si en ninguna) y avisa a la que cae.
+    void updatePlatforms(float dt);
+    void updatePlatformRiders(Mario& character, int& riding);
+    // Cuenta del tiempo que sobro + cartel de nivel completo, sea por la
+    // bandera o por el hacha del castillo.
+    void updateLevelClear(float dt);
     // Bandera de meta (seccion 5.3, ver Flagpole.h): si el personaje toca el
     // mastil lo agarra (Mario::startFlagpoleGrab), suena flagpole.wav, sale
     // el puntaje segun la altura del agarre y la bandera empieza a bajar.
@@ -527,6 +552,11 @@ private:
     // Area del nivel (Tilemap::areas) que contiene ese X en px.
     int areaIndexAt(float x) const;
     void renderDecorations();
+    // Dibuja al personaje; si va parado en una plataforma movil (riding),
+    // redondea su posicion relativa a ella en vez de a la camara: los dos
+    // se mueven en px fraccionarios y redondeando cada uno por su lado el
+    // personaje "tiembla" 1px contra la plataforma.
+    void renderCharacter(const Mario& character, int riding);
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -870,6 +900,28 @@ private:
     SpriteSheet flagSprite_;
     Flagpole flagpole_;
     float levelClearTimer_ = 0.0f;
+    // El nivel ya se esta terminando (bandera agarrada o hacha tocada): el
+    // timer deja de descontar.
+    bool levelEnding_ = false;
+
+    // Castillo: puente que se derrumba (tramos pendientes, de adelante para
+    // atras) y espera entre que Bowser cae y el cierre del nivel.
+    SpriteSheet lavaSprite_;
+    SpriteSheet bridgeSprite_;
+    bool bridgeCollapsing_ = false;
+    float bridgeCollapseTimer_ = 0.0f;
+    std::vector<SDL_Point> bridgeTilesToCollapse_;
+    float castleClearTimer_ = 0.0f;
+
+    // Plataformas moviles del nivel (campo "platforms").
+    static constexpr int kMaxPlatforms = 12;
+    std::array<MovingPlatform, kMaxPlatforms> platforms_;
+    SpriteSheet liftSprite_;
+    int marioPlatform_ = -1;
+    int luigiPlatform_ = -1;
+    // Un rectangulo por plataforma (mismo indice que platforms_; ancho 0 si
+    // esta inactiva), ver Mario::setPlatforms.
+    std::vector<SDL_FRect> platformRects_;
 
     // Ladrillo rompible (seccion 5.3, tile 'B' en el JSON del nivel, ver
     // Tilemap::isBrickTile): grande/fuego lo rompe saltando de cabeza

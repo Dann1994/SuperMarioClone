@@ -49,6 +49,15 @@ struct LevelDecoration {     // "decorations": escenografia de fondo
     int col = 0;             // esquina superior izquierda, en tiles
     int row = 0;
 };
+struct LevelPlatform {       // "platforms": plataformas moviles (ver MovingPlatform.h)
+    int col = 0;             // esquina superior izquierda, en tiles
+    int row = 0;
+    int width = 3;           // en tiles
+    std::string mode;        // vertical, horizontal, lift_up, lift_down, fall
+    float range = 0.0f;      // recorrido en tiles (vertical/horizontal)
+    float period = 4.0f;     // s de una ida y vuelta (vertical/horizontal)
+    float speed = 50.0f;     // px/s (lift_up/lift_down)
+};
 struct LevelEntity {         // "entities": enemigos del nivel
     std::string type;        // goomba, koopa
     int col = 0;
@@ -82,6 +91,21 @@ public:
     // del area donde esta el jugador (ver Game::updateCamera).
     const std::vector<LevelArea>& areas() const { return areas_; }
     const std::vector<LevelDecoration>& decorations() const { return decorations_; }
+    const std::vector<LevelPlatform>& platforms() const { return platforms_; }
+
+    // Lava ('L', castillos): no es solida, tocarla mata (ver
+    // Game::checkLavaDeath). Se dibuja con sprite propio (renderHazards):
+    // la superficie con ondas en el tile de arriba de cada columna de lava.
+    bool isLavaTile(int col, int row) const;
+    // Puente de Bowser ('b'): solido hasta que se derrumba al tocar el
+    // hacha (Game::checkAxeCollision), de a un tramo (collapseBridgeTile).
+    // restoreBridges lo vuelve a armar entero (reintentar el escenario).
+    bool isBridgeTile(int col, int row) const;
+    void collapseBridgeTile(int col, int row);
+    void restoreBridges();
+    bool hasAnyBridge() const;
+    void renderHazards(SDL_Renderer* renderer, const SpriteSheet& lavaSprite, const SpriteSheet& bridgeSprite,
+                       float cameraX = 0.0f) const;
 
     // Bloque invisible ('H', como el del 1-UP del 1-1): no es solido para
     // nada salvo para la cabeza de Mario/Luigi subiendo desde abajo (ver
@@ -252,6 +276,10 @@ private:
     std::vector<LevelDecoration> decorations_;
     std::vector<uint8_t> hidden_;        // row-major, 1 = bloque invisible sin revelar ('H')
     std::vector<uint8_t> coinTile_;      // row-major, 1 = moneda suelta sin agarrar ('o')
+    std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
+    std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')
+    std::vector<uint8_t> everBridge_;    // row-major, 1 = fue 'b' al cargar (para restoreBridges)
+    std::vector<LevelPlatform> platforms_;
     int width_ = 0;
     int height_ = 0;
     std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')

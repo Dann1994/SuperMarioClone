@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include <string>
+#include <vector>
 
 #include "../core/Input.h"
 #include "../render/SpriteSheet.h"
@@ -119,6 +120,14 @@ public:
     void setVelocityX(float v) { velX_ = v; }
     void setVelocityY(float v) { velY_ = v; }
     void nudgeX(float dx) { x_ += dx; }
+    // Plataformas moviles del nivel (rectangulos en px, ver
+    // Game::updatePlatforms): moveAndCollide las trata como piso de un solo
+    // sentido -- se apoya cayendo desde arriba, se atraviesan subiendo. Al
+    // ser parte de su propia colision cuenta como apoyado para todo
+    // (animacion, poder saltar), igual que el piso de tiles.
+    // platformIndex: en cual quedo parado este cuadro (-1 si en ninguna).
+    void setPlatforms(const std::vector<SDL_FRect>* platforms) { platforms_ = platforms; }
+    int platformIndex() const { return platformIndex_; }
     void setY(float newY) { y_ = newY; }
     // Fuerza la animacion de patinar por un instante (choque contra el otro
     // jugador), sin importar el estado real (incluso nadando, donde no
@@ -371,6 +380,9 @@ private:
     bool inDeathSequence_ = false;
     float deathSequenceTimer_ = 0.0f;
     bool deathFinished_ = false;
+
+    const std::vector<SDL_FRect>* platforms_ = nullptr;
+    int platformIndex_ = -1;
 
     FlagpolePhase flagpolePhase_ = FlagpolePhase::None;
     float flagpolePoleX_ = 0.0f;

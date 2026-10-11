@@ -80,6 +80,11 @@ constexpr int kStartingLives = 3;
 constexpr float kLevelIntroDuration = 2.0f;
 constexpr float kGameOverDuration = 4.0f;
 
+// Castillo: cada cuanto se cae un tramo del puente y cuanto se espera
+// despues de que Bowser cae a la lava antes de cerrar el nivel.
+constexpr float kBridgeCollapseInterval = 0.07f;
+constexpr float kCastleClearDelay = 2.5f;
+
 // Piezas de escenografia (assets/sprites/scenery_<type>.png, ver
 // tools/asset_scripts/gen_scenery.py), mismo orden que
 // Game::decorationSprites_.
@@ -236,9 +241,9 @@ constexpr float kPodobooTestY = 224.0f;
 // como en el original ("run under or jump over Bowser"). Y = borde de
 // arriba del piso solido menos la altura de cada uno.
 constexpr float kBowserTestX = 140.0f;
-constexpr float kBowserTestY = 192.0f;  // 224 (piso) - 32 (Bowser::kHeight)
-constexpr float kAxeTestX = 210.0f;
-constexpr float kAxeTestY = 176.0f;  // 224 (piso) - 48 (Axe::kHeight)
+constexpr float kBowserTestY = 128.0f;  // 160 (tope del puente, fila 10) - 32 (Bowser::kHeight)
+constexpr float kAxeTestX = 208.0f;  // columna 13, la plataforma de la derecha del puente
+constexpr float kAxeTestY = 144.0f;  // 160 (tope de la plataforma) - 16 (Axe::kHeight)
 
 // Cicla chico -> grande -> fuego -> chico. Herramienta de debug (seccion 11)
 // para probar los tres estados de Mario antes de tener los power-ups reales
@@ -513,6 +518,9 @@ bool Game::init() {
     if (!flagSprite_.loadFromFile(renderer_, "assets/sprites/flag.png", 16, 16)) {
         return false;
     }
+    if (!lavaSprite_.loadFromFile(renderer_, "assets/sprites/lava.png", 16, 16)) return false;
+    if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
+    if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
     for (int i = 0; i < kDecorationCount; ++i) {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
@@ -573,6 +581,8 @@ void Game::loadScenario(TestScenario scenario) {
         path = "levels/world1/test_bowser.json";
     } else if (scenario == TestScenario::Flagpole) {
         path = "levels/world1/test_flagpole.json";
+    } else if (scenario == TestScenario::Platforms) {
+        path = "levels/world1/test_platforms.json";
     } else if (scenario == TestScenario::World1_1) {
         path = "levels/world1/1-1.json";
     }
@@ -589,6 +599,29 @@ void Game::loadScenario(TestScenario scenario) {
     }
     levelClearTimer_ = 0.0f;
     timeTallying_ = false;
+    levelEnding_ = false;
+    bridgeCollapsing_ = false;
+    bridgeTilesToCollapse_.clear();
+    castleClearTimer_ = 0.0f;
+    marioPlatform_ = -1;
+    luigiPlatform_ = -1;
+    platformRects_.clear();
+    {
+        const float ts = static_cast<float>(level_.tileSize());
+        size_t next = 0;
+        for (MovingPlatform& platform : platforms_) platform.reset();
+        for (const LevelPlatform& data : level_.platforms()) {
+            if (next >= platforms_.size()) break;
+            const PlatformMode mode = data.mode == "horizontal" ? PlatformMode::Horizontal
+                                      : data.mode == "lift_up"  ? PlatformMode::LiftUp
+                                      : data.mode == "lift_down" ? PlatformMode::LiftDown
+                                      : data.mode == "fall"      ? PlatformMode::Fall
+                                                                 : PlatformMode::Vertical;
+            platforms_[next++].spawn(static_cast<float>(data.col) * ts, static_cast<float>(data.row) * ts,
+                                     static_cast<int>(static_cast<float>(data.width) * ts), mode, data.range * ts,
+                                     data.period, data.speed);
+        }
+    }
     resetLevelTimer();
 
     // Nivel de agua (seccion 5.5): arranca directo en Underwater en vez del
@@ -823,6 +856,7 @@ void Game::processEvents() {
             } else if (event.key.keysym.scancode == SDL_SCANCODE_P && scenario_ == TestScenario::Podoboo) {
                 podoboo_.spawn(kPodobooTestX, kPodobooTestY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_Y && scenario_ == TestScenario::Bowser) {
+                resetCastleSequence();
                 bowser_.spawn(kBowserTestX, kBowserTestY, false);
                 axe_.spawn(kAxeTestX, kAxeTestY);
                 for (BowserFire& fire : bowserFires_) fire.reset();
@@ -836,6 +870,7 @@ void Game::processEvents() {
                                                : current == BowserAttackMode::HammerOnly ? BowserAttackMode::Both
                                                                                           : BowserAttackMode::FireOnly;
                 bowser_.setAttackMode(next);
+                resetCastleSequence();
                 bowser_.spawn(kBowserTestX, kBowserTestY, false);
                 axe_.spawn(kAxeTestX, kAxeTestY);
                 for (BowserFire& fire : bowserFires_) fire.reset();
@@ -1937,10 +1972,17 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     // Axe.h/Bowser.h): tambien vale si ya esta derrotado (por si llega
     // caminando despues de matarlo con fuego), no hace nada raro llamar
     // killByAxe() sobre un Bowser que ya no es "dangerous".
+    axe.collect();
+    levelEnding_ = true;
+    if (level_.hasAnyBridge()) {
+        startBridgeCollapse();
+        return;
+    }
+    // Sin puente (castillo armado a mano): cae de una, como antes.
     const bool flyRight = character.x() <= bowser_.x();
     bowser_.killByAxe(flyRight);
-    axe.collect();
     audio_.play(Sfx::BowserFall);
+    castleClearTimer_ = kCastleClearDelay;
 }
 
 void Game::checkPipeWarp(Mario& character, Input& input) {
@@ -2422,6 +2464,10 @@ void Game::update(float dt) {
         return;
     }
     if (appState_ != AppState::Playing) return;
+    if (bridgeCollapsing_) {
+        updateBridgeCollapse(dt);
+        return;
+    }
 
     // Congelado (secuencias de danio/crecer, o alguien que "muere del
     // todo"): todo lo demas se pausa. En 2P eso es cuando mueren los dos a
@@ -2452,6 +2498,7 @@ void Game::update(float dt) {
     }
 
     updateLevelTimer(dt);
+    updatePlatforms(dt);
 
     // Guardados de antes de mover: para saber si un enemigo lo pisa "de
     // arriba" hace falta ver si los pies YA estaban por encima antes de
@@ -2494,8 +2541,12 @@ void Game::update(float dt) {
         resolveCharacterCollision();
     }
 
+    updatePlatformRiders(mario_, marioPlatform_);
+    if (twoPlayerMode_) updatePlatformRiders(luigi_, luigiPlatform_);
     checkPitDeath(mario_);
     if (twoPlayerMode_) checkPitDeath(luigi_);
+    checkLavaDeath(mario_);
+    if (twoPlayerMode_) checkLavaDeath(luigi_);
     updateCheckpoints();
 
     updateCamera(dt);
@@ -2728,6 +2779,7 @@ void Game::update(float dt) {
     checkFlagpoleGrab(mario_);
     if (twoPlayerMode_) checkFlagpoleGrab(luigi_);
     updateFlagpoleSequence(dt);
+    updateLevelClear(dt);
 
     // Los 5 Koopa de prueba (verde piso x2 + verde Alado saltarin + rojo
     // piso + rojo Alado volador -- ver KoopaState/KoopaColor, solo estas dos
@@ -2870,6 +2922,8 @@ void Game::render() {
     }
     level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
     renderDecorations();
+    level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, cameraX_);
+    for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
@@ -2951,7 +3005,7 @@ void Game::render() {
     // El hacha primero, Bowser encima -- si llegaran a superponerse (no
     // deberia pasar con las posiciones de prueba) que se vea el jefe, no el
     // objeto quieto de fondo.
-    axe_.render(renderer_, axeSprite_, cameraX_);
+    axe_.render(renderer_, axeSprite_, questionBlockAnimFrame_, cameraX_);
     // El fuego ANTES que Bowser a proposito (a pedido del usuario): asi el
     // propio sprite de Bowser lo tapa mientras el origen (fireOriginX/Y)
     // todavia queda "dentro" de su silueta, y recien se ve salir una vez
@@ -2969,10 +3023,10 @@ void Game::render() {
     const int bowserWorldRow =
         worldType_ == WorldType::Castle ? static_cast<int>(WorldType::Overworld) : worldRow;
     bowser_.render(renderer_, bowserSprite_, bowserWorldRow, cameraX_);
-    mario_.render(renderer_, cameraX_);
+    renderCharacter(mario_, marioPlatform_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
-        luigi_.render(renderer_, cameraX_);
+        renderCharacter(luigi_, luigiPlatform_);
         for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     }
     // Los martillos en vuelo van al final a proposito, adelante de todo
@@ -3036,10 +3090,10 @@ void Game::renderScenarioSelect() {
     static const char* const kOptions[kMenuOptionCount] = {
         "1 ITEMS",     "2 ENEMIGOS",    "3 HAMMER BRO", "4 LAKITU",
         "5 BLOOPER",   "6 CHEEP CHEEP", "7 BILL BALA",  "8 CHEEP CHEEP SALTO",
-        "9 PODOBOO",   "0 BOWSER",      "  META",       "  1-1",
+        "9 PODOBOO",   "0 BOWSER",      "  META",       "  PLATAFORMAS", "  1-1",
     };
     for (int i = 0; i < kMenuOptionCount; ++i) {
-        const int y = 46 + i * 14;
+        const int y = 46 + i * 13;
         const bool selected = i == menuSelection_;
         if (selected) DebugFont::drawText(renderer_, 20, y, ">", 2, white);
         DebugFont::drawText(renderer_, 32, y, kOptions[i], 2, selected ? white : yellow);
@@ -3118,6 +3172,7 @@ void Game::checkFlagpoleGrab(Mario& character) {
     const float exitX = std::min(flagpole_.poleCenterX() + 5.0f * ts,
                                  static_cast<float>(level_.widthPixels()) - ts);
     character.startFlagpoleGrab(flagpole_.poleCenterX(), flagpole_.bottomY(), exitX);
+    levelEnding_ = true;
     if (!flagpole_.isLowering()) {
         flagpole_.startLowering();
         audio_.play(Sfx::Flagpole);
@@ -3132,6 +3187,16 @@ void Game::updateFlagpoleSequence(float dt) {
         if (twoPlayerMode_ && luigi_.isWaitingAtFlagpoleBottom()) luigi_.releaseFromFlagpole();
     }
 
+}
+
+void Game::updateLevelClear(float dt) {
+    if (castleClearTimer_ > 0.0f) {
+        castleClearTimer_ -= dt;
+        if (castleClearTimer_ <= 0.0f) {
+            timeTallying_ = true;
+            tallySoundTimer_ = 0.0f;
+        }
+    }
     if (levelClearTimer_ > 0.0f) {
         levelClearTimer_ -= dt;
         if (levelClearTimer_ <= 0.0f) appState_ = AppState::ScenarioSelect;
@@ -3171,7 +3236,7 @@ void Game::resetLevelTimer() {
 }
 
 void Game::updateLevelTimer(float dt) {
-    if (timeRemaining_ <= 0.0f || flagpole_.isLowering()) return;
+    if (timeRemaining_ <= 0.0f || levelEnding_) return;
     timeRemaining_ = std::max(0.0f, timeRemaining_ - dt / kTimeUnitSeconds);
     if (!hurryUpPlayed_ && timeRemaining_ <= kHurryUpThreshold) {
         hurryUpPlayed_ = true;
@@ -3415,4 +3480,105 @@ void Game::checkCoinTiles(Mario& character) {
             audio_.play(Sfx::Coin);
         }
     }
+}
+
+void Game::startBridgeCollapse() {
+    // De la punta del hacha (derecha) hacia atras, como el original.
+    bridgeTilesToCollapse_.clear();
+    for (int col = level_.widthTiles() - 1; col >= 0; --col) {
+        for (int row = 0; row < level_.heightTiles(); ++row) {
+            if (level_.isBridgeTile(col, row)) bridgeTilesToCollapse_.push_back(SDL_Point{col, row});
+        }
+    }
+    bridgeCollapsing_ = true;
+    bridgeCollapseTimer_ = kBridgeCollapseInterval;
+}
+
+void Game::updateBridgeCollapse(float dt) {
+    bridgeCollapseTimer_ -= dt;
+    if (bridgeCollapseTimer_ > 0.0f) return;
+    bridgeCollapseTimer_ = kBridgeCollapseInterval;
+    if (!bridgeTilesToCollapse_.empty()) {
+        const SDL_Point tile = bridgeTilesToCollapse_.front();
+        bridgeTilesToCollapse_.erase(bridgeTilesToCollapse_.begin());
+        level_.collapseBridgeTile(tile.x, tile.y);
+        audio_.play(Sfx::Bump);
+        return;
+    }
+    // Ya no queda puente: Bowser cae a la lava y el juego sigue.
+    bridgeCollapsing_ = false;
+    if (bowser_.isDangerous()) {
+        bowser_.killByAxe(false);
+        audio_.play(Sfx::BowserFall);
+    }
+    castleClearTimer_ = kCastleClearDelay;
+}
+
+void Game::resetCastleSequence() {
+    level_.restoreBridges();
+    bridgeCollapsing_ = false;
+    bridgeTilesToCollapse_.clear();
+    castleClearTimer_ = 0.0f;
+    levelEnding_ = false;
+    timeTallying_ = false;
+    levelClearTimer_ = 0.0f;
+}
+
+void Game::checkLavaDeath(Mario& character) {
+    if (character.isInDeathSequence()) return;
+    // Unos px adentro de la lava (no al rozar la superficie con los pies).
+    constexpr float kSinkPx = 4.0f;
+    const float ts = static_cast<float>(level_.tileSize());
+    const int row = static_cast<int>(std::floor((character.y() + character.height() - kSinkPx) / ts));
+    const int col0 = static_cast<int>(std::floor(character.x() / ts));
+    const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
+    for (int col = col0; col <= col1; ++col) {
+        if (!level_.isLavaTile(col, row)) continue;
+        if (character.killInstantly(false)) audio_.play(Sfx::Death);
+        return;
+    }
+}
+
+void Game::updatePlatforms(float dt) {
+    for (MovingPlatform& platform : platforms_) platform.update(dt, level_.heightPixels());
+    // Arrastra a los que iban parados encima (antes de que se muevan ellos).
+    auto carry = [&](Mario& character, int riding) {
+        if (riding < 0 || character.isInDeathSequence()) return;
+        const MovingPlatform& platform = platforms_[static_cast<size_t>(riding)];
+        if (!platform.isActive()) return;
+        character.nudgeX(platform.lastDx());
+        character.setY(character.y() + platform.lastDy());
+    };
+    carry(mario_, marioPlatform_);
+    if (twoPlayerMode_) carry(luigi_, luigiPlatform_);
+
+    platformRects_.resize(platforms_.size());
+    for (size_t i = 0; i < platforms_.size(); ++i) {
+        const MovingPlatform& platform = platforms_[i];
+        platformRects_[i] = platform.isActive()
+            ? SDL_FRect{platform.x(), platform.y(), static_cast<float>(platform.width()),
+                        static_cast<float>(MovingPlatform::kHeight)}
+            : SDL_FRect{0.0f, 0.0f, 0.0f, 0.0f};
+    }
+    mario_.setPlatforms(&platformRects_);
+    luigi_.setPlatforms(&platformRects_);
+}
+
+void Game::updatePlatformRiders(Mario& character, int& riding) {
+    riding = character.isInDeathSequence() ? -1 : character.platformIndex();
+    if (riding >= 0) platforms_[static_cast<size_t>(riding)].onStoodOn();
+}
+
+void Game::renderCharacter(const Mario& character, int riding) {
+    if (riding < 0 || !platforms_[static_cast<size_t>(riding)].isActive()) {
+        character.render(renderer_, cameraX_);
+        return;
+    }
+    // X en pantalla = la de la plataforma (mismo redondeo que
+    // MovingPlatform::render) + la distancia redondeada hasta ella. Se
+    // pasa como una camara ajustada para que Mario::render, que redondea
+    // x - camara, llegue exactamente a ese entero.
+    const MovingPlatform& platform = platforms_[static_cast<size_t>(riding)];
+    const long screenX = std::lround(platform.x() - cameraX_) + std::lround(character.x() - platform.x());
+    character.render(renderer_, character.x() - static_cast<float>(screenX));
 }
