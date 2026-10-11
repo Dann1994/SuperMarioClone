@@ -25,6 +25,39 @@
 // para cada parte. 'F' es el mastil de la bandera de meta (ver
 // findFlagpole): una columna vertical contigua, la fila de arriba es la
 // bola del tope.
+// Datos del nivel que no son tiles (campos opcionales del JSON, ver
+// Tilemap::loadFromFile). Game.cpp los traduce a sus propias estructuras.
+struct LevelBlock {          // "blocks": contenido de un '?' / 'D'
+    int col = 0;
+    int row = 0;
+    std::string item;        // coin, powerup, mushroom, fire_flower, star, one_up
+    int hits = 1;            // golpes antes de quedar usado (bloque de N monedas)
+};
+struct LevelWarp {           // "warps": tuberia que se entra apretando abajo
+    int col = 0;             // columna izquierda del tope
+    int row = 0;             // fila del tope
+    int destCol = 0;         // a donde aparece (tile, esquina sup. izquierda)
+    int destRow = 0;
+};
+struct LevelArea {           // "areas": tramos de columnas con camara propia
+    int startCol = 0;
+    int endCol = 0;          // inclusive
+    std::string world;       // overworld/underground/underwater/castle; "" = el del nivel
+};
+struct LevelDecoration {     // "decorations": escenografia de fondo
+    std::string type;        // castle_small, hill_big, hill_small, bush_big, bush_small, cloud_big, cloud_small
+    int col = 0;             // esquina superior izquierda, en tiles
+    int row = 0;
+};
+struct LevelEntity {         // "entities": enemigos del nivel
+    std::string type;        // goomba, koopa
+    int col = 0;
+    int row = 0;             // fila donde apoya (los pies sobre el tope de row+1)
+    bool movingRight = false;
+    std::string color;       // koopa: green (defecto) / red
+    std::string state;       // koopa: walking (defecto) / jumping / flying
+};
+
 class Tilemap {
 public:
     bool loadFromFile(const std::string& path);
@@ -40,6 +73,28 @@ public:
     // columnas, vacia si no tiene): invisibles como en el original, se
     // activan al pasarlos (ver Game::updateCheckpoints).
     const std::vector<int>& checkpointCols() const { return checkpointCols_; }
+    const std::vector<LevelBlock>& blocks() const { return blocks_; }
+    const std::vector<LevelWarp>& warps() const { return warps_; }
+    const std::vector<LevelEntity>& entities() const { return entities_; }
+    // Siempre hay al menos una (todo el nivel) si el JSON no trae "areas".
+    // Sirven para tener zonas separadas en el mismo mapa (un cuarto bonus
+    // subterraneo a la derecha del nivel, por ejemplo): la camara no sale
+    // del area donde esta el jugador (ver Game::updateCamera).
+    const std::vector<LevelArea>& areas() const { return areas_; }
+    const std::vector<LevelDecoration>& decorations() const { return decorations_; }
+
+    // Bloque invisible ('H', como el del 1-UP del 1-1): no es solido para
+    // nada salvo para la cabeza de Mario/Luigi subiendo desde abajo (ver
+    // Mario::moveAndCollide); al golpearlo aparece (revealHiddenBlock) y se
+    // comporta como un '?' (Game::checkQuestionBlockHit).
+    bool isHiddenBlockTile(int col, int row) const;
+    void revealHiddenBlock(int col, int row);
+
+    // Moneda suelta ('o', como las del cuarto bonus del 1-1): no es
+    // solida, se agarra al tocarla (Game::checkCoinTiles) y la dibuja
+    // renderBlocks con la misma animacion que las de arriba de un ladrillo.
+    bool isCoinTile(int col, int row) const;
+    void collectCoinTile(int col, int row);
     int widthTiles() const { return width_; }
     int heightTiles() const { return height_; }
     int widthPixels() const { return width_ * tileSize_; }
@@ -190,6 +245,13 @@ private:
     std::string name_ = "TEST";
     int timeLimit_ = 400;
     std::vector<int> checkpointCols_;
+    std::vector<LevelBlock> blocks_;
+    std::vector<LevelWarp> warps_;
+    std::vector<LevelEntity> entities_;
+    std::vector<LevelArea> areas_;
+    std::vector<LevelDecoration> decorations_;
+    std::vector<uint8_t> hidden_;        // row-major, 1 = bloque invisible sin revelar ('H')
+    std::vector<uint8_t> coinTile_;      // row-major, 1 = moneda suelta sin agarrar ('o')
     int width_ = 0;
     int height_ = 0;
     std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')

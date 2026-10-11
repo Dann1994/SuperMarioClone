@@ -18,6 +18,53 @@ bool Tilemap::loadFromFile(const std::string& path) {
     name_ = json.value("name", std::string("TEST"));
     timeLimit_ = json.value("time", 400);
     checkpointCols_ = json.value("checkpoints", std::vector<int>{});
+
+    blocks_.clear();
+    for (const auto& entry : json.value("blocks", nlohmann::json::array())) {
+        LevelBlock block;
+        block.col = entry.at("col").get<int>();
+        block.row = entry.at("row").get<int>();
+        block.item = entry.value("item", std::string("coin"));
+        block.hits = entry.value("hits", 1);
+        blocks_.push_back(block);
+    }
+    warps_.clear();
+    for (const auto& entry : json.value("warps", nlohmann::json::array())) {
+        LevelWarp warp;
+        warp.col = entry.at("col").get<int>();
+        warp.row = entry.at("row").get<int>();
+        warp.destCol = entry.at("dest_col").get<int>();
+        warp.destRow = entry.at("dest_row").get<int>();
+        warps_.push_back(warp);
+    }
+    areas_.clear();
+    for (const auto& entry : json.value("areas", nlohmann::json::array())) {
+        LevelArea area;
+        area.startCol = entry.at("start").get<int>();
+        area.endCol = entry.at("end").get<int>();
+        area.world = entry.value("world", std::string());
+        areas_.push_back(area);
+    }
+    if (areas_.empty()) areas_.push_back(LevelArea{0, width_ - 1, std::string()});
+    decorations_.clear();
+    for (const auto& entry : json.value("decorations", nlohmann::json::array())) {
+        LevelDecoration decoration;
+        decoration.type = entry.at("type").get<std::string>();
+        decoration.col = entry.at("col").get<int>();
+        decoration.row = entry.at("row").get<int>();
+        decorations_.push_back(decoration);
+    }
+    entities_.clear();
+    for (const auto& entry : json.value("entities", nlohmann::json::array())) {
+        LevelEntity entity;
+        entity.type = entry.at("type").get<std::string>();
+        entity.col = entry.at("col").get<int>();
+        entity.row = entry.at("row").get<int>();
+        entity.movingRight = entry.value("moving_right", false);
+        entity.color = entry.value("color", std::string("green"));
+        entity.state = entry.value("state", std::string("walking"));
+        entities_.push_back(entity);
+    }
     const auto rows = json.at("rows").get<std::vector<std::string>>();
 
     height_ = static_cast<int>(rows.size());
@@ -35,6 +82,8 @@ bool Tilemap::loadFromFile(const std::string& path) {
     dispenserHits_.assign(static_cast<size_t>(width_) * height_, 0);
     pipe_.assign(static_cast<size_t>(width_) * height_, 0);
     flagpole_.assign(static_cast<size_t>(width_) * height_, 0);
+    hidden_.assign(static_cast<size_t>(width_) * height_, 0);
+    coinTile_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
@@ -50,6 +99,8 @@ bool Tilemap::loadFromFile(const std::string& path) {
             dispenser_[i] = (c == 'D') ? 1 : 0;
             pipe_[i] = (c == 'T') ? 1 : 0;
             flagpole_[i] = (c == 'F') ? 1 : 0;
+            hidden_[i] = (c == 'H') ? 1 : 0;
+            coinTile_[i] = (c == 'o') ? 1 : 0;
         }
     }
 
@@ -201,6 +252,33 @@ void Tilemap::incrementDispenserHit(int col, int row) {
     if (hits < 255) ++hits;
 }
 
+bool Tilemap::isHiddenBlockTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return hidden_[row * width_ + col] != 0;
+}
+
+bool Tilemap::isCoinTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) {
+        return false;
+    }
+    return coinTile_[row * width_ + col] != 0;
+}
+
+void Tilemap::collectCoinTile(int col, int row) {
+    if (!isCoinTile(col, row)) return;
+    coinTile_[row * width_ + col] = 0;
+}
+
+void Tilemap::revealHiddenBlock(int col, int row) {
+    if (!isHiddenBlockTile(col, row)) return;
+    const size_t i = static_cast<size_t>(row) * width_ + col;
+    hidden_[i] = 0;
+    solid_[i] = 1;
+    question_[i] = 1;
+}
+
 bool Tilemap::isPipeTile(int col, int row) const {
     if (col < 0 || row < 0 || col >= width_ || row >= height_) {
         return false;
@@ -317,6 +395,14 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
                 if (!hasCoinOnTop(col, row)) continue;
                 coinSprite->draw(renderer, worldRow, coinAnimFrame, col * tileSize_ - camOffset,
                                   (row - 1) * tileSize_, false);
+            }
+        }
+        // Monedas sueltas ('o'): en su propio tile.
+        for (int row = 0; row < height_; ++row) {
+            for (int col = 0; col < width_; ++col) {
+                if (!isCoinTile(col, row)) continue;
+                coinSprite->draw(renderer, worldRow, coinAnimFrame, col * tileSize_ - camOffset, row * tileSize_,
+                                  false);
             }
         }
     }

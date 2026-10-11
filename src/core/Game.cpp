@@ -38,63 +38,6 @@ constexpr float kStarTestY = 160.0f;
 constexpr float kCoinTestX = 224.0f;
 constexpr float kCoinTestY = 208.0f;  // 224 (piso) - 16 (Coin::kSize)
 
-// Bloques de interrogacion de prueba (seccion 5.3, ver checkQuestionBlockHit):
-// uno por item de la fase inicial (5.4), todos en la misma fila de
-// test_items.json para que se vean parejos. El item sale centrado sobre el
-// bloque, con el borde de abajo pegado al de arriba (ver
-// spawnItemFromQuestionBlock). El de Coin en realidad dispara BlockCoin
-// (moneda que salta y suma al contador), no la Coin normal de arriba -- ver
-// el comentario de esa funcion.
-constexpr int kQuestionBlockRow = 10;
-constexpr QuestionBlockSpawn kQuestionBlockItems[] = {
-    {3, kQuestionBlockRow, BlockItem::Mushroom},
-    {6, kQuestionBlockRow, BlockItem::FireFlower},
-    {9, kQuestionBlockRow, BlockItem::Star},
-    {12, kQuestionBlockRow, BlockItem::Coin},
-    {15, kQuestionBlockRow, BlockItem::OneUp},
-};
-
-// Igual que kQuestionBlockItems, pero para los ladrillos dispensadores
-// ('D', Tilemap::isDispenserTile) del escenario de Items -- posiciones
-// distintas, sin superponerse con las de arriba, asi que
-// Game::spawnItemFromQuestionBlock puede buscar en ambas tablas sin
-// ambiguedad.
-constexpr int kDispenserBlockRow = 10;
-constexpr QuestionBlockSpawn kDispenserBlockItems[] = {
-    {19, kDispenserBlockRow, BlockItem::Mushroom},
-    {22, kDispenserBlockRow, BlockItem::Star},
-    // Ladrillo "de varias monedas" (pedido del usuario): 10 golpes en vez
-    // de 1 (ver QuestionBlockSpawn::maxHits) -- el numero clasico que se le
-    // atribuye a este tipo de bloque en el original de 1985, aunque ahi en
-    // realidad es un limite de TIEMPO entre golpes, no de cantidad fija.
-    {25, kDispenserBlockRow, BlockItem::Coin, 10},
-};
-
-// Tuberias de prueba del escenario de Items (seccion 5.3, tile 'T' --
-// Tilemap::isPipeTopTile): la A esta a la vista, sobre el piso principal, y
-// lleva a un cuarto escondido debajo del piso (filas 17-22 de
-// test_items.json, sin otra forma de llegar caminando) donde esta la B, que
-// vuelve a la zona principal -- ida y vuelta, ambas se entran apretando
-// abajo parado en el tope (ver Game::checkPipeWarp).
-constexpr PipeWarp kPipeWarps[] = {
-    {32, 12, 7 * 16.0f, 21 * 16.0f},   // A: piso principal -> cuarto escondido
-    {5, 20, 34 * 16.0f, 13 * 16.0f},   // B: cuarto escondido -> piso principal
-};
-
-// Busca la configuracion (item + maxHits) de la celda (col, row) en ambas
-// tablas de arriba -- lo usan tanto Game::checkQuestionBlockHit (para saber
-// maxHits sin duplicar la busqueda) como Game::spawnItemFromQuestionBlock
-// (para saber que item tirar). nullptr si esa celda no esta configurada en
-// ninguna (no deberia pasar con los tiles '?'/'D' del nivel actual).
-const QuestionBlockSpawn* findBlockSpawn(int col, int row) {
-    for (const QuestionBlockSpawn& entry : kQuestionBlockItems) {
-        if (entry.col == col && entry.row == row) return &entry;
-    }
-    for (const QuestionBlockSpawn& entry : kDispenserBlockItems) {
-        if (entry.col == col && entry.row == row) return &entry;
-    }
-    return nullptr;
-}
 constexpr float kQuestionBlockAnimFrameDuration = 0.2f;  // s por frame del brillo (3 frames)
 constexpr float kBrickCoinAnimFrameDuration = 0.12f;  // s por frame del giro, igual que Coin::kFrameDuration
 
@@ -136,6 +79,27 @@ constexpr float kTallySoundInterval = 0.06f;
 constexpr int kStartingLives = 3;
 constexpr float kLevelIntroDuration = 2.0f;
 constexpr float kGameOverDuration = 4.0f;
+
+// Piezas de escenografia (assets/sprites/scenery_<type>.png, ver
+// tools/asset_scripts/gen_scenery.py), mismo orden que
+// Game::decorationSprites_.
+struct DecorationInfo {
+    const char* type;
+    int width;
+    int height;
+};
+constexpr DecorationInfo kDecorations[] = {
+    {"castle_small", 80, 80}, {"hill_big", 80, 48},   {"hill_small", 48, 32}, {"bush_big", 80, 16},
+    {"bush_small", 48, 16},   {"cloud_big", 64, 32},  {"cloud_small", 48, 32},
+};
+
+WorldType parseWorldType(const std::string& name, WorldType fallback) {
+    if (name == "overworld") return WorldType::Overworld;
+    if (name == "underground") return WorldType::Underground;
+    if (name == "underwater") return WorldType::Underwater;
+    if (name == "castle") return WorldType::Castle;
+    return fallback;
+}
 
 // reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
@@ -549,6 +513,11 @@ bool Game::init() {
     if (!flagSprite_.loadFromFile(renderer_, "assets/sprites/flag.png", 16, 16)) {
         return false;
     }
+    for (int i = 0; i < kDecorationCount; ++i) {
+        const DecorationInfo& info = kDecorations[i];
+        const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
+        if (!decorationSprites_[i].loadFromFile(renderer_, path, info.width, info.height)) return false;
+    }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
     koopaRed_.setColor(KoopaColor::Red);
@@ -604,8 +573,12 @@ void Game::loadScenario(TestScenario scenario) {
         path = "levels/world1/test_bowser.json";
     } else if (scenario == TestScenario::Flagpole) {
         path = "levels/world1/test_flagpole.json";
+    } else if (scenario == TestScenario::World1_1) {
+        path = "levels/world1/1-1.json";
     }
     level_.loadFromFile(path);
+
+    loadLevelData();
 
     // Bandera de meta: la pone el propio nivel (tiles 'F'), no el escenario.
     int poleCol = 0, poleTopRow = 0, poleBottomRow = 0;
@@ -638,6 +611,8 @@ void Game::loadScenario(TestScenario scenario) {
     } else {
         worldType_ = WorldType::Overworld;
     }
+    levelWorldType_ = worldType_;
+    currentArea_ = -1;  // se resuelve en el primer updateCamera
     mario_.setWorldType(worldType_);
     luigi_.setWorldType(worldType_);
 
@@ -651,7 +626,8 @@ void Game::loadScenario(TestScenario scenario) {
     coin_.collect();
     blockCoin_.reset();
     itemEmerge_.active = false;
-    goomba_.reset();
+    for (Goomba& goomba : goombas_) goomba.reset();
+    for (Koopa& koopa : levelKoopas_) koopa.reset();
     koopaA_.reset();
     koopaB_.reset();
     koopaJumping_.reset();
@@ -684,7 +660,7 @@ void Game::loadScenario(TestScenario scenario) {
         // de kCoinTestX/Y).
         coin_.spawn(kCoinTestX, kCoinTestY);
     } else if (scenario == TestScenario::Enemies) {
-        goomba_.spawn(kGoombaTestX, kGoombaTestY, true);
+        spawnGoomba(kGoombaTestX, kGoombaTestY, true);
         koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
         koopaB_.spawn(kKoopaBTestX, kKoopaBTestY, false);
         koopaJumping_.spawn(kKoopaJumpingTestX, kKoopaJumpingTestY, false, KoopaState::Jumping);
@@ -809,7 +785,7 @@ void Game::processEvents() {
             } else if (event.key.keysym.scancode == SDL_SCANCODE_C && scenario_ == TestScenario::Items) {
                 coin_.spawn(kCoinTestX, kCoinTestY);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_G && scenario_ == TestScenario::Enemies) {
-                goomba_.spawn(kGoombaTestX, kGoombaTestY, true);
+                spawnGoomba(kGoombaTestX, kGoombaTestY, true);
             } else if (event.key.keysym.scancode == SDL_SCANCODE_K && scenario_ == TestScenario::Enemies) {
                 koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
                 koopaB_.spawn(kKoopaBTestX, kKoopaBTestY, false);
@@ -1089,17 +1065,17 @@ bool Game::handleUnderwaterContactDamage(Mario& character) {
     return true;
 }
 
-void Game::checkGoombaCollision(Mario& character, float prevY) {
+void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float prevY) {
     // Sin colision mientras esta en su secuencia de muerte: ya esta cayendo
     // con la pose de "muerto" fija, no tiene sentido que un enemigo lo
     // pisotee/dane/mate de nuevo hasta que reaparezca (relevante en 2P: el
     // otro jugador puede seguir jugando mientras este cae).
     if (character.isInDeathSequence()) return;
-    if (!goomba_.isDangerous()) return;
+    if (!goomba.isDangerous()) return;
 
     const bool overlap =
-        character.x() < goomba_.x() + Goomba::kSize && character.x() + character.width() > goomba_.x() &&
-        character.y() < goomba_.y() + Goomba::kSize && character.y() + character.height() > goomba_.y();
+        character.x() < goomba.x() + Goomba::kSize && character.x() + character.width() > goomba.x() &&
+        character.y() < goomba.y() + Goomba::kSize && character.y() + character.height() > goomba.y();
     if (!overlap) return;
 
     // Con estrella: lo elimina de un toque, desde cualquier lado, sin
@@ -1108,8 +1084,8 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
     // despedido en parabola hacia el lado contrario de donde vino el
     // personaje, en vez de achatarse (ver Goomba::killFalling).
     if (character.isInvincible()) {
-        const bool flyRight = character.x() <= goomba_.x();
-        killEnemyFalling(goomba_, flyRight);
+        const bool flyRight = character.x() <= goomba.x();
+        killEnemyFalling(goomba, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
@@ -1118,12 +1094,13 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
     // de moverse este frame (no importa cuanto se haya hundido AHORA -- eso
     // evita confundirlo con un golpe de costado por caer rapido o pegarle
     // en diagonal, que es lo que fallaba comparando solo la posicion actual).
-    const bool fromAbove = (prevY + character.height()) <= goomba_.y() + kStompLeewayPx &&
+    const bool fromAbove = (prevY + character.height()) <= goomba.y() + kStompLeewayPx &&
                             character.velocityY() > 0.0f;
     if (fromAbove) {
-        goomba_.squish();
+        goomba.squish();
         character.setVelocityY(kStompBounce);
         audio_.play(Sfx::StompKill);
+        awardEnemyPoints(goomba.x(), goomba.y(), 100);
         return;
     }
 
@@ -1131,17 +1108,17 @@ void Game::checkGoombaCollision(Mario& character, float prevY) {
     applyContactDamage(character);
 }
 
-void Game::checkFireballGoombaCollision(Fireball& fireball) {
+void Game::checkFireballGoombaCollision(Fireball& fireball, Goomba& goomba) {
     if (!fireball.isAlive() || fireball.isExploding()) return;
-    if (!goomba_.isDangerous()) return;
+    if (!goomba.isDangerous()) return;
 
     const bool overlap =
-        fireball.x() < goomba_.x() + Goomba::kSize && fireball.x() + Fireball::kSize > goomba_.x() &&
-        fireball.y() < goomba_.y() + Goomba::kSize && fireball.y() + Fireball::kSize > goomba_.y();
+        fireball.x() < goomba.x() + Goomba::kSize && fireball.x() + Fireball::kSize > goomba.x() &&
+        fireball.y() < goomba.y() + Goomba::kSize && fireball.y() + Fireball::kSize > goomba.y();
     if (!overlap) return;
 
-    const bool flyRight = fireball.x() <= goomba_.x();
-    killEnemyFalling(goomba_, flyRight);
+    const bool flyRight = fireball.x() <= goomba.x();
+    killEnemyFalling(goomba, flyRight);
     fireball.explode();
 }
 
@@ -1219,6 +1196,7 @@ void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
     // costado hace dano como cualquier enemigo.
     if (fromAbove) {
         koopa.stomp(&character);
+        awardEnemyPoints(koopa.x(), koopa.y(), 100);
         character.setVelocityY(kKoopaStompBounce);
         character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
         audio_.play(Sfx::StompKill);
@@ -1241,18 +1219,17 @@ void Game::checkFireballKoopaCollision(Fireball& fireball, Koopa& koopa) {
     fireball.explode();
 }
 
-void Game::checkShellVsGoomba(Koopa& koopa) {
+void Game::checkShellVsGoomba(Koopa& koopa, Goomba& goomba) {
     if (!koopa.isMovingShell()) return;
-    if (!goomba_.isDangerous()) return;
+    if (!goomba.isDangerous()) return;
 
     const bool overlap =
-        koopa.x() < goomba_.x() + Goomba::kSize && koopa.x() + koopa.width() > goomba_.x() &&
-        koopa.y() < goomba_.y() + Goomba::kSize && koopa.y() + koopa.height() > goomba_.y();
+        koopa.x() < goomba.x() + Goomba::kSize && koopa.x() + koopa.width() > goomba.x() &&
+        koopa.y() < goomba.y() + Goomba::kSize && koopa.y() + koopa.height() > goomba.y();
     if (!overlap) return;
 
-    const bool flyRight = goomba_.x() >= koopa.x();
-    killEnemyFalling(goomba_, flyRight);
-    audio_.play(Sfx::Kick);
+    const bool flyRight = goomba.x() >= koopa.x();
+    killEnemyFalling(goomba, flyRight);
     // El caparazon sigue de largo (no se frena al matar a otro enemigo).
 }
 
@@ -1375,6 +1352,7 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
     // costado hace dano como cualquier enemigo.
     if (fromAbove) {
         buzzy.stomp(&character);
+        awardEnemyPoints(buzzy.x(), buzzy.y(), 100);
         character.setVelocityY(kKoopaStompBounce);
         character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
         audio_.play(Sfx::StompKill);
@@ -1423,18 +1401,17 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
     }
 }
 
-void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy) {
+void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy, Goomba& goomba) {
     if (!buzzy.isMovingShell()) return;
-    if (!goomba_.isDangerous()) return;
+    if (!goomba.isDangerous()) return;
 
     const bool overlap =
-        buzzy.x() < goomba_.x() + Goomba::kSize && buzzy.x() + buzzy.width() > goomba_.x() &&
-        buzzy.y() < goomba_.y() + Goomba::kSize && buzzy.y() + buzzy.height() > goomba_.y();
+        buzzy.x() < goomba.x() + Goomba::kSize && buzzy.x() + buzzy.width() > goomba.x() &&
+        buzzy.y() < goomba.y() + Goomba::kSize && buzzy.y() + buzzy.height() > goomba.y();
     if (!overlap) return;
 
-    const bool flyRight = goomba_.x() >= buzzy.x();
-    killEnemyFalling(goomba_, flyRight);
-    audio_.play(Sfx::Kick);
+    const bool flyRight = goomba.x() >= buzzy.x();
+    killEnemyFalling(goomba, flyRight);
 }
 
 void Game::checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy) {
@@ -1925,6 +1902,8 @@ void Game::checkFireballBowserCollision(Fireball& fireball) {
     // para las cinco que hacen falta (ver Bowser::killByFireball).
     const bool flyRight = fireball.x() <= bowser_.x();
     bowser_.killByFireball(flyRight);
+    // El quinto fuego es el que lo derrota: ahi da los puntos.
+    if (bowser_.isFalling()) awardEnemyPoints(bowser_.x(), bowser_.y(), 5000);
     fireball.explode();
 }
 
@@ -1977,9 +1956,10 @@ void Game::checkPipeWarp(Mario& character, Input& input) {
     const int col0 = static_cast<int>(std::floor(character.x() / ts));
     const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
 
-    for (const PipeWarp& warp : kPipeWarps) {
+    for (const PipeWarp& warp : pipeWarps_) {
         if (warp.row != row) continue;
-        if (warp.col != col0 && warp.col != col1) continue;
+        // Cualquiera de las dos mitades del tope (warp.col o warp.col + 1).
+        if (col1 < warp.col || col0 > warp.col + 1) continue;
         if (!level_.isPipeTopTile(warp.col, warp.row)) continue;  // por si el nivel cambio
         character.spawn(warp.destX, warp.destY);
         audio_.play(Sfx::Pipe);
@@ -2073,11 +2053,12 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     auto onTop = [&](float x, float y, int width, int height) {
         return x < tileRight && x + width > tileLeft && std::abs((y + height) - tileTop) < 4.0f;
     };
-    if (goomba_.isDangerous() && onTop(goomba_.x(), goomba_.y(), Goomba::kSize, Goomba::kSize)) {
-        killEnemyFalling(goomba_, true);
+    for (Goomba& goomba : goombas_) {
+        if (goomba.isDangerous() && onTop(goomba.x(), goomba.y(), Goomba::kSize, Goomba::kSize)) {
+            killEnemyFalling(goomba, true);
+        }
     }
-    const std::array<Koopa*, 5> koopasOnTop{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
-    for (Koopa* koopa : koopasOnTop) {
+    for (Koopa* koopa : allKoopas()) {
         if (koopa->isDangerous() && onTop(koopa->x(), koopa->y(), koopa->width(), koopa->height())) {
             koopa->killFalling(true);
         }
@@ -2131,11 +2112,12 @@ void Game::checkQuestionBlockHit(Mario& character) {
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
 
     for (int col = col0; col <= col1; ++col) {
+        if (level_.isHiddenBlockTile(col, row)) level_.revealHiddenBlock(col, row);
         const bool isQuestion = level_.isQuestionTile(col, row);
         // Ladrillo dispensador ('D', ver Tilemap::isDispenserTile): misma
         // logica de golpe/item que el bloque de interrogacion, solo cambia
         // el sprite (se dibuja como ladrillo normal) y de donde saca el
-        // item (kDispenserBlockItems en vez de kQuestionBlockItems).
+        // item (mismo campo "blocks" del nivel, ver findBlockSpawn).
         const bool isDispenser = level_.isDispenserTile(col, row);
         if (!isQuestion && !isDispenser) continue;
         // Golpe "sordo" de cualquier bloque desde abajo (ver
@@ -2151,12 +2133,11 @@ void Game::checkQuestionBlockHit(Mario& character) {
         if (used) return;
         BlockBump* bump = startBlockBump(col, row);
         // maxHits (ver QuestionBlockSpawn): 1 en casi todos, pero un bloque
-        // "de N monedas" (kDispenserBlockItems, item Coin con maxHits>1)
+        // "de N monedas" (campo "hits" del bloque en el nivel, item Coin)
         // sigue reaccionando hasta agotar sus golpes -- recien en el ultimo
         // se marca usado para siempre (mismo criterio que antes para
         // maxHits=1: el primer golpe YA es el ultimo).
-        const QuestionBlockSpawn* config = findBlockSpawn(col, row);
-        const int maxHits = config != nullptr ? config->maxHits : 1;
+        const int maxHits = findBlockSpawn(col, row).maxHits;
         const int hitsSoFar = isQuestion ? level_.questionHitCount(col, row) : level_.dispenserHitCount(col, row);
         if (isQuestion) {
             level_.incrementQuestionHit(col, row);
@@ -2183,17 +2164,17 @@ void Game::checkQuestionBlockHit(Mario& character) {
         if (bump != nullptr) {
             bump->hasPendingItem = true;
             bump->pendingMovingRight = movingRight;
+            bump->pendingHitterBig = character.size() != MarioSize::Small;
         } else {
-            spawnItemFromQuestionBlock(col, row, movingRight);
+            spawnItemFromQuestionBlock(col, row, movingRight, character.size() != MarioSize::Small);
         }
         return;
     }
 }
 
-void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
-    const QuestionBlockSpawn* config = findBlockSpawn(col, row);
-    if (config == nullptr) return;
-    const BlockItem item = config->item;
+void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool hitterBig) {
+    BlockItem item = findBlockSpawn(col, row).item;
+    if (item == BlockItem::PowerUp) item = hitterBig ? BlockItem::FireFlower : BlockItem::Mushroom;
 
     const int ts = level_.tileSize();
     const float blockX = static_cast<float>(col * ts);
@@ -2243,7 +2224,8 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight) {
             star_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight);
             break;
         case BlockItem::Coin:
-            break;  // ya se manejo arriba, no llega aca
+        case BlockItem::PowerUp:
+            break;  // ya se resolvieron arriba, no llegan aca
     }
 }
 
@@ -2350,8 +2332,24 @@ void Game::updateCamera(float dt) {
     // Sin mostrar mas alla de los bordes del nivel -- si el nivel entero
     // entra en una pantalla (los escenarios viejos, sin scroll),
     // maxCameraX da <= 0 y se clampea a 0 siempre.
-    const float maxCameraX = std::max(0.0f, static_cast<float>(level_.widthPixels() - kLogicalWidth));
-    const float targetX = std::clamp(focusX - static_cast<float>(kLogicalWidth) / 2.0f, 0.0f, maxCameraX);
+    // Solo dentro del area donde esta el foco (ver Tilemap::areas): un
+    // cuarto bonus pegado al nivel no se asoma por el borde de la pantalla.
+    const int areaIndex = areaIndexAt(focusX);
+    const LevelArea& area = level_.areas()[static_cast<size_t>(areaIndex)];
+    const float ts = static_cast<float>(level_.tileSize());
+    const float minCameraX = static_cast<float>(area.startCol) * ts;
+    const float maxCameraX =
+        std::max(minCameraX, static_cast<float>(area.endCol + 1) * ts - static_cast<float>(kLogicalWidth));
+    if (areaIndex != currentArea_) {
+        // Recien entro (o volvio) a esta area: cambia el tipo de mundo
+        // (fondo/paletas) y la camara salta directo, sin barrido.
+        currentArea_ = areaIndex;
+        worldType_ = parseWorldType(area.world, levelWorldType_);
+        mario_.setWorldType(worldType_);
+        luigi_.setWorldType(worldType_);
+        cameraSnapPending_ = true;
+    }
+    const float targetX = std::clamp(focusX - static_cast<float>(kLogicalWidth) / 2.0f, minCameraX, maxCameraX);
     const float previousCameraX = cameraX_;
     if (!twoPlayerMode_ || cameraSnapPending_) {
         cameraX_ = targetX;
@@ -2502,6 +2500,7 @@ void Game::update(float dt) {
 
     updateCamera(dt);
     keepCharactersOnScreen();
+    spawnLevelEntities();
 
     // Emergiendo de un bloque (ver ItemEmerge en Game.h): la reposiciona a
     // mano interpolando startY->endY en vez de dejarla actualizar su propia
@@ -2560,19 +2559,25 @@ void Game::update(float dt) {
     coin_.update(dt);
     checkCoinPickup(mario_);
     if (twoPlayerMode_) checkCoinPickup(luigi_);
+    checkCoinTiles(mario_);
+    if (twoPlayerMode_) checkCoinTiles(luigi_);
 
     blockCoin_.update(dt);
 
-    goomba_.update(dt, level_, kLogicalHeight);
-    checkGoombaCollision(mario_, marioPrevY);
-    if (twoPlayerMode_) checkGoombaCollision(luigi_, luigiPrevY);
-    cullIfLeftBehindReset(goomba_, static_cast<float>(Goomba::kSize), cameraX_);
+    for (Goomba& goomba : goombas_) {
+        goomba.update(dt, level_, kLogicalHeight);
+        checkGoombaCollision(mario_, goomba, marioPrevY);
+        if (twoPlayerMode_) checkGoombaCollision(luigi_, goomba, luigiPrevY);
+        cullIfLeftBehindReset(goomba, static_cast<float>(Goomba::kSize), cameraX_);
+    }
 
     buzzyBeetle_.update(dt, level_, kLogicalHeight);
     checkBuzzyBeetleCollision(mario_, buzzyBeetle_, marioPrevY);
     if (twoPlayerMode_) checkBuzzyBeetleCollision(luigi_, buzzyBeetle_, luigiPrevY);
-    checkBuzzyShellVsGoomba(buzzyBeetle_);
-    checkGoombaBuzzyBeetleBounce(goomba_, buzzyBeetle_);
+    for (Goomba& goomba : goombas_) {
+        checkBuzzyShellVsGoomba(buzzyBeetle_, goomba);
+        checkGoombaBuzzyBeetleBounce(goomba, buzzyBeetle_);
+    }
     cullIfLeftBehindReset(buzzyBeetle_, static_cast<float>(BuzzyBeetle::kSize), cameraX_);
 
     piranhaPlant_.update(dt, isSafeForPiranhaPlant(piranhaPlant_));
@@ -2730,7 +2735,7 @@ void Game::update(float dt) {
     // array solo para no tener que escribir a mano todas las combinaciones
     // de cada chequeo de a pares (caparazon-vs-caparazon, rebote-vs-Goomba)
     // cada vez que se agrega una instancia de prueba mas.
-    const std::array<Koopa*, 5> koopas{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
+    const std::vector<Koopa*> koopas = allKoopas();
     for (Koopa* koopa : koopas) {
         koopa->update(dt, level_, kLogicalHeight);
         // Solo el caparazon en movimiento rebotando contra una pared suena
@@ -2741,8 +2746,10 @@ void Game::update(float dt) {
         }
         checkKoopaCollision(mario_, *koopa, marioPrevY);
         if (twoPlayerMode_) checkKoopaCollision(luigi_, *koopa, luigiPrevY);
-        checkShellVsGoomba(*koopa);
-        checkGoombaKoopaBounce(goomba_, *koopa);
+        for (Goomba& goomba : goombas_) {
+            checkShellVsGoomba(*koopa, goomba);
+            checkGoombaKoopaBounce(goomba, *koopa);
+        }
         checkShellVsBuzzyBeetle(*koopa, buzzyBeetle_);
         checkKoopaBuzzyBeetleBounce(*koopa, buzzyBeetle_);
         cullIfLeftBehindReset(*koopa, static_cast<float>(koopa->width()), cameraX_);
@@ -2766,7 +2773,7 @@ void Game::update(float dt) {
             // ahora, no al momento del golpe.
             if (bump.hasPendingItem) {
                 bump.hasPendingItem = false;
-                spawnItemFromQuestionBlock(bump.col, bump.row, bump.pendingMovingRight);
+                spawnItemFromQuestionBlock(bump.col, bump.row, bump.pendingMovingRight, bump.pendingHitterBig);
             }
         }
     }
@@ -2794,7 +2801,7 @@ void Game::update(float dt) {
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
-        checkFireballGoombaCollision(fireball);
+        for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
         checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
         checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
@@ -2816,7 +2823,7 @@ void Game::update(float dt) {
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, level_.widthPixels());
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
-            checkFireballGoombaCollision(fireball);
+            for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
             checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
             checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
@@ -2862,6 +2869,7 @@ void Game::render() {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
     level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
+    renderDecorations();
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
@@ -2906,7 +2914,11 @@ void Game::render() {
                                     bump.row * level_.tileSize() + offsetY, false);
         }
     }
-    goomba_.render(renderer_, goombaSprite_, worldRow, cameraX_);
+    for (const Goomba& goomba : goombas_) goomba.render(renderer_, goombaSprite_, worldRow, cameraX_);
+    for (const Koopa& koopa : levelKoopas_) {
+        koopa.render(renderer_, koopa.color() == KoopaColor::Red ? koopaRedSprite_ : koopaSprite_, worldRow,
+                     cameraX_);
+    }
     koopaA_.render(renderer_, koopaSprite_, worldRow, cameraX_);
     koopaB_.render(renderer_, koopaSprite_, worldRow, cameraX_);
     koopaJumping_.render(renderer_, koopaSprite_, worldRow, cameraX_);
@@ -3024,10 +3036,10 @@ void Game::renderScenarioSelect() {
     static const char* const kOptions[kMenuOptionCount] = {
         "1 ITEMS",     "2 ENEMIGOS",    "3 HAMMER BRO", "4 LAKITU",
         "5 BLOOPER",   "6 CHEEP CHEEP", "7 BILL BALA",  "8 CHEEP CHEEP SALTO",
-        "9 PODOBOO",   "0 BOWSER",      "  META",
+        "9 PODOBOO",   "0 BOWSER",      "  META",       "  1-1",
     };
     for (int i = 0; i < kMenuOptionCount; ++i) {
-        const int y = 48 + i * 15;
+        const int y = 46 + i * 14;
         const bool selected = i == menuSelection_;
         if (selected) DebugFont::drawText(renderer_, 20, y, ">", 2, white);
         DebugFont::drawText(renderer_, 32, y, kOptions[i], 2, selected ? white : yellow);
@@ -3265,4 +3277,142 @@ void Game::renderLevelIntro() {
 
 void Game::renderGameOver() {
     DebugFont::drawText(renderer_, (kLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
+}
+
+void Game::awardEnemyPoints(float x, float y, int points) {
+    spawnScorePopup(x, y, std::to_string(points));
+}
+
+const QuestionBlockSpawn& Game::findBlockSpawn(int col, int row) const {
+    for (const QuestionBlockSpawn& entry : blockSpawns_) {
+        if (entry.col == col && entry.row == row) return entry;
+    }
+    static const QuestionBlockSpawn kDefaultCoin{0, 0, BlockItem::Coin, 1};
+    return kDefaultCoin;
+}
+
+namespace {
+
+BlockItem parseBlockItem(const std::string& name) {
+    if (name == "powerup") return BlockItem::PowerUp;
+    if (name == "mushroom") return BlockItem::Mushroom;
+    if (name == "fire_flower") return BlockItem::FireFlower;
+    if (name == "star") return BlockItem::Star;
+    if (name == "one_up") return BlockItem::OneUp;
+    if (name != "coin") SDL_Log("Item de bloque desconocido '%s', se usa moneda", name.c_str());
+    return BlockItem::Coin;
+}
+
+}  // namespace
+
+void Game::loadLevelData() {
+    blockSpawns_.clear();
+    for (const LevelBlock& block : level_.blocks()) {
+        blockSpawns_.push_back(QuestionBlockSpawn{block.col, block.row, parseBlockItem(block.item), block.hits});
+    }
+    const float ts = static_cast<float>(level_.tileSize());
+    pipeWarps_.clear();
+    for (const LevelWarp& warp : level_.warps()) {
+        pipeWarps_.push_back(PipeWarp{warp.col, warp.row, warp.destCol * ts, warp.destRow * ts});
+    }
+    entitySpawned_.assign(level_.entities().size(), false);
+}
+
+void Game::spawnLevelEntities() {
+    const float ts = static_cast<float>(level_.tileSize());
+    const std::vector<LevelEntity>& entities = level_.entities();
+    for (size_t i = 0; i < entities.size(); ++i) {
+        if (entitySpawned_[i]) continue;
+        const LevelEntity& entity = entities[i];
+        const float x = static_cast<float>(entity.col) * ts;
+        if (x + ts < cameraX_) {
+            entitySpawned_[i] = true;  // quedo atras de la camara: no aparece
+            continue;
+        }
+        // Un tile mas alla del borde derecho: aparece justo fuera de vista.
+        if (x > cameraX_ + static_cast<float>(kLogicalWidth) + ts) continue;
+
+        // row es la fila del enemigo: los pies sobre el borde de abajo.
+        const float feetY = static_cast<float>(entity.row + 1) * ts;
+        bool spawned = false;
+        if (entity.type == "goomba") {
+            spawned = spawnGoomba(x, feetY - static_cast<float>(Goomba::kSize), entity.movingRight);
+        } else if (entity.type == "koopa") {
+            const KoopaColor color = entity.color == "red" ? KoopaColor::Red : KoopaColor::Green;
+            const KoopaState state = entity.state == "jumping" ? KoopaState::Jumping
+                                     : entity.state == "flying" ? KoopaState::Flying
+                                                                : KoopaState::Walking;
+            spawned = spawnLevelKoopa(x, feetY - static_cast<float>(Koopa::kWalkHeight), entity.movingRight, color, state);
+        } else {
+            SDL_Log("Entidad de nivel desconocida '%s' (columna %d)", entity.type.c_str(), entity.col);
+            spawned = true;  // no reintentar cada cuadro
+        }
+        // Pool lleno: se reintenta el cuadro siguiente.
+        if (spawned) entitySpawned_[i] = true;
+    }
+}
+
+bool Game::spawnGoomba(float x, float y, bool movingRight) {
+    for (Goomba& goomba : goombas_) {
+        if (goomba.isAlive()) continue;
+        goomba.spawn(x, y, movingRight);
+        return true;
+    }
+    return false;
+}
+
+bool Game::spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state) {
+    for (Koopa& koopa : levelKoopas_) {
+        if (koopa.isAlive()) continue;
+        koopa.setColor(color);
+        koopa.spawn(x, y, movingRight, state);
+        return true;
+    }
+    return false;
+}
+
+std::vector<Koopa*> Game::allKoopas() {
+    std::vector<Koopa*> koopas{&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_};
+    for (Koopa& koopa : levelKoopas_) koopas.push_back(&koopa);
+    return koopas;
+}
+
+int Game::areaIndexAt(float x) const {
+    const std::vector<LevelArea>& areas = level_.areas();
+    const int col = static_cast<int>(std::floor(x / static_cast<float>(level_.tileSize())));
+    for (size_t i = 0; i < areas.size(); ++i) {
+        if (col >= areas[i].startCol && col <= areas[i].endCol) return static_cast<int>(i);
+    }
+    return 0;
+}
+
+void Game::renderDecorations() {
+    const int ts = level_.tileSize();
+    const int camOffset = static_cast<int>(std::lround(cameraX_));
+    for (const LevelDecoration& decoration : level_.decorations()) {
+        for (int i = 0; i < kDecorationCount; ++i) {
+            if (decoration.type != kDecorations[i].type) continue;
+            const int x = decoration.col * ts - camOffset;
+            if (x + kDecorations[i].width < 0 || x > kLogicalWidth) break;
+            decorationSprites_[i].draw(renderer_, 0, 0, x, decoration.row * ts, false);
+            break;
+        }
+    }
+}
+
+void Game::checkCoinTiles(Mario& character) {
+    if (character.isInDeathSequence() || character.hasFinishedLevel()) return;
+    const float ts = static_cast<float>(level_.tileSize());
+    const int col0 = static_cast<int>(std::floor(character.x() / ts));
+    const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
+    const int row0 = static_cast<int>(std::floor(character.y() / ts));
+    const int row1 = static_cast<int>(std::floor((character.y() + character.height() - 1.0f) / ts));
+    for (int row = row0; row <= row1; ++row) {
+        for (int col = col0; col <= col1; ++col) {
+            if (!level_.isCoinTile(col, row)) continue;
+            level_.collectCoinTile(col, row);
+            collectCoin();
+            audio_.play(Sfx::Coin);
+        }
+    }
 }

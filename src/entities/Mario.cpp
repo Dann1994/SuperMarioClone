@@ -441,6 +441,14 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
                 bool blocked = false;
                 for (int col = col0; col <= col1; ++col) {
                     if (level.isSolidTile(col, row)) { blocked = true; break; }
+                    // Bloque invisible: solo frena si la cabeza viene de
+                    // abajo (estaba entero por debajo del tile antes de
+                    // moverse); saltando de costado se lo atraviesa.
+                    if (level.isHiddenBlockTile(col, row) &&
+                        static_cast<float>((row + 1) * ts) <= y_ + kEdgeEpsilon) {
+                        blocked = true;
+                        break;
+                    }
                 }
                 if (blocked) {
                     newY = static_cast<float>((row + 1) * ts);

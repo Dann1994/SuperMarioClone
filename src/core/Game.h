@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include <array>
+#include <vector>
 #include <string>
 
 #include "../audio/SoundManager.h"
@@ -95,6 +96,9 @@ struct BlockBump {
     float timer = 0.0f;
     bool hasPendingItem = false;
     bool pendingMovingRight = false;
+    // Si el que lo golpeo ya era grande: decide hongo o flor en un bloque
+    // BlockItem::PowerUp (como el original).
+    bool pendingHitterBig = false;
 };
 
 // Que item le toca a cada bloque de interrogacion (seccion 5.3) en el
@@ -109,6 +113,10 @@ enum class BlockItem {
     Star,
     Coin,
     OneUp,
+    // El bloque de power-up clasico: hongo si el que lo golpea es chico,
+    // flor si ya es grande (se resuelve al salir, ver
+    // Game::spawnItemFromQuestionBlock).
+    PowerUp,
 };
 
 struct QuestionBlockSpawn {
@@ -127,7 +135,8 @@ struct QuestionBlockSpawn {
 };
 
 // A que tuberia le corresponde cada entrada valida (Tilemap::isPipeTopTile)
-// del escenario de Items, y a donde manda -- ver Game::checkPipeWarp.
+// del nivel, y a donde manda -- ver Game::checkPipeWarp. Sale del campo
+// "warps" del JSON del nivel (ver loadLevelData).
 struct PipeWarp {
     int col;      // columna izquierda del tope de la tuberia (donde hay que pararse)
     int row;      // fila del tope
@@ -179,10 +188,13 @@ enum class TestScenario {
     // Tramo final de un nivel (escalera + bandera de meta, como el 1-1),
     // test_flagpole.json. Sin tecla numerica: se elige con la flecha.
     Flagpole,
+    // El primer nivel real: levels/world1/1-1.json, todo sale del JSON
+    // (enemigos, bloques, tuberias, cuarto bonus, escenografia).
+    World1_1,
 };
 
 // Cantidad de opciones del selector de escenario (una por TestScenario).
-constexpr int kMenuOptionCount = static_cast<int>(TestScenario::Flagpole) + 1;
+constexpr int kMenuOptionCount = static_cast<int>(TestScenario::World1_1) + 1;
 
 enum class AppState {
     ScenarioSelect,
@@ -232,6 +244,9 @@ private:
     void checkFireFlowerPickup(Mario& character);
     void checkStarPickup(Mario& character);
     void checkCoinPickup(Mario& character);
+    // Monedas sueltas del nivel (tiles 'o', ver Tilemap::isCoinTile): las
+    // que toque el hitbox se agarran.
+    void checkCoinTiles(Mario& character);
     // Bajo el agua Mario nada libremente (no cae por gravedad como en
     // tierra), asi que la geometria del pisoton -- que necesita "venir
     // cayendo desde arriba" -- casi nunca se da nadando: por pedido
@@ -260,19 +275,34 @@ private:
     // ("ShellOrBlockDefeat"), sin importar la causa. Template porque cada
     // clase de enemigo es un tipo distinto, todas comparten la firma
     // bool killFalling(bool).
+    // Suma los puntos del enemigo (popup incluido, ver enemyPoints) la
+    // misma vez que suena.
     template <typename T>
     void killEnemyFalling(T& enemy, bool flyRight) {
-        if (enemy.killFalling(flyRight)) audio_.play(Sfx::Kick);
+        if (!enemy.killFalling(flyRight)) return;
+        audio_.play(Sfx::Kick);
+        awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
     }
+    // Puntos por enemigo, valores del original: 100 por defecto, los
+    // "grandes" valen mas.
+    template <typename T>
+    static int enemyPoints(const T&) { return 100; }
+    static int enemyPoints(const HammerBro&) { return 1000; }
+    static int enemyPoints(const Lakitu&) { return 800; }
+    static int enemyPoints(const Blooper&) { return 200; }
+    static int enemyPoints(const CheepCheep&) { return 200; }
+    static int enemyPoints(const BulletBill&) { return 200; }
+    // Popup + puntaje (spawnScorePopup los suma) sobre el enemigo.
+    void awardEnemyPoints(float x, float y, int points);
     // Pisoton (achata y hace rebotar) o dano de costado (como el hazard de
     // prueba), segun de donde venga el contacto.
     // prevY: character.y() de ANTES de moverse este frame (ver el comentario
     // en Game::update junto a marioPrevY) -- asi se sabe si venia de arriba
     // sin importar cuanto se haya hundido este frame en particular.
-    void checkGoombaCollision(Mario& character, float prevY);
+    void checkGoombaCollision(Mario& character, Goomba& goomba, float prevY);
     // Fuego: misma muerte que la estrella (se da vuelta y cae, ver
     // Goomba::killFalling), y la bola explota ahi en vez de seguir volando.
-    void checkFireballGoombaCollision(Fireball& fireball);
+    void checkFireballGoombaCollision(Fireball& fireball, Goomba& goomba);
     // Segun el estado del Koopa: Walking -> pisoton lo esconde (con rebote)
     // o dano de costado; ShellIdle -> pisoton o costado lo patean por igual
     // (de costado hacia el lado contrario a quien lo toco, de arriba hacia
@@ -287,7 +317,7 @@ private:
     // Un caparazon en movimiento mata a cualquier otro enemigo que toque y
     // sigue de largo -- este chequeo es especificamente contra el Goomba de
     // prueba (checkShellVsKoopa mas abajo cubre Koopa contra Koopa).
-    void checkShellVsGoomba(Koopa& koopa);
+    void checkShellVsGoomba(Koopa& koopa, Goomba& goomba);
     // Si los dos son caparazon en movimiento, se matan entre si; si solo uno
     // lo es, mata al otro (en cualquier estado) y sigue de largo.
     void checkShellVsKoopa(Koopa& a, Koopa& b);
@@ -311,7 +341,7 @@ private:
     void checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy);
     // El caparazon del Buzzy Beetle contra el Goomba de prueba (Goomba no
     // tiene caparazon propio para reciprocar, igual que en checkShellVsGoomba).
-    void checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy);
+    void checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy, Goomba& goomba);
     void checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy);
     void checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy);
     // Sin pisoton (ver PiranhaPlant.h): cualquier contacto mientras esta
@@ -417,7 +447,7 @@ private:
     void renderHud();
     // Tuberia (seccion 5.3): si el personaje esta parado (grounded) justo
     // arriba del TOPE de una tuberia (Tilemap::isPipeTopTile) y aprieta
-    // abajo, lo teletransporta al destino configurado en kPipeWarps -- sin
+    // abajo, lo teletransporta al destino configurado en el campo "warps" del nivel (pipeWarps_) -- sin
     // animacion de "hundirse" (simplificacion), aparece de una en el
     // destino. input es la de ESE personaje (input1_/input2_), no la
     // recibe Mario/Luigi (no le hace falta saber de tuberias).
@@ -457,13 +487,13 @@ private:
     // Bloque de interrogacion (seccion 5.3, tambien cubre el dispensador
     // 'D'): mismo mecanismo de deteccion que el ladrillo
     // (Mario::headBumpedThisFrame), se sacude y tira el item que le
-    // corresponde a esa celda (ver kQuestionBlockItems/kDispenserBlockItems)
+    // corresponde a esa celda (ver findBlockSpawn)
     // la primera vez que lo golpean, quedando "usado" para siempre
     // (Tilemap::markQuestionUsed/markDispenserUsed) -- un golpe mas tarde no
     // hace nada, ni se sacude. El item recien aparece (spawnItemFromQuestionBlock)
     // cuando termina la sacudida, no al toque -- ver hasPendingItem en BlockBump.
     void checkQuestionBlockHit(Mario& character);
-    // Que item le toca a la celda (col, row) segun kQuestionBlockItems, y lo
+    // Que item le toca a la celda (col, row) segun findBlockSpawn, y lo
     // hace aparecer saliendo del bloque (arriba de el, ver el comentario de
     // la clase) usando la instancia de prueba correspondiente
     // (mushroom_/fireFlower_/star_/coin_) -- no hay pool, un item por bloque
@@ -473,7 +503,30 @@ private:
     // (que siempre iba a la derecha, sin excepcion): sale hacia el lado
     // OPUESTO de donde vino el golpe, lo decide checkQuestionBlockHit segun
     // de que lado del bloque esta el personaje que lo golpeo.
-    void spawnItemFromQuestionBlock(int col, int row, bool movingRight);
+    void spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool hitterBig);
+    // Contenido del bloque (col, row) segun el campo "blocks" del nivel; un
+    // '?'/'D' que no figura ahi tiene una moneda (lo mas comun en el
+    // original).
+    const QuestionBlockSpawn& findBlockSpawn(int col, int row) const;
+    // Traduce los datos del nivel recien cargado (blocks/warps/entities del
+    // JSON) a las estructuras de Game y deja todas las entidades sin
+    // aparecer todavia (ver spawnLevelEntities).
+    void loadLevelData();
+    // Hace aparecer las entidades del nivel cuando la camara se les acerca
+    // por la derecha (como el original: no estan "vivas" desde el
+    // principio, si no un Goomba caminaria hacia la izquierda y se caeria
+    // en un pozo antes de que el jugador llegue). Las que ya quedaron atras
+    // de la camara al cargar (reaparecer en un checkpoint) no aparecen.
+    void spawnLevelEntities();
+    // Goomba/Koopa en el primer lugar libre de su pool (false si esta lleno).
+    bool spawnGoomba(float x, float y, bool movingRight);
+    bool spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state);
+    // Los 5 Koopa de prueba + los del pool del nivel, para los chequeos que
+    // recorren todos.
+    std::vector<Koopa*> allKoopas();
+    // Area del nivel (Tilemap::areas) que contiene ese X en px.
+    int areaIndexAt(float x) const;
+    void renderDecorations();
     // Popup de puntaje flotante (seccion 6): busca un slot libre del pool.
     void spawnScorePopup(float x, float y, const std::string& text);
     // Punto de reaparicion en la plataforma solida mas cercana a aroundX,
@@ -589,7 +642,7 @@ private:
     Coin coin_;
 
     // Bloques de interrogacion de prueba (seccion 5.3, escenario de Items):
-    // uno por item de la fase inicial (ver QuestionBlockSpawn/kQuestionBlockItems
+    // uno por item de la fase inicial (ver QuestionBlockSpawn/findBlockSpawn
     // en Game.cpp). Animacion compartida por todos los bloques sin usar del
     // nivel (mismo ciclo, sincronizados, como en el original) en vez de un
     // timer por celda. itemEmerge_ maneja el "salir del bloque" de
@@ -652,7 +705,10 @@ private:
     // que se termine cayendo del nivel por un borde sin pared. Tecla G lo
     // repone si se pisa o se cae.
     SpriteSheet goombaSprite_;
-    Goomba goomba_;
+    // Pool: el de prueba (tecla G) y los que pone el nivel (campo
+    // "entities", ver spawnLevelEntities) salen de aca.
+    static constexpr int kMaxGoombas = 16;
+    std::array<Goomba, kMaxGoombas> goombas_;
 
     // Koopa Troopa verde de prueba (seccion 5.2), dos instancias en el piso
     // para poder probar que un caparazon en movimiento mate a otro
@@ -676,6 +732,24 @@ private:
     SpriteSheet koopaRedSprite_;
     Koopa koopaRed_;
     Koopa koopaRedFlying_;
+    // Koopas que pone el nivel (campo "entities"), aparte de los 5 de
+    // prueba de arriba. El color se fija al aparecer (Koopa::setColor).
+    static constexpr int kMaxLevelKoopas = 8;
+    std::array<Koopa, kMaxLevelKoopas> levelKoopas_;
+    // Datos del nivel actual traducidos (ver loadLevelData).
+    std::vector<QuestionBlockSpawn> blockSpawns_;
+    std::vector<PipeWarp> pipeWarps_;
+    // Una entrada por Tilemap::entities(): true si ya aparecio (o se salteo).
+    std::vector<bool> entitySpawned_;
+    // Area donde esta la camara (ver Tilemap::areas) y el tipo de mundo del
+    // nivel cuando el area no fija uno propio.
+    int currentArea_ = 0;
+    WorldType levelWorldType_ = WorldType::Overworld;
+
+    // Escenografia de fondo (ver gen_scenery.py y el campo "decorations"
+    // del nivel): un sheet de un solo frame por pieza.
+    static constexpr int kDecorationCount = 7;
+    std::array<SpriteSheet, kDecorationCount> decorationSprites_;
 
     // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
     // caparazon identicos al Koopa verde caminando (se cae de los bordes,
