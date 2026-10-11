@@ -32,6 +32,7 @@ enum class Sfx {
     Flagpole,
     HurryUp,
     TimeTally,
+    GameOver,
     Count,
 };
 

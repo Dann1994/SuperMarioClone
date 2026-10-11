@@ -17,6 +17,7 @@ bool Tilemap::loadFromFile(const std::string& path) {
     tileSize_ = json.value("tile_size", 16);
     name_ = json.value("name", std::string("TEST"));
     timeLimit_ = json.value("time", 400);
+    checkpointCols_ = json.value("checkpoints", std::vector<int>{});
     const auto rows = json.at("rows").get<std::vector<std::string>>();
 
     height_ = static_cast<int>(rows.size());

@@ -727,12 +727,14 @@ void Mario::updateFlagpole(float dt, const Tilemap& level) {
     }
 }
 
-bool Mario::killInstantly() {
+bool Mario::killInstantly(bool hop) {
     if (inDeathSequence_ || isOnFlagpole()) return false;
     inDamageSequence_ = false;
     inGrowSequence_ = false;
     invincible_ = false;
     hurtInvincible_ = false;
     setSize(MarioSize::Small);
-    return startDeath();
+    if (!startDeath()) return false;
+    if (!hop) velY_ = 0.0f;
+    return true;
 }

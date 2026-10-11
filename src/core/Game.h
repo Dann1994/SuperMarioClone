@@ -186,7 +186,12 @@ constexpr int kMenuOptionCount = static_cast<int>(TestScenario::Flagpole) + 1;
 
 enum class AppState {
     ScenarioSelect,
+    // Pantalla negra "WORLD x-y / MARIO x N" antes de cada intento, como el
+    // original (al empezar el nivel y despues de perder una vida).
+    LevelIntro,
     Playing,
+    // Se acabaron las vidas: cartel de GAME OVER y el nivel arranca de cero.
+    GameOver,
 };
 
 class Game {
@@ -201,10 +206,26 @@ private:
     void render();
     void renderScenarioSelect();
     void moveMenuSelection(int delta);
-    // Carga el nivel del escenario elegido y deja en pie solo las entidades
-    // de prueba que le corresponden (las del otro escenario quedan
-    // desactivadas, aunque el objeto siga vivo en memoria).
+    // Partida nueva en el escenario elegido: puntaje, monedas, vidas y
+    // checkpoint de cero, y despues loadScenario (con la pantalla de intro).
     void startScenario(TestScenario scenario);
+    // Carga el nivel del escenario y deja en pie solo las entidades de
+    // prueba que le corresponden (las del otro escenario quedan
+    // desactivadas, aunque el objeto siga vivo en memoria). Los
+    // personajes arrancan en el ultimo checkpoint alcanzado (o en el spawn
+    // del nivel si no hay). No toca puntaje/monedas/vidas: lo reusa el
+    // reintento despues de perder una vida.
+    void loadScenario(TestScenario scenario);
+    // Murieron todos (en 1P, Mario): pierde una vida y reintenta desde el
+    // checkpoint, o GAME OVER si no quedan.
+    void onAllPlayersDied();
+    // Marca como alcanzado el checkpoint mas adelantado que haya pasado
+    // algun personaje vivo.
+    void updateCheckpoints();
+    // Caer por debajo del nivel (un pozo) mata, sin importar el tamano.
+    void checkPitDeath(Mario& character);
+    void renderLevelIntro();
+    void renderGameOver();
     void trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPerPlayer>& pool);
     void resolveCharacterCollision();
     void checkMushroomPickup(Mario& character);
@@ -461,10 +482,9 @@ private:
     // Muerte de uno solo (el otro sigue jugando): reaparece en la
     // plataforma mas cercana, parpadeando invulnerable un rato.
     void respawnNearestPlatform(Mario& character);
-    // Murieron los dos a la vez: placeholder de "reiniciar desde el
-    // checkpoint" hasta que ese sistema exista -- por ahora vuelve al
-    // spawn original del nivel.
-    void respawnAtCheckpoint(Mario& character, float spawnX, float spawnY);
+    // Al (re)cargar el nivel: deja a Mario/Luigi en el ultimo checkpoint
+    // alcanzado (checkpointCol_), o en el spawn del nivel si no hay.
+    void placeCharactersAtStart();
     // Bajo el agua usa una invulnerabilidad post-respawn mas larga que en
     // tierra (ver kUnderwaterRespawnInvincibleDuration en Game.cpp) -- un
     // solo lugar para este criterio en vez de repetirlo en las dos
@@ -599,6 +619,12 @@ private:
     int coinCount_ = 0;
     int livesCount_ = 0;
     int score_ = 0;
+    // Columna del checkpoint mas adelantado alcanzado en este nivel (-1 =
+    // ninguno, se arranca del principio). Sobrevive a perder una vida,
+    // se borra al empezar el nivel de cero (startScenario, GAME OVER).
+    int checkpointCol_ = -1;
+    // Cuenta regresiva de la pantalla actual (LevelIntro/GameOver).
+    float appStateTimer_ = 0.0f;
     // Tiempo restante en unidades del timer clasico (cada unidad son 24
     // cuadros del original, ver kTimeUnitSeconds en Game.cpp): el HUD
     // muestra la parte entera redondeada para arriba.

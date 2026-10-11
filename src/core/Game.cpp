@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 
 #include "../render/DebugFont.h"
@@ -129,6 +130,12 @@ constexpr float kHurryUpThreshold = 100.0f;
 constexpr int kTallyPointsPerUnit = 50;
 constexpr float kTallyUnitsPerSecond = 120.0f;
 constexpr float kTallySoundInterval = 0.06f;
+
+// Vidas (seccion 6): 3 al empezar, como el original. Duracion de la
+// pantalla de intro antes de cada intento y del cartel de GAME OVER.
+constexpr int kStartingLives = 3;
+constexpr float kLevelIntroDuration = 2.0f;
+constexpr float kGameOverDuration = 4.0f;
 
 // reset()/collect() hacen lo mismo (alive_ = false) pero se llaman distinto
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
@@ -403,6 +410,7 @@ bool Game::init() {
         audio_.load(Sfx::Flagpole, sfxDir + "flagpole.wav");
         audio_.load(Sfx::HurryUp, sfxDir + "hurryup.wav");
         audio_.load(Sfx::TimeTally, sfxDir + "beep.wav");
+        audio_.load(Sfx::GameOver, sfxDir + "gameover.wav");
     }
 
     window_ = SDL_CreateWindow(
@@ -560,6 +568,16 @@ bool Game::init() {
 }
 
 void Game::startScenario(TestScenario scenario) {
+    // Cada escenario de prueba arranca como una partida nueva: todavia no
+    // hay partida que se arrastre de un nivel al otro (seccion 6).
+    score_ = 0;
+    coinCount_ = 0;
+    livesCount_ = kStartingLives;
+    checkpointCol_ = -1;
+    loadScenario(scenario);
+}
+
+void Game::loadScenario(TestScenario scenario) {
     scenario_ = scenario;
     menuSelection_ = static_cast<int>(scenario);
     cameraSnapPending_ = true;
@@ -597,10 +615,6 @@ void Game::startScenario(TestScenario scenario) {
         flagpole_.reset();
     }
     levelClearTimer_ = 0.0f;
-    // Cada escenario de prueba arranca como un nivel nuevo: todavia no hay
-    // partida que se arrastre de un nivel al otro (seccion 6).
-    score_ = 0;
-    coinCount_ = 0;
     timeTallying_ = false;
     resetLevelTimer();
 
@@ -627,8 +641,7 @@ void Game::startScenario(TestScenario scenario) {
     mario_.setWorldType(worldType_);
     luigi_.setWorldType(worldType_);
 
-    mario_.spawn(kMarioSpawnX, kMarioSpawnY);
-    luigi_.spawn(kLuigiSpawnX, kLuigiSpawnY);
+    placeCharactersAtStart();
 
     // Apaga todo lo de los OTROS escenarios (por si se viene de jugar otro)
     // y pone en pie solo lo que corresponde al elegido.
@@ -670,8 +683,6 @@ void Game::startScenario(TestScenario scenario) {
         // de ningun bloque, va quieta puesta en el piso (ver el comentario
         // de kCoinTestX/Y).
         coin_.spawn(kCoinTestX, kCoinTestY);
-        coinCount_ = 0;
-        livesCount_ = 0;
     } else if (scenario == TestScenario::Enemies) {
         goomba_.spawn(kGoombaTestX, kGoombaTestY, true);
         koopaA_.spawn(kKoopaATestX, kKoopaATestY, true);
@@ -705,7 +716,8 @@ void Game::startScenario(TestScenario scenario) {
         axe_.spawn(kAxeTestX, kAxeTestY);
     }
 
-    appState_ = AppState::Playing;
+    appState_ = AppState::LevelIntro;
+    appStateTimer_ = kLevelIntroDuration;
 }
 
 void Game::processEvents() {
@@ -742,7 +754,7 @@ void Game::processEvents() {
             }
         } else if (event.type == SDL_KEYDOWN && !event.key.repeat) {
             if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-                if (appState_ == AppState::Playing) {
+                if (appState_ != AppState::ScenarioSelect) {
                     // Primer ESC: volver al selector, no cerrar el juego de
                     // una (asi no se pierde el progreso por error).
                     appState_ = AppState::ScenarioSelect;
@@ -2283,15 +2295,23 @@ void Game::respawnNearestPlatform(Mario& character) {
     grantRespawnInvincibilityForWorld(character);
 }
 
-void Game::respawnAtCheckpoint(Mario& character, float spawnX, float spawnY) {
-    // Placeholder hasta que exista un sistema de checkpoints real (seccion
-    // 6): vuelve al spawn original del nivel.
-    character.spawn(spawnX, spawnY);
-    resetLevelTimer();
+void Game::placeCharactersAtStart() {
+    if (checkpointCol_ < 0) {
+        mario_.spawn(kMarioSpawnX, kMarioSpawnY);
+        luigi_.spawn(kLuigiSpawnX, kLuigiSpawnY);
+    } else {
+        // Parados sobre el piso de la columna del checkpoint (o la mas
+        // cercana con piso, ver findRespawnPoint), Luigi un poco atras.
+        const float ts = static_cast<float>(level_.tileSize());
+        const float x = static_cast<float>(checkpointCol_) * ts + ts / 2.0f;
+        const SDL_Point marioPoint = findRespawnPoint(x, mario_.height());
+        mario_.spawn(static_cast<float>(marioPoint.x), static_cast<float>(marioPoint.y));
+        const SDL_Point luigiPoint = findRespawnPoint(x - 1.5f * ts, luigi_.height());
+        luigi_.spawn(static_cast<float>(luigiPoint.x), static_cast<float>(luigiPoint.y));
+    }
     // Puede quedar lejos de la camara actual: si se acercara de a poco,
     // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
     cameraSnapPending_ = true;
-    grantRespawnInvincibilityForWorld(character);
 }
 
 void Game::grantRespawnInvincibilityForWorld(Mario& character) {
@@ -2390,6 +2410,19 @@ bool Game::isAreaFree(float x, float y, int width, int height) const {
 }
 
 void Game::update(float dt) {
+    if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
+        appStateTimer_ -= dt;
+        if (appStateTimer_ > 0.0f) return;
+        if (appState_ == AppState::LevelIntro) {
+            appState_ = AppState::Playing;
+            // Lo apretado durante la pantalla negra no cuenta.
+            input1_.clearPresses();
+            input2_.clearPresses();
+        } else {
+            startScenario(scenario_);  // GAME OVER: el nivel de cero
+        }
+        return;
+    }
     if (appState_ != AppState::Playing) return;
 
     // Congelado (secuencias de danio/crecer, o alguien que "muere del
@@ -2406,17 +2439,17 @@ void Game::update(float dt) {
         mario_.updateDamageSequence(dt);
         mario_.updateGrowSequence(dt);
         mario_.updateDeathSequence(dt);
-        if (mario_.consumeDeathFinished()) {
-            respawnAtCheckpoint(mario_, kMarioSpawnX, kMarioSpawnY);
-        }
+        mario_.consumeDeathFinished();
         if (twoPlayerMode_) {
             luigi_.updateDamageSequence(dt);
             luigi_.updateGrowSequence(dt);
             luigi_.updateDeathSequence(dt);
-            if (luigi_.consumeDeathFinished()) {
-                respawnAtCheckpoint(luigi_, kLuigiSpawnX, kLuigiSpawnY);
-            }
+            luigi_.consumeDeathFinished();
         }
+        // Recien cuando terminaron TODAS las secuencias de muerte (en 2P
+        // uno pudo haber muerto un poco despues que el otro).
+        const bool stillDying = mario_.isInDeathSequence() || (twoPlayerMode_ && luigi_.isInDeathSequence());
+        if (everyoneDying && !stillDying) onAllPlayersDied();
         return;
     }
 
@@ -2462,6 +2495,10 @@ void Game::update(float dt) {
         }
         resolveCharacterCollision();
     }
+
+    checkPitDeath(mario_);
+    if (twoPlayerMode_) checkPitDeath(luigi_);
+    updateCheckpoints();
 
     updateCamera(dt);
     keepCharactersOnScreen();
@@ -2804,6 +2841,17 @@ void Game::render() {
 
     if (appState_ == AppState::ScenarioSelect) {
         renderScenarioSelect();
+        SDL_RenderPresent(renderer_);
+        return;
+    }
+    if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
+        // Pantalla negra con el HUD arriba, como el original.
+        renderHud();
+        if (appState_ == AppState::LevelIntro) {
+            renderLevelIntro();
+        } else {
+            renderGameOver();
+        }
         SDL_RenderPresent(renderer_);
         return;
     }
@@ -3171,4 +3219,50 @@ void Game::renderHud() {
     DebugFont::drawText(renderer_, 200, kTitleY, "TIME", 2, white);
     std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
     DebugFont::drawText(renderer_, 208, kValueY, text, 2, white);
+}
+
+void Game::onAllPlayersDied() {
+    --livesCount_;
+    if (livesCount_ <= 0) {
+        livesCount_ = 0;
+        appState_ = AppState::GameOver;
+        appStateTimer_ = kGameOverDuration;
+        audio_.play(Sfx::GameOver);
+        return;
+    }
+    // Reintento: el nivel vuelve a su estado inicial (bloques, enemigos,
+    // timer) y se arranca desde el ultimo checkpoint, conservando puntaje
+    // y monedas como el original.
+    loadScenario(scenario_);
+}
+
+void Game::updateCheckpoints() {
+    const float ts = static_cast<float>(level_.tileSize());
+    for (const Mario* character : {&mario_, &luigi_}) {
+        if (character == &luigi_ && !twoPlayerMode_) continue;
+        if (character->isInDeathSequence()) continue;
+        for (int col : level_.checkpointCols()) {
+            if (col > checkpointCol_ && character->x() >= static_cast<float>(col) * ts) checkpointCol_ = col;
+        }
+    }
+}
+
+void Game::checkPitDeath(Mario& character) {
+    if (character.isInDeathSequence()) return;
+    if (character.y() <= static_cast<float>(level_.heightPixels())) return;
+    if (character.killInstantly(false)) audio_.play(Sfx::Death);
+}
+
+void Game::renderLevelIntro() {
+    const SDL_Color white{255, 255, 255, 255};
+    const std::string world = "WORLD " + level_.name();
+    DebugFont::drawText(renderer_, (kLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
+    char text[16];
+    std::snprintf(text, sizeof(text), "MARIO x %d", livesCount_);
+    DebugFont::drawText(renderer_, (kLogicalWidth - static_cast<int>(std::strlen(text)) * 8) / 2, 120, text, 2,
+                        white);
+}
+
+void Game::renderGameOver() {
+    DebugFont::drawText(renderer_, (kLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
 }

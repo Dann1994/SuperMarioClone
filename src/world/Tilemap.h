@@ -36,6 +36,10 @@ public:
     // original -- ver Game::timeRemaining_).
     const std::string& name() const { return name_; }
     int timeLimit() const { return timeLimit_; }
+    // Checkpoints a mitad de nivel (campo "checkpoints" del JSON, lista de
+    // columnas, vacia si no tiene): invisibles como en el original, se
+    // activan al pasarlos (ver Game::updateCheckpoints).
+    const std::vector<int>& checkpointCols() const { return checkpointCols_; }
     int widthTiles() const { return width_; }
     int heightTiles() const { return height_; }
     int widthPixels() const { return width_ * tileSize_; }
@@ -185,6 +189,7 @@ private:
     int tileSize_ = 16;
     std::string name_ = "TEST";
     int timeLimit_ = 400;
+    std::vector<int> checkpointCols_;
     int width_ = 0;
     int height_ = 0;
     std::vector<uint8_t> solid_;     // row-major, 1 = solido ('#', 'B' sin romper, o '?')

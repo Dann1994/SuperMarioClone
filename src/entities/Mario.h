@@ -177,9 +177,11 @@ public:
     // tiene efecto si es chico (grande/fuego usa takeDamage() en cambio).
     bool startDeath();
     // Muerte sin importar el tamano ni la invencibilidad (se le acabo el
-    // tiempo, como en el original): pasa a chico y arranca la misma
-    // secuencia que startDeath(). No hace nada en la bandera de meta.
-    bool killInstantly();
+    // tiempo o cayo a un pozo, como en el original): pasa a chico y arranca
+    // la misma secuencia que startDeath(). hop = false para el pozo: sin el
+    // saltito, si no volveria a asomar por el borde de abajo de la
+    // pantalla. No hace nada en la bandera de meta.
+    bool killInstantly(bool hop = true);
     bool isInDeathSequence() const { return inDeathSequence_; }
     void updateDeathSequence(float dt);
     // true una sola vez, justo cuando termina la secuencia (se resetea al leerlo).
