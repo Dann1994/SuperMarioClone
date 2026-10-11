@@ -104,8 +104,9 @@ public:
     void collapseBridgeTile(int col, int row);
     void restoreBridges();
     bool hasAnyBridge() const;
+    // viewWidth: ancho de la pantalla en px (solo se dibujan las columnas visibles).
     void renderHazards(SDL_Renderer* renderer, const SpriteSheet& lavaSprite, const SpriteSheet& bridgeSprite,
-                       float cameraX = 0.0f) const;
+                       int viewWidth, float cameraX = 0.0f) const;
 
     // Bloque invisible ('H', como el del 1-UP del 1-1): no es solido para
     // nada salvo para la cabeza de Mario/Luigi subiendo desde abajo (ver

@@ -38,12 +38,18 @@
 #include "../world/WorldType.h"
 #include "Input.h"
 
-// Resolucion interna estilo NES; la ventana puede ser mas grande, SDL2
-// escala automaticamente (ver seccion 3 de la especificacion: resolucion
-// ajustable, ventana/pantalla completa, este valor logico se mantiene fijo
-// aunque la ventana cambie de tamano).
-constexpr int kLogicalWidth = 256;
+// Resolucion interna: el alto del NES (240, asi los niveles no cambian) con
+// ancho 16:9 (240 * 16 / 9 = 426.67 -> 426). La ventana puede ser mas
+// grande, SDL2 escala automaticamente (ver seccion 3 de la especificacion:
+// resolucion ajustable, ventana/pantalla completa, este valor logico se
+// mantiene fijo aunque la ventana cambie de tamano). El 4:3 original era
+// 256 de ancho -- elegir entre los dos queda para el menu de configuracion
+// (seccion 10.2); los niveles mas angostos que la pantalla se centran (ver
+// Game::updateCamera/renderOutsideAreaMask).
+constexpr int kLogicalWidth = 426;
 constexpr int kLogicalHeight = 240;
+// Ancho del layout original (HUD, menu): se reparte/centra en kLogicalWidth.
+constexpr int kClassicWidth = 256;
 
 // Maximo de bolas de fuego en pantalla por personaje, como en el original.
 constexpr int kMaxFireballsPerPlayer = 2;
@@ -552,6 +558,10 @@ private:
     // Area del nivel (Tilemap::areas) que contiene ese X en px.
     int areaIndexAt(float x) const;
     void renderDecorations();
+    // Tapa con el color de fondo lo que se ve fuera del area actual (la
+    // pantalla 16:9 es mas ancha que los niveles de una sola pantalla y que
+    // el cuarto bonus: sin esto se veria el nivel de al lado).
+    void renderOutsideAreaMask();
     // Dibuja al personaje; si va parado en una plataforma movil (riding),
     // redondea su posicion relativa a ella en vez de a la camara: los dos
     // se mueven en px fraccionarios y redondeando cada uno por su lado el

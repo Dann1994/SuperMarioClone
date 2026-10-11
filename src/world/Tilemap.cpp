@@ -47,7 +47,6 @@ bool Tilemap::loadFromFile(const std::string& path) {
         area.world = entry.value("world", std::string());
         areas_.push_back(area);
     }
-    if (areas_.empty()) areas_.push_back(LevelArea{0, width_ - 1, std::string()});
     decorations_.clear();
     for (const auto& entry : json.value("decorations", nlohmann::json::array())) {
         LevelDecoration decoration;
@@ -83,6 +82,10 @@ bool Tilemap::loadFromFile(const std::string& path) {
 
     height_ = static_cast<int>(rows.size());
     width_ = height_ > 0 ? static_cast<int>(rows[0].size()) : 0;
+    // Sin "areas" en el JSON: una sola que cubre todo el nivel. Recien aca,
+    // con width_ ya calculado para ESTE nivel (antes usaba el del nivel
+    // cargado anteriormente, o 0 en el primero).
+    if (areas_.empty()) areas_.push_back(LevelArea{0, width_ - 1, std::string()});
     solid_.assign(static_cast<size_t>(width_) * height_, 0);
     platform_.assign(static_cast<size_t>(width_) * height_, 0);
     brick_.assign(static_cast<size_t>(width_) * height_, 0);
@@ -316,10 +319,10 @@ void Tilemap::restoreBridges() {
 }
 
 void Tilemap::renderHazards(SDL_Renderer* renderer, const SpriteSheet& lavaSprite, const SpriteSheet& bridgeSprite,
-                            float cameraX) const {
+                            int viewWidth, float cameraX) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     const int firstCol = std::max(0, camOffset / tileSize_);
-    const int lastCol = std::min(width_ - 1, (camOffset + 256) / tileSize_ + 1);
+    const int lastCol = std::min(width_ - 1, (camOffset + viewWidth) / tileSize_ + 1);
     for (int row = 0; row < height_; ++row) {
         for (int col = firstCol; col <= lastCol; ++col) {
             const int x = col * tileSize_ - camOffset;
@@ -380,11 +383,11 @@ bool Tilemap::isSolidAtPixel(float x, float y) const {
 void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, float cameraX) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     SDL_SetRenderDrawColor(renderer, backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a);
-    // El fondo cubre todo el nivel (no solo la pantalla visible): es un
-    // color plano, no hace falta desplazarlo con la camara, con que cubra
-    // el nivel entero alcanza para cualquier cameraX valido.
-    SDL_Rect background{0, 0, widthPixels(), heightPixels()};
-    SDL_RenderFillRect(renderer, &background);
+    // El fondo es un color plano: cubre toda la pantalla (nullptr = todo el
+    // viewport), no el rectangulo del nivel -- con un nivel mas angosto que
+    // la pantalla la camara queda en X negativa (centrado, ver
+    // Game::updateCamera) y el rectangulo del nivel no la cubriria entera.
+    SDL_RenderFillRect(renderer, nullptr);
 
     SDL_SetRenderDrawColor(renderer, 151, 87, 40, 255);
     for (int row = 0; row < height_; ++row) {

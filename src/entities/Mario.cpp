@@ -195,6 +195,13 @@ void Mario::spawn(float x, float y) {
     velY_ = 0.0f;
     grounded_ = false;
     flagpolePhase_ = FlagpolePhase::None;
+    // Secuencias a medio terminar del lugar de donde viene (por ejemplo,
+    // cambiar de escenario mientras caia muerto): si no se cortan aca,
+    // terminan en el nivel nuevo y cuentan ahi (le restaba una vida).
+    inDeathSequence_ = false;
+    deathFinished_ = false;
+    inDamageSequence_ = false;
+    inGrowSequence_ = false;
 }
 
 void Mario::update(float dt, Input& input, const Tilemap& level) {

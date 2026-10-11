@@ -398,8 +398,13 @@ bool Game::init() {
         return false;
     }
 
+    // Escala para llenar la ventana (manteniendo 16:9, con bandas solo si
+    // la ventana tiene otra proporcion) en vez de solo multiplos enteros:
+    // con escalado entero, una ventana maximizada en 1920 de ancho quedaba
+    // en 426x4 = 1704 con bordes negros grandes. Sigue siendo "nearest"
+    // (SDL_HINT_RENDER_SCALE_QUALITY por defecto), los pixeles no se borronean.
     SDL_RenderSetLogicalSize(renderer_, kLogicalWidth, kLogicalHeight);
-    SDL_RenderSetIntegerScale(renderer_, SDL_TRUE);
+    SDL_RenderSetIntegerScale(renderer_, SDL_FALSE);
 
     if (!mario_.loadSprite(renderer_, "assets/sprites/mario_small.png",
                             "assets/sprites/mario_big.png", "assets/sprites/mario_fire.png")) {
@@ -2379,9 +2384,16 @@ void Game::updateCamera(float dt) {
     const int areaIndex = areaIndexAt(focusX);
     const LevelArea& area = level_.areas()[static_cast<size_t>(areaIndex)];
     const float ts = static_cast<float>(level_.tileSize());
-    const float minCameraX = static_cast<float>(area.startCol) * ts;
-    const float maxCameraX =
-        std::max(minCameraX, static_cast<float>(area.endCol + 1) * ts - static_cast<float>(kLogicalWidth));
+    const float areaLeft = static_cast<float>(area.startCol) * ts;
+    const float areaWidth = static_cast<float>(area.endCol - area.startCol + 1) * ts;
+    // Si el area entra entera en pantalla (los escenarios de prueba de una
+    // sola pantalla de 256px, el cuarto bonus) queda centrada: la camara
+    // arranca antes del area y lo que sobra a los costados lo tapa
+    // renderOutsideAreaMask.
+    const float minCameraX = areaWidth < static_cast<float>(kLogicalWidth)
+        ? areaLeft - (static_cast<float>(kLogicalWidth) - areaWidth) / 2.0f
+        : areaLeft;
+    const float maxCameraX = std::max(minCameraX, areaLeft + areaWidth - static_cast<float>(kLogicalWidth));
     if (areaIndex != currentArea_) {
         // Recien entro (o volvio) a esta area: cambia el tipo de mundo
         // (fondo/paletas) y la camara salta directo, sin barrido.
@@ -2922,7 +2934,7 @@ void Game::render() {
     }
     level_.renderTerrain(renderer_, backgroundColorFor(worldType_), cameraX_);
     renderDecorations();
-    level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, cameraX_);
+    level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, kLogicalWidth, cameraX_);
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
@@ -3039,9 +3051,11 @@ void Game::render() {
 
     if (levelClearTimer_ > 0.0f) {
         // Placeholder hasta tener HUD/paso al nivel siguiente (seccion 6).
-        DebugFont::drawText(renderer_, 72, 100, "NIVEL COMPLETO", 2, SDL_Color{255, 255, 255, 255});
+        DebugFont::drawText(renderer_, (kLogicalWidth - 14 * 8) / 2, 100, "NIVEL COMPLETO", 2,
+                            SDL_Color{255, 255, 255, 255});
     }
 
+    renderOutsideAreaMask();
     renderHud();
 
     // Debajo del HUD.
@@ -3052,6 +3066,10 @@ void Game::render() {
         // Cartel de tipo de mundo (F7 lo cicla), para guiarse mientras se
         // prueban las paletas por WorldType de cada item/enemigo.
         DebugFont::drawText(renderer_, 4, 52, worldTypeName(worldType_), 1, SDL_Color{255, 255, 255, 255});
+        char camText[48];
+        std::snprintf(camText, sizeof(camText), "CAM:%d MX:%d A:%d", static_cast<int>(std::lround(cameraX_)),
+                      static_cast<int>(mario_.x()), currentArea_);
+        DebugFont::drawText(renderer_, 60, 52, camText, 1, SDL_Color{255, 255, 255, 255});
         if (scenario_ == TestScenario::Bowser) {
             // Cartel del modo de ataque (tecla T lo cicla), para saber cual
             // se esta probando sin tener que adivinar mirando el patron.
@@ -3084,7 +3102,9 @@ void Game::renderScenarioSelect() {
 
     const SDL_Color white{255, 255, 255, 255};
     const SDL_Color yellow{252, 216, 88, 255};
-    DebugFont::drawText(renderer_, 84, 24, "TEST", 3, white);
+    // Layout armado para 256px, centrado en la pantalla real.
+    const int ox = (kLogicalWidth - kClassicWidth) / 2;
+    DebugFont::drawText(renderer_, ox + 84, 24, "TEST", 3, white);
 
     // Mismo orden que TestScenario (menuSelection_ es el indice).
     static const char* const kOptions[kMenuOptionCount] = {
@@ -3095,11 +3115,11 @@ void Game::renderScenarioSelect() {
     for (int i = 0; i < kMenuOptionCount; ++i) {
         const int y = 46 + i * 13;
         const bool selected = i == menuSelection_;
-        if (selected) DebugFont::drawText(renderer_, 20, y, ">", 2, white);
-        DebugFont::drawText(renderer_, 32, y, kOptions[i], 2, selected ? white : yellow);
+        if (selected) DebugFont::drawText(renderer_, ox + 20, y, ">", 2, white);
+        DebugFont::drawText(renderer_, ox + 32, y, kOptions[i], 2, selected ? white : yellow);
     }
 
-    DebugFont::drawText(renderer_, 8, 222, "1 2 3 4 5 6 7 8 9 0", 1, white);
+    DebugFont::drawText(renderer_, ox + 8, 222, "1 2 3 4 5 6 7 8 9 0", 1, white);
 }
 
 void Game::moveMenuSelection(int delta) {
@@ -3277,25 +3297,32 @@ void drawHudCoin(SDL_Renderer* renderer, int x, int y) {
 void Game::renderHud() {
     // Mismo layout que el original (grilla de 8px, ver DebugFont a escala 2:
     // 8px por caracter): titulos arriba, valores abajo.
+    // Las cuatro columnas del original (pensadas para 256px) se reparten en
+    // el ancho real con la misma proporcion.
     const SDL_Color white{255, 255, 255, 255};
     constexpr int kTitleY = 8;
     constexpr int kValueY = 20;
+    auto column = [](int classicX) { return classicX * kLogicalWidth / kClassicWidth; };
+    const int marioX = column(24);
+    const int coinX = column(96);
+    const int worldX = column(144);
+    const int timeX = column(200);
 
-    DebugFont::drawText(renderer_, 24, kTitleY, "MARIO", 2, white);
+    DebugFont::drawText(renderer_, marioX, kTitleY, "MARIO", 2, white);
     char text[16];
     std::snprintf(text, sizeof(text), "%06d", std::min(score_, 999999));
-    DebugFont::drawText(renderer_, 24, kValueY, text, 2, white);
+    DebugFont::drawText(renderer_, marioX, kValueY, text, 2, white);
 
-    drawHudCoin(renderer_, 96, kValueY + 1);
+    drawHudCoin(renderer_, coinX, kValueY + 1);
     std::snprintf(text, sizeof(text), "x%02d", coinCount_);
-    DebugFont::drawText(renderer_, 104, kValueY, text, 2, white);
+    DebugFont::drawText(renderer_, coinX + 8, kValueY, text, 2, white);
 
-    DebugFont::drawText(renderer_, 144, kTitleY, "WORLD", 2, white);
-    DebugFont::drawText(renderer_, 152, kValueY, level_.name(), 2, white);
+    DebugFont::drawText(renderer_, worldX, kTitleY, "WORLD", 2, white);
+    DebugFont::drawText(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
 
-    DebugFont::drawText(renderer_, 200, kTitleY, "TIME", 2, white);
+    DebugFont::drawText(renderer_, timeX, kTitleY, "TIME", 2, white);
     std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
-    DebugFont::drawText(renderer_, 208, kValueY, text, 2, white);
+    DebugFont::drawText(renderer_, timeX + 8, kValueY, text, 2, white);
 }
 
 void Game::onAllPlayersDied() {
@@ -3581,4 +3608,23 @@ void Game::renderCharacter(const Mario& character, int riding) {
     const MovingPlatform& platform = platforms_[static_cast<size_t>(riding)];
     const long screenX = std::lround(platform.x() - cameraX_) + std::lround(character.x() - platform.x());
     character.render(renderer_, character.x() - static_cast<float>(screenX));
+}
+
+void Game::renderOutsideAreaMask() {
+    if (currentArea_ < 0) return;
+    const LevelArea& area = level_.areas()[static_cast<size_t>(currentArea_)];
+    const int ts = level_.tileSize();
+    const int camOffset = static_cast<int>(std::lround(cameraX_));
+    const int left = area.startCol * ts - camOffset;
+    const int right = (area.endCol + 1) * ts - camOffset;
+    const SDL_Color color = backgroundColorFor(worldType_);
+    SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, 255);
+    if (left > 0) {
+        const SDL_Rect band{0, 0, left, kLogicalHeight};
+        SDL_RenderFillRect(renderer_, &band);
+    }
+    if (right < kLogicalWidth) {
+        const SDL_Rect band{right, 0, kLogicalWidth - right, kLogicalHeight};
+        SDL_RenderFillRect(renderer_, &band);
+    }
 }
