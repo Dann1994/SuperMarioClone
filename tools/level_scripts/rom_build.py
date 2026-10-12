@@ -74,6 +74,7 @@ class AreaBuild:
         self.decorations = []
         self.platforms = []
         self.pipes = []           # (col, row, kind): 'vertical' o 'side'
+        self.vines = []           # (col, row): ladrillos con enredadera
         self.flag_col = None
         self.render()
         self.place_enemies()
@@ -130,6 +131,8 @@ class AreaBuild:
             for j in range(13):
                 if bits & (1 << j):
                     ch = 'B' if (self.type == UNDERGROUND and j < 11) else '#'
+                    if self.header["cloud"]:
+                        ch = 'N'     # areas de nubes: el piso son bloques de nube
                     self.put(col, j, ch, False)
             still = []
             for o, first in active:
@@ -268,9 +271,11 @@ class AreaBuild:
             self.put(col, r, 'H' if t == GROUND else 'D')
             self.block_item(col, r, "one_up")
         elif L in (0x4, 0x5, 0x6, 0x7, 0x8):
-            item = {4: "powerup", 5: "powerup", 6: "star", 7: "coin", 8: "one_up"}[L]
+            item = {4: "powerup", 5: "vine", 6: "star", 7: "coin", 8: "one_up"}[L]
             self.put(col, r, 'D')
             self.block_item(col, r, item, 10 if L == 7 else None)
+            if L == 0x5:
+                self.vines.append((col, r + ROW_OFFSET))
         elif L == 0x9:                       # boca de tuberia de costado (agua)
             self.l_pipe(col, r - 2 + ROW_OFFSET, 'water')
         elif L == 0xA:
@@ -457,7 +462,7 @@ def build_level(rom, world, level):
         se entra cayendo desde arriba) solo esa pagina."""
         start = page * 16
         shared = len({ch.world for ch in a.changes}) > 1
-        end = start + 16 if shared and a.header["entrance"] in (0, 1) else a.width
+        end = start + 16 if shared and a.header["entrance"] in (0, 1) and not a.header["cloud"] else a.width
         return start, min(end, a.width)
 
     def pipe_change(a, col):
@@ -492,6 +497,16 @@ def build_level(rom, world, level):
                 s0, e0 = crop[dest_key]
                 s1, e1 = crop_for(areas[dest_key], ch.page)
                 crop[dest_key] = (min(s0, s1), max(e0, e1))
+        for col, row in a.vines:
+            if not start <= col < end:
+                continue
+            ch = pipe_change(a, col)
+            if ch is None:
+                continue
+            dest_key = ch.pointer & 0x7f
+            if dest_key not in areas:
+                dest = add(dest_key)
+                crop[dest_key] = (ch.page * 16, dest.width)
         i += 1
     # Disposicion: una al lado de la otra con una columna solida en el medio.
     offsets = {}
@@ -519,14 +534,44 @@ def build_level(rom, world, level):
         if offsets[ptr] + (end - start) < width:
             for r in range(ROWS):
                 grid[r][offsets[ptr] + end - start] = '#'
-        out["areas"].append({"start": offsets[ptr], "end": offsets[ptr] + end - start - 1,
-                             "world": WORLD_NAMES[a.type]})
+        area_out = {"start": offsets[ptr], "end": offsets[ptr] + end - start - 1, "world": WORLD_NAMES[a.type]}
+        # Nubes: caerse por abajo vuelve adonde dice su cambio de area,
+        # cayendo desde arriba de la pantalla.
+        if a.header["cloud"]:
+            area_out["cloud"] = True
+            back = [ch for ch in a.changes if ch.world == world]
+            if back and (back[0].pointer & 0x7f) in crop:
+                bp = back[0].pointer & 0x7f
+                fc = g(bp, back[0].page * 16 + 2)
+                if fc is not None:
+                    area_out["fall_col"] = fc
+                    area_out["fall_row"] = 2
+        out["areas"].append(area_out)
         for col, row, item, hits in a.blocks:
             gc = g(ptr, col)
             if gc is not None:
                 b = {"col": gc, "row": row, "item": item}
                 if hits:
                     b["hits"] = hits
+                if item == "vine":
+                    ch = pipe_change(a, col)
+                    if ch is not None and (ch.pointer & 0x7f) in crop:
+                        dp = ch.pointer & 0x7f
+                        dest = areas[dp]
+                        vc = ch.page * 16 + 2
+                        feet = None
+                        for rr in range(ROW_OFFSET, ROWS):
+                            if any(0 <= c < dest.width and dest.cols[c][rr] not in '.oWw' for c in range(vc, vc + 6)):
+                                feet = rr
+                                break
+                        # La enredadera sube por el hueco del piso (si hay).
+                        if feet is not None:
+                            gaps = [c for c in range(vc, vc + 8) if 0 <= c < dest.width and dest.cols[c][feet] == '.']
+                            if gaps:
+                                vc = gaps[0]
+                        if g(dp, vc) is not None:
+                            b["dest_col"] = g(dp, vc)
+                            b["dest_row"] = feet if feet is not None else 12
                 out["blocks"].append(b)
         for d in a.decorations:
             gc = g(ptr, d["col"])

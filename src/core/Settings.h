@@ -23,7 +23,7 @@ struct Settings {
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);
     // -1 = la de fabrica. Botones del mando para saltar y correr (los dos
     // mandos usan los mismos); -1 = A y X (formato Xbox).
-    std::array<std::array<int, 5>, 2> keys{{{-1, -1, -1, -1, -1}, {-1, -1, -1, -1, -1}}};
+    std::array<std::array<int, 6>, 2> keys{{{-1, -1, -1, -1, -1, -1}, {-1, -1, -1, -1, -1, -1}}};
     int padJumpButton = -1;
     int padRunButton = -1;
 

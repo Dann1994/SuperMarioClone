@@ -14,6 +14,7 @@ const SDL_Scancode kBindingsPlayer1[static_cast<int>(Action::Count)][2] = {
     /* Jump      */ {SDL_SCANCODE_SPACE, SDL_SCANCODE_W},
     /* Run       */ {SDL_SCANCODE_LSHIFT, SDL_SCANCODE_LSHIFT},
     /* Down      */ {SDL_SCANCODE_S, SDL_SCANCODE_S},
+    /* Up        */ {SDL_SCANCODE_W, SDL_SCANCODE_W},
 };
 
 const SDL_Scancode kBindingsPlayer2[static_cast<int>(Action::Count)][2] = {
@@ -22,6 +23,7 @@ const SDL_Scancode kBindingsPlayer2[static_cast<int>(Action::Count)][2] = {
     /* Jump      */ {SDL_SCANCODE_UP, SDL_SCANCODE_UP},
     /* Run       */ {SDL_SCANCODE_RSHIFT, SDL_SCANCODE_RSHIFT},
     /* Down      */ {SDL_SCANCODE_DOWN, SDL_SCANCODE_DOWN},
+    /* Up        */ {SDL_SCANCODE_UP, SDL_SCANCODE_UP},
 };
 
 // Zona muerta del stick izquierdo (rango del eje: -32768..32767). Agacharse
@@ -144,6 +146,8 @@ void Input::readController(ActionState& state) const {
     set(Action::MoveRight, button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || stickX > kStickMoveDeadzone);
     set(Action::Down, button(SDL_CONTROLLER_BUTTON_DPAD_DOWN) ||
                           (stickY > kStickDownDeadzone && std::abs(stickY) > std::abs(stickX)));
+    set(Action::Up, button(SDL_CONTROLLER_BUTTON_DPAD_UP) ||
+                        (stickY < -kStickDownDeadzone && std::abs(stickY) > std::abs(stickX)));
     set(Action::Jump, button(padJumpButton_));
     set(Action::Run, button(padRunButton_));
 }

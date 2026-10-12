@@ -134,6 +134,8 @@ enum class BlockItem {
     // flor si ya es grande (se resuelve al salir, ver
     // Game::spawnItemFromQuestionBlock).
     PowerUp,
+    // Enredadera: crece hacia arriba desde el bloque (ver Game::Vine).
+    Vine,
 };
 
 struct QuestionBlockSpawn {
@@ -149,6 +151,10 @@ struct QuestionBlockSpawn {
     // numero fijo de golpes, mas facil de parametrizar y de probar) pone
     // esto en N con item = Coin.
     int maxHits = 1;
+    // Vine: adonde lleva (en tiles, -1 = a ningun lado) y fila de los pies
+    // al llegar trepando.
+    int destCol = -1;
+    int destRow = -1;
 };
 
 // A que tuberia le corresponde cada entrada valida (Tilemap::isPipeTopTile)
@@ -253,7 +259,7 @@ public:
     // vez de en el selector. Llamar antes de run().
     // startCol >= 0: arranca en esa columna como si fuera un checkpoint
     // ("probar desde aca" del editor).
-    void startWithLevelFile(const std::string& path, int startCol = -1);
+    void startWithLevelFile(const std::string& path, int startCol, int startRow = -1);
     void run();
     void shutdown();
 
@@ -1159,6 +1165,7 @@ private:
     std::string customLevelPath_;
     SDL_Texture* worldTarget_ = nullptr;
     int customStartCol_ = -1;
+    int customStartRow_ = -1;
     // El nivel ya se esta terminando (bandera agarrada o hacha tocada): el
     // timer deja de descontar.
     bool levelEnding_ = false;
@@ -1206,6 +1213,7 @@ private:
         int frame = 0;        // 0 estirado, 1 a medias, 2 comprimido
         float timer = 0.0f;   // compresion en curso (> 0)
         bool boost = false;
+        bool jumpWasDown = false;   // para pedir una apretada nueva, no mantenida
         Mario* rider = nullptr;
     };
     std::vector<Spring> springs_;
@@ -1234,6 +1242,39 @@ private:
         int ropeRow = 3;
     };
     std::vector<Balance> balances_;
+    // Enredaderas (VineObjectHandler): crecen desde el bloque hasta arriba
+    // del nivel; si llevan a otro lado, llegar trepando arriba de la
+    // pantalla cambia de area y se aparece trepando otra desde abajo.
+    struct Vine {
+        float x = 0.0f;         // centro
+        float top = 0.0f;
+        float bottom = 0.0f;
+        float targetTop = 0.0f;
+        int destCol = -1;
+        int destRow = -1;
+        float growSpeed = 60.0f;   // px/s
+        // Hasta donde se puede bajar trepando (la de llegada a otra area: la
+        // altura del piso, no se vuelve a bajar por donde se subio).
+        float climbBottom = 1.0e9f;
+    };
+    std::vector<Vine> vines_;
+    // Entrada trepando a otra area (PlayerEntrance con enredadera): la
+    // enredadera crece desde abajo de la pantalla, despues sube solo hasta
+    // Y 0x98 y camina a la derecha hasta X 0x48; recien ahi vuelve el control.
+    struct VineEntry {
+        enum class Phase { None, Grow, Climb, Walk } phase = Phase::None;
+        int vine = -1;
+        float walkTargetX = 0.0f;
+    };
+    VineEntry vineEntry_;
+    void updateVineEntry();
+    std::vector<SDL_FRect> vineRects_;
+    std::vector<uint8_t> vineFloors_;
+    SpriteSheet vineSprite_;
+    void spawnVine(int col, int row, int destCol, int destRow);
+    void updateVines(float dt);
+    void renderVines();
+    void checkVineWarp(Mario& character);
     SpriteSheet pulleySprite_;
     void updateBalances(float dt);
     void renderBalanceRopes();
@@ -1273,6 +1314,11 @@ private:
     // Titulo: eligiendo personaje para 1 jugador (0 Mario, 1 Luigi).
     bool choosingCharacter_ = false;
     int characterChoice_ = 0;
+    // SELECCIONAR MUNDO: cartel para elegir mundo (arriba/abajo) y nivel
+    // (izquierda/derecha); despues pregunta con quien jugar y arranca ahi.
+    bool choosingLevel_ = false;
+    int startWorld_ = 1;
+    int startLevel_ = 1;
     void setPlayAsLuigi(bool luigi);
 
     // Plataformas moviles del nivel (campo "platforms").

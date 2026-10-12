@@ -38,7 +38,12 @@ bool Settings::load() {
     topScore = json.value("top_score", topScore);
     if (json.contains("keys")) {
         try {
-            keys = json["keys"].get<std::array<std::array<int, 5>, 2>>();
+            // Tolerante con el largo: las versiones viejas guardaban 5
+            // acciones (sin "arriba"); lo que falte queda en -1 (la de fabrica).
+            const auto saved = json["keys"].get<std::vector<std::vector<int>>>();
+            for (size_t p = 0; p < keys.size() && p < saved.size(); ++p) {
+                for (size_t a = 0; a < keys[p].size() && a < saved[p].size(); ++a) keys[p][a] = saved[p][a];
+            }
         } catch (const std::exception&) {
         }
     }

@@ -128,6 +128,20 @@ bool Koopa::applyVerticalPhysics(float dt, const Tilemap& level, int hitboxHeigh
             velY_ = 0.0f;
             landed = true;
         }
+    } else if (velY_ < 0.0f) {
+        // Subiendo (la saltarina, o el caparazon que salta al golpear el
+        // bloque de abajo): el techo la frena. Sin esto se metia de cabeza en
+        // una fila de ladrillos y el chequeo de pared la daba vuelta sin parar.
+        const int col0 = static_cast<int>(std::floor(x_ / ts));
+        const int col1 = static_cast<int>(std::floor((x_ + kHitboxWidth - kEdgeEpsilon) / ts));
+        const int row = static_cast<int>(std::floor(newY / ts));
+        for (int col = col0; col <= col1; ++col) {
+            if (level.isSolidTile(col, row)) {
+                newY = static_cast<float>((row + 1) * ts);
+                velY_ = 0.0f;
+                break;
+            }
+        }
     }
     y_ = newY;
     return landed;

@@ -124,6 +124,12 @@ public:
     // sin pasar por el input del jugador.
     void setVelocityX(float v) { velX_ = v; }
     void setVelocityY(float v) { velY_ = v; }
+    // Trampolin (ChkForLandJumpSpring): sale con la gravedad fuerte
+    // (VerticalForce 0x70) aunque se mantenga saltar, hasta empezar a caer.
+    void launchFromSpring(float velocityY) {
+        velY_ = velocityY;
+        springLaunch_ = true;
+    }
     void nudgeX(float dx) { x_ += dx; }
     void nudgeY(float dy) { y_ += dy; }
     // Para las animaciones que mueven al personaje desde Game (tuberia):
@@ -223,6 +229,30 @@ public:
     // hacia la derecha hasta exitTargetX (la puerta del castillo), donde
     // desaparece. Mientras dure no recibe danio ni muere.
     void startFlagpoleGrab(float poleCenterX, float bottomY, float exitTargetX);
+    // Enredaderas (rectangulos trepables, los arma Game cada cuadro; como
+    // HandleClimbing/ClimbingSub del original): se agarra al tocar la
+    // columna de la enredadera y queda al costado (sprite a 7 px del borde
+    // del tile, del lado de donde vino); arriba/abajo trepa (52,5 / 120
+    // px/s), izquierda/derecha se corre 14 px al otro lado o 4 px hacia
+    // afuera (cada 0x18 cuadros si se mantiene) y se suelta al dejar de
+    // tocarla.
+    // floors: por enredadera, 1 si su base es un piso (no se baja mas, la
+    // de llegada a otra area); 0 si al bajar de la base se suelta.
+    void setVines(const std::vector<SDL_FRect>* vines, const std::vector<uint8_t>* floors) {
+        vines_ = vines;
+        vineFloors_ = floors;
+    }
+    bool isClimbing() const { return climbing_; }
+    int vineIndex() const { return climbing_ ? vineIndex_ : -1; }
+    // Llega colgado de una enredadera (abajo de todo, sin moverse) para la
+    // entrada trepando a otra area.
+    void startVineEntry(int vineIndex, float vineCenterX, float feetY, bool leftSide);
+    // Trepa solo hacia arriba (Vine_AutoClimb) hasta que los pies llegan a
+    // targetFeetY (sin tope: hasta que Game cambie de area).
+    void autoClimbTo(float targetFeetY) { climbAuto_ = true; climbAutoTargetFeet_ = targetFeetY; }
+    bool isAutoClimbing() const { return climbing_ && climbAuto_; }
+    // Se suelta del lado derecho (llegando a un area trepando).
+    void stepOffVineRight();
     void releaseFromFlagpole();
     bool isOnFlagpole() const { return flagpolePhase_ != FlagpolePhase::None; }
     // Todavia agarrado al palo (bajando, esperando abajo o pasandose al
@@ -239,6 +269,10 @@ private:
     enum class FlagpolePhase { None, Slide, Bottom, Flip, Walk, Done };
 
     void updateFlagpole(float dt, const Tilemap& level);
+    bool tryGrabVine(const Input& input);
+    void updateClimb(float dt, Input& input, const Tilemap& level);
+    void releaseVine();
+    void snapToVineSide();
     void updateHorizontal(float dt, const Input& input);
     void updateVertical(float dt, Input& input);
     void moveAndCollide(float dt, const Tilemap& level);
@@ -354,6 +388,7 @@ private:
     MarioSize size_ = MarioSize::Small;
     bool wantsThrow_ = false;
     bool jumpRequested_ = false;
+    bool springLaunch_ = false;
     bool swimStrokeSoundRequested_ = false;
     bool isDucking_ = false;
     bool headBumped_ = false;
@@ -417,6 +452,18 @@ private:
     float flagpoleExitX_ = 0.0f;
     float flagpoleTimer_ = 0.0f;
     int climbFrame_ = 0;
+    const std::vector<SDL_FRect>* vines_ = nullptr;
+    const std::vector<uint8_t>* vineFloors_ = nullptr;
+    bool climbing_ = false;
+    int vineIndex_ = -1;
+    float vineX_ = 0.0f;
+    bool climbAuto_ = false;
+    float climbAutoTargetFeet_ = 0.0f;
+    float climbAnimTimer_ = 0.0f;
+    float vineGrabCooldown_ = 0.0f;
+    float climbSideTimer_ = 0.0f;
+    static constexpr float kClimbUpSpeed = 0.875f * 60.0f;  // px/s (-1 + 0x20/256 por cuadro)
+    static constexpr float kClimbDownSpeed = 2.0f * 60.0f;  // px/s
     // Mismo valor que Flagpole::kLowerSpeed (la bandera baja a la par).
     static constexpr float kFlagpoleSlideSpeed = 120.0f;  // px/s
     static constexpr float kClimbFrameInterval = 0.08f;   // s entre los 2 frames de trepar al bajar

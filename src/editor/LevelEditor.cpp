@@ -162,7 +162,7 @@ bool LevelEditor::init() {
         {"T", "TUBERIA"},        {"=", "PLATAFORMA FIJA"},   {"L", "LAVA"},             {"b", "PUENTE BOWSER"},
         {"X", "SOLIDO INVISIBLE"}, {"t", "COPA DE ARBOL"},  {"r", "TRONCO"},             {"m", "HONGO"},
         {"n", "TALLO DE HONGO"}, {"R", "PUENTE DE SOGA"},    {"K", "CANON BILL BALA"},  {"c", "CORAL"},
-        {"W", "AGUA"},           {"w", "SUPERFICIE (AGUA)"},
+        {"W", "AGUA"},           {"w", "SUPERFICIE (AGUA)"}, {"N", "BLOQUE DE NUBE"},
     };
     for (const auto& entry : tileLabels) {
         tools_.push_back({ToolKind::Tile, Tab::Terrain, entry[0][0], "", "", 1, entry[1]});

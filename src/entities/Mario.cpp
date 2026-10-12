@@ -242,6 +242,9 @@ void Mario::setSize(MarioSize newSize) {
 void Mario::spawn(float x, float y) {
     x_ = x;
     y_ = y;
+    climbing_ = false;
+    climbAuto_ = false;
+    vineIndex_ = -1;
     velX_ = 0.0f;
     velY_ = 0.0f;
     grounded_ = false;
@@ -270,17 +273,23 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
         return;
     }
 
-    updateHorizontal(dt, input);
-    updateVertical(dt, input);
-    moveAndCollide(dt, level);
+    vineGrabCooldown_ = std::max(0.0f, vineGrabCooldown_ - dt);
+    if (!climbing_) tryGrabVine(input);
+    if (climbing_) {
+        updateClimb(dt, input, level);
+    } else {
+        updateHorizontal(dt, input);
+        updateVertical(dt, input);
+        moveAndCollide(dt, level);
 
-    // El boton de correr tambien tira fuego (tocado, no mantenido) cuando
-    // se es Mario/Luigi fuego, igual que en el juego original.
-    if (size_ == MarioSize::Fire && input.consumePress(Action::Run)) {
-        wantsThrow_ = true;
+        // El boton de correr tambien tira fuego (tocado, no mantenido) cuando
+        // se es Mario/Luigi fuego, igual que en el juego original.
+        if (size_ == MarioSize::Fire && input.consumePress(Action::Run)) {
+            wantsThrow_ = true;
+        }
+
+        updateAnimation(dt, input);
     }
-
-    updateAnimation(dt, input);
 
     if (invincible_) {
         invincibleTimer_ -= dt;
@@ -412,7 +421,10 @@ void Mario::updateVertical(float dt, Input& input) {
     const bool ascending = velY_ < 0.0f;
     const float gravityAscend = fastArc ? kGravityAscendRun : kGravityAscend;
     const float gravityDescend = fastArc ? kGravityDescendRun : kGravityDescend;
-    const float gravity = (ascending && jumpHeld) ? gravityAscend : gravityDescend;
+    if (!ascending || grounded_) springLaunch_ = false;
+    // 0x70 por cuadro^2 = 1575 px/s^2 (kGravityDescend), corra o no.
+    const float gravity = springLaunch_ ? kGravityDescend
+                          : (ascending && jumpHeld) ? gravityAscend : gravityDescend;
     velY_ = std::min(velY_ + gravity * dt, kMaxFallSpeed);
 }
 
@@ -759,6 +771,161 @@ void Mario::releaseFromFlagpole() {
     facingRight_ = false;
     const int spriteMargin = (kSpriteFrameWidth - currentWidth()) / 2;
     x_ = flagpolePoleX_ - 1.0f + static_cast<float>(spriteMargin);
+}
+
+bool Mario::tryGrabVine(const Input& input) {
+    (void)input;
+    if (vines_ == nullptr || vineGrabCooldown_ > 0.0f || inDamageSequence_) return false;
+    const float w = static_cast<float>(currentWidth());
+    const float h = static_cast<float>(currentHeight());
+    for (size_t i = 0; i < vines_->size(); ++i) {
+        const SDL_FRect& vine = (*vines_)[i];
+        if (vine.h <= 0.0f) continue;
+        const float vineCenter = vine.x + vine.w / 2.0f;
+        const float tileX = vineCenter - 8.0f;
+        // Tocando la columna (el tile de 16 px) de costado o desde adentro.
+        if (x_ >= tileX + 16.0f || x_ + w <= tileX) continue;
+        if (y_ + h <= vine.y || y_ >= vine.y + vine.h) continue;
+        climbing_ = true;
+        climbAuto_ = false;
+        climbSideTimer_ = 0.0f;
+        vineIndex_ = static_cast<int>(i);
+        vineX_ = vineCenter;
+        velX_ = 0.0f;
+        velY_ = 0.0f;
+        grounded_ = false;
+        // Del lado de donde vino, mirando a la enredadera.
+        facingRight_ = x_ + w / 2.0f < vineCenter;
+        snapToVineSide();
+        animState_ = MarioAnim::Climb;
+        return true;
+    }
+    return false;
+}
+
+void Mario::snapToVineSide() {
+    // Player_X = columna*16 -7 (mirando a la derecha) o +7 (a la
+    // izquierda); el sprite de 16 se dibuja centrado en el hitbox.
+    const float tileX = vineX_ - 8.0f;
+    const float spriteOffset = (static_cast<float>(kSpriteFrameWidth) - static_cast<float>(currentWidth())) / 2.0f;
+    x_ = (facingRight_ ? tileX - 7.0f : tileX + 7.0f) + spriteOffset;
+}
+
+void Mario::startVineEntry(int vineIndex, float vineCenterX, float feetY, bool leftSide) {
+    climbing_ = true;
+    climbAuto_ = false;
+    climbSideTimer_ = 0.0f;
+    vineIndex_ = vineIndex;
+    vineX_ = vineCenterX;
+    velX_ = 0.0f;
+    velY_ = 0.0f;
+    grounded_ = false;
+    facingRight_ = leftSide;
+    snapToVineSide();
+    y_ = feetY - static_cast<float>(currentHeight());
+    animState_ = MarioAnim::Climb;
+}
+
+void Mario::stepOffVineRight() {
+    if (!climbing_) return;
+    x_ = vineX_ + 8.0f;
+    facingRight_ = true;
+    releaseVine();
+}
+
+void Mario::releaseVine() {
+    climbing_ = false;
+    climbAuto_ = false;
+    vineIndex_ = -1;
+    vineGrabCooldown_ = 0.3f;
+    velY_ = 0.0f;
+    animState_ = MarioAnim::Jump;
+}
+
+void Mario::updateClimb(float dt, Input& input, const Tilemap& level) {
+    // (Puede medir 0 todavia: la de llegada a otra area crece con el
+    // personaje esperando colgado abajo.)
+    if (vines_ == nullptr || vineIndex_ < 0 || vineIndex_ >= static_cast<int>(vines_->size())) {
+        releaseVine();
+        return;
+    }
+    const SDL_FRect& vine = (*vines_)[static_cast<size_t>(vineIndex_)];
+    const float w = static_cast<float>(currentWidth());
+    const float h = static_cast<float>(currentHeight());
+    animState_ = MarioAnim::Climb;
+
+    float speed = 0.0f;
+    if (climbAuto_ || input.down(Action::Up)) {
+        speed = -kClimbUpSpeed;
+    } else if (input.down(Action::Down)) {
+        speed = kClimbDownSpeed;
+    }
+    y_ += speed * dt;
+    if (speed < 0.0f && y_ < vine.y) y_ = vine.y;   // las manos no pasan la punta
+    const float feet = y_ + h;
+    if (climbAuto_ && feet <= climbAutoTargetFeet_) climbAuto_ = false;
+    // Bajando: al tocar el piso se suelta parado; pasada la base, se cae.
+    if (speed > 0.0f) {
+        const int ts = level.tileSize();
+        const int col = static_cast<int>(std::floor((x_ + w / 2.0f) / static_cast<float>(ts)));
+        const int row = static_cast<int>(std::floor(feet / static_cast<float>(ts)));
+        if (level.isSolidTile(col, row)) {
+            y_ = static_cast<float>(row * ts) - h;
+            releaseVine();
+            grounded_ = true;
+            animState_ = MarioAnim::Idle;
+            return;
+        }
+    }
+    // Pasada la base se suelta; en la de llegada a otra area la base es la
+    // altura del piso y ahi se frena (no se vuelve a bajar).
+    const bool floorBase = vineFloors_ != nullptr && static_cast<size_t>(vineIndex_) < vineFloors_->size() &&
+                           (*vineFloors_)[static_cast<size_t>(vineIndex_)] != 0;
+    if (speed > 0.0f && feet > vine.y + vine.h) {
+        if (floorBase) {
+            y_ = vine.y + vine.h - h;
+        } else if (feet > vine.y + vine.h + 8.0f) {
+            releaseVine();
+            return;
+        }
+    }
+    // Costados: hacia la enredadera pasa al otro lado (14 px, ClimbingSub)
+    // y se da vuelta; hacia afuera no hace nada. Solo se suelta con una
+    // direccion + salto: salta hacia ese lado (pedido del usuario).
+    const bool left = input.down(Action::MoveLeft);
+    const bool right = input.down(Action::MoveRight);
+    if (!climbAuto_ && (left != right)) {
+        if (input.consumePress(Action::Jump)) {
+            facingRight_ = right;
+            x_ = right ? vineX_ + 8.0f : vineX_ - 8.0f - w;
+            releaseVine();
+            velX_ = right ? kMaxWalkSpeed : -kMaxWalkSpeed;
+            velY_ = -kJumpImpulse;
+            jumpRequested_ = true;   // suena el salto
+            return;
+        }
+        const bool towardVine = right == facingRight_;
+        if (towardVine && climbSideTimer_ <= 0.0f) {
+            climbSideTimer_ = 24.0f / 60.0f;
+            facingRight_ = !facingRight_;
+            snapToVineSide();
+        } else if (climbSideTimer_ > 0.0f) {
+            climbSideTimer_ -= dt;
+        }
+    } else {
+        climbSideTimer_ = 0.0f;
+        // Salto sin direccion: se descarta (no se suelta).
+        if (!climbAuto_) input.consumePress(Action::Jump);
+    }
+    if (speed != 0.0f) {
+        // 8 cuadros por paso subiendo, 4 bajando (PlayerAnimTimerSet).
+        climbAnimTimer_ += dt;
+        const float interval = (speed < 0.0f ? 8.0f : 4.0f) / 60.0f;
+        if (climbAnimTimer_ >= interval) {
+            climbAnimTimer_ = 0.0f;
+            climbFrame_ = 1 - climbFrame_;
+        }
+    }
 }
 
 void Mario::updateFlagpole(float dt, const Tilemap& level) {

@@ -10,6 +10,7 @@ enum class Action {
     Jump,
     Run,
     Down,
+    Up,      // trepar (enredaderas)
     Count
 };
 

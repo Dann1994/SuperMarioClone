@@ -393,6 +393,7 @@ bool Game::init() {
         audio_.load(Sfx::Death, sfxDir + "death.wav");
         audio_.load(Sfx::OneUp, sfxDir + "1up.wav");
         audio_.load(Sfx::BowserFall, sfxDir + "bowserfall.wav");
+        audio_.load(Sfx::Vine, sfxDir + "vine.wav");
         audio_.load(Sfx::Fireball, sfxDir + "fireball.wav");
         audio_.load(Sfx::BowserFire, sfxDir + "fire.wav");
         audio_.load(Sfx::BillFirework, sfxDir + "billfirework.wav");
@@ -581,6 +582,7 @@ bool Game::init() {
     if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
     if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
     if (!pulleySprite_.loadFromFile(renderer_, "assets/sprites/pulley.png", 16, 16)) return false;
+    if (!vineSprite_.loadFromFile(renderer_, "assets/sprites/vine.png", 16, 16)) return false;
     if (!sceneryTilesSprite_.loadFromFile(renderer_, "assets/sprites/scenery_tiles.png", 16, 16)) return false;
     if (!springSprite_.loadFromFile(renderer_, "assets/sprites/spring.png", 16, 24)) return false;
     if (!titleLogoSprite_.loadFromFile(renderer_, "assets/sprites/title_logo.png", 176, 88)) return false;
@@ -2395,6 +2397,11 @@ void Game::checkQuestionBlockHit(Mario& character) {
 void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool hitterBig) {
     BlockItem item = findBlockSpawn(col, row).item;
     if (item == BlockItem::PowerUp) item = hitterBig ? BlockItem::FireFlower : BlockItem::Mushroom;
+    if (item == BlockItem::Vine) {
+        const QuestionBlockSpawn& spawn = findBlockSpawn(col, row);
+        spawnVine(col, row, spawn.destCol, spawn.destRow);
+        return;
+    }
 
     const int ts = level_.tileSize();
     const float blockX = static_cast<float>(col * ts);
@@ -2445,6 +2452,7 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool h
             break;
         case BlockItem::Coin:
         case BlockItem::PowerUp:
+        case BlockItem::Vine:
             break;  // ya se resolvieron arriba, no llegan aca
     }
 }
@@ -2523,6 +2531,10 @@ void Game::placeCharactersAtStart() {
         mario_.spawn(static_cast<float>(marioPoint.x), static_cast<float>(marioPoint.y));
         const SDL_Point luigiPoint = findRespawnPoint(x - 1.5f * ts, luigi_.height());
         luigi_.spawn(static_cast<float>(luigiPoint.x), static_cast<float>(luigiPoint.y));
+        // --start-row (pruebas): los pies sobre esa fila, en esa columna.
+        if (customStartRow_ >= 0 && checkpointCol_ == customStartCol_) {
+            mario_.spawn(x - mario_.width() / 2.0f, static_cast<float>(customStartRow_) * ts - mario_.height());
+        }
     }
     // Puede quedar lejos de la camara actual: si se acercara de a poco,
     // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
@@ -2556,6 +2568,17 @@ void Game::updateCamera(float dt) {
     };
     const bool marioActive = followable(mario_);
     const bool luigiActive = twoPlayerMode_ && followable(luigi_);
+    // ScrollLock del original: el que cayo por debajo de la pantalla (en las
+    // nubes sigue cayendo un rato antes de volver al nivel) ya no mueve la
+    // camara.
+    const float levelBottom = static_cast<float>(level_.heightPixels());
+    auto belowScreen = [levelBottom](const Mario& character) {
+        return character.y() > levelBottom && !character.isClimbing();
+    };
+    if (!cameraSnapPending_ && (marioActive || luigiActive) && (!marioActive || belowScreen(mario_)) &&
+        (!luigiActive || belowScreen(luigi_))) {
+        return;
+    }
     float focusX = mario_.x();
     if (marioActive && luigiActive) {
         focusX = (mario_.x() + luigi_.x()) / 2.0f;
@@ -2718,6 +2741,8 @@ void Game::update(float dt) {
     updateLevelTimer(dt);
     updateBalances(dt);
     updatePlatforms(dt);
+    updateVines(dt);
+    updateVineEntry();
 
     // Guardados de antes de mover: para saber si un enemigo lo pisa "de
     // arriba" hace falta ver si los pies YA estaban por encima antes de
@@ -2767,6 +2792,8 @@ void Game::update(float dt) {
     updateSprings(dt);
     updatePlatformRiders(mario_, marioPlatform_);
     if (twoPlayerMode_) updatePlatformRiders(luigi_, luigiPlatform_);
+    checkVineWarp(mario_);
+    if (twoPlayerMode_) checkVineWarp(luigi_);
     checkPitDeath(mario_);
     if (twoPlayerMode_) checkPitDeath(luigi_);
     checkLavaDeath(mario_);
@@ -3289,6 +3316,7 @@ void Game::render() {
     for (const Podoboo& podoboo : podoboos_) podoboo.render(renderer_, podobooSprite_, cameraX_);
     renderFirebars();
     renderSprings();
+    renderVines();
     // El hacha primero, Bowser encima -- si llegaran a superponerse (no
     // deberia pasar con las posiciones de prueba) que se vea el jefe, no el
     // objeto quieto de fondo.
@@ -3667,7 +3695,23 @@ void Game::updateCheckpoints() {
 
 void Game::checkPitDeath(Mario& character) {
     if (character.isInDeathSequence()) return;
+    // Colgado de una enredadera (esperando abajo de la pantalla para subir
+    // a otra area) no es caerse a un pozo.
+    if (character.isClimbing()) return;
     if (character.y() <= static_cast<float>(level_.heightPixels())) return;
+    // Areas de nubes (monedas en el cielo): caerse por abajo vuelve al nivel
+    // de donde se subio, cayendo desde arriba (como el original).
+    const int ts = level_.tileSize();
+    const int col = static_cast<int>(std::floor((character.x() + character.width() / 2.0f) / static_cast<float>(ts)));
+    for (const LevelArea& area : level_.areas()) {
+        if (area.fallCol < 0 || col < area.startCol || col > area.endCol) continue;
+        // El original cambia de area recien con Player_Y_HighPos 4: sigue
+        // cayendo dos pantallas mas abajo del borde (esa es la espera).
+        if (character.y() < static_cast<float>(level_.heightPixels()) + 512.0f) return;
+        PipeWarp warp{0, 0, static_cast<float>(area.fallCol * ts), static_cast<float>(area.fallRow * ts)};
+        performWarp(character, warp);
+        return;
+    }
     if (character.killInstantly(false)) audio_.play(Sfx::Death);
 }
 
@@ -3734,6 +3778,7 @@ BlockItem parseBlockItem(const std::string& name) {
     if (name == "fire_flower") return BlockItem::FireFlower;
     if (name == "star") return BlockItem::Star;
     if (name == "one_up") return BlockItem::OneUp;
+    if (name == "vine") return BlockItem::Vine;
     if (name != "coin") SDL_Log("Item de bloque desconocido '%s', se usa moneda", name.c_str());
     return BlockItem::Coin;
 }
@@ -3743,7 +3788,10 @@ BlockItem parseBlockItem(const std::string& name) {
 void Game::loadLevelData() {
     blockSpawns_.clear();
     for (const LevelBlock& block : level_.blocks()) {
-        blockSpawns_.push_back(QuestionBlockSpawn{block.col, block.row, parseBlockItem(block.item), block.hits});
+        QuestionBlockSpawn spawn{block.col, block.row, parseBlockItem(block.item), block.hits};
+        spawn.destCol = block.destCol;
+        spawn.destRow = block.destRow;
+        blockSpawns_.push_back(spawn);
     }
     const float ts = static_cast<float>(level_.tileSize());
     pipeWarps_.clear();
@@ -3762,6 +3810,9 @@ void Game::loadLevelData() {
     firebars_.clear();
     springs_.clear();
     frenzies_.clear();
+    vines_.clear();
+    vineRects_.clear();
+    vineEntry_ = VineEntry{};
     loopChecks_.clear();
     loopPassCount_ = 0;
     loopCorrectCount_ = 0;
@@ -3787,6 +3838,15 @@ void Game::loadLevelData() {
             frenzy.startX = static_cast<float>(entity.col) * ts;
             frenzy.endX = static_cast<float>(entity.endCol >= 0 ? entity.endCol : level_.widthTiles()) * ts;
             frenzies_.push_back(frenzy);
+        } else if (entity.type == "vine") {
+            Vine vine;
+            vine.x = static_cast<float>(entity.col) * ts + ts / 2.0f;
+            vine.bottom = static_cast<float>(entity.row + 1) * ts;
+            vine.top = -2.0f * ts;
+            vine.targetTop = vine.top;
+            vine.destCol = entity.destCol;
+            vine.destRow = entity.destRow;
+            vines_.push_back(vine);
         } else if (entity.type == "loop") {
             LoopCheck check;
             check.triggerX = static_cast<float>(entity.col) * ts;
@@ -3880,7 +3940,7 @@ void Game::spawnLevelEntities() {
             spawned = spawnInPool(bulletBills_, [&](BulletBill& bill) {
                 bill.spawn(x, static_cast<float>(entity.row) * ts, false);
             });
-        } else if (entity.type == "firebar" || entity.type == "cheep_jump" || entity.type == "spring" ||
+        } else if (entity.type == "firebar" || entity.type == "cheep_jump" || entity.type == "spring" || entity.type == "vine" ||
                    entity.type == "bullet_frenzy" || entity.type == "cheep_frenzy" || entity.type == "flame_frenzy") {
             spawned = true;  // ya armados en loadLevelData
         } else {
@@ -3938,13 +3998,17 @@ void Game::updateSprings(float dt) {
             spring.timer += dt;
             const int step = std::min(3, static_cast<int>(spring.timer / (4.0f / 60.0f)));
             spring.frame = kFrames[step];
+            // El impulso grande pide apretar saltar DURANTE la compresion
+            // (A recien apretado, no mantenido desde antes).
             const Input& input = &rider == &luigi_ ? input2_ : input1_;
-            if (step >= 1 && input.down(Action::Jump)) spring.boost = true;
+            const bool jumpDown = input.down(Action::Jump);
+            if (step >= 1 && jumpDown && !spring.jumpWasDown) spring.boost = true;
+            spring.jumpWasDown = jumpDown;
             // Pegado arriba del trampolin mientras se comprime.
             rider.nudgeY(spring.bottom - kHeights[spring.frame] - (rider.y() + static_cast<float>(rider.height())));
             rider.setVelocityY(0.0f);
             if (spring.timer >= 16.0f / 60.0f) {
-                rider.setVelocityY(spring.boost ? -720.0f : -420.0f);
+                rider.launchFromSpring(spring.boost ? -720.0f : -420.0f);
                 spring.rider = nullptr;
                 spring.frame = 0;
             }
@@ -3961,6 +4025,7 @@ void Game::updateSprings(float dt) {
                 spring.rider = character;
                 spring.timer = 0.0f;
                 spring.boost = false;
+                spring.jumpWasDown = (character == &luigi_ ? input2_ : input1_).down(Action::Jump);
                 break;
             }
         }
@@ -4392,6 +4457,137 @@ void Game::renderBalanceRopes() {
     }
 }
 
+void Game::spawnVine(int col, int row, int destCol, int destRow) {
+    const float ts = static_cast<float>(level_.tileSize());
+    Vine vine;
+    vine.x = static_cast<float>(col) * ts + ts / 2.0f;
+    vine.bottom = static_cast<float>(row) * ts;
+    vine.top = vine.bottom;
+    vine.targetTop = -2.0f * ts;   // pasa el borde de arriba del nivel
+    vine.destCol = destCol;
+    vine.destRow = destRow;
+    vines_.push_back(vine);
+    audio_.play(Sfx::Vine);
+}
+
+void Game::updateVines(float dt) {
+    // Crece de a un pixel cada dos cuadros en el original; aca un poco mas
+    // rapido para que no se haga eterna la espera hasta arriba.
+    vineRects_.resize(vines_.size());
+    vineFloors_.resize(vines_.size());
+    for (size_t i = 0; i < vines_.size(); ++i) {
+        Vine& vine = vines_[i];
+        if (vine.top > vine.targetTop) vine.top = std::max(vine.targetTop, vine.top - vine.growSpeed * dt);
+        const float bottom = std::min(vine.bottom, vine.climbBottom);
+        vineRects_[i] = SDL_FRect{vine.x - 4.0f, vine.top, 8.0f, std::max(0.0f, bottom - vine.top)};
+        vineFloors_[i] = vine.climbBottom < vine.bottom ? 1 : 0;
+    }
+    mario_.setVines(&vineRects_, &vineFloors_);
+    luigi_.setVines(&vineRects_, &vineFloors_);
+}
+
+void Game::checkVineWarp(Mario& character) {
+    const int index = character.vineIndex();
+    if (index < 0 || index >= static_cast<int>(vines_.size())) return;
+    const Vine source = vines_[static_cast<size_t>(index)];
+    if (source.destCol < 0) return;
+    // Unidades: la Y del original es la del tope de una caja de 32 px y su
+    // fila 0 esta 16 px mas abajo que la nuestra, asi que nuestra Y del
+    // hitbox = Y original + 32 - alto (pies = Y + 48).
+    const float feet = character.y() + static_cast<float>(character.height());
+    // Arriba de Y 0x20 sigue trepando solo (Vine_AutoClimb)...
+    if (feet < 0x20 + 48.0f && !character.isAutoClimbing()) character.autoClimbTo(-1.0e9f);
+    // ...y cuando sale por arriba de la pantalla (Y < -28), cambia de area.
+    if (feet >= -28.0f + 48.0f) return;
+    const float ts = static_cast<float>(level_.tileSize());
+    const float levelBottom = static_cast<float>(level_.heightPixels());
+    Vine entry;
+    entry.x = static_cast<float>(source.destCol) * ts + ts / 2.0f;
+    entry.bottom = levelBottom + 6.0f * ts;
+    entry.top = levelBottom + ts;
+    entry.targetTop = entry.top - 0x60 - ts;      // VineHeight 0x60
+    entry.growSpeed = 30.0f;                      // 1 px cada 2 cuadros
+    entry.climbBottom = static_cast<float>(source.destRow) * ts;
+    vines_.push_back(entry);
+    updateVines(0.0f);
+    vineEntry_.phase = VineEntry::Phase::Grow;
+    vineEntry_.vine = static_cast<int>(vines_.size()) - 1;
+    // Camina hasta X 0x48 de la pantalla (= del principio del area).
+    int areaStart = source.destCol;
+    for (const LevelArea& area : level_.areas()) {
+        if (source.destCol >= area.startCol && source.destCol <= area.endCol) areaStart = area.startCol;
+    }
+    vineEntry_.walkTargetX = static_cast<float>(areaStart) * ts + 0x48;
+    // Esperan colgados abajo de todo, del todo fuera de la pantalla (el
+    // sprite es mas alto que el hitbox: con los pies justo en el borde se
+    // asomaba la cabeza); se ven recien cuando empiezan a subir.
+    constexpr float kHiddenBelow = 40.0f;
+    character.startVineEntry(vineEntry_.vine, entry.x, levelBottom + kHiddenBelow + 32.0f, true);
+    Mario& partner = &character == &mario_ ? luigi_ : mario_;
+    if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+        partner.startVineEntry(vineEntry_.vine, entry.x, levelBottom + kHiddenBelow + 56.0f, false);
+    }
+    input1_.setScripted(true);
+    input2_.setScripted(true);
+    audio_.play(Sfx::Vine);
+    cameraSnapPending_ = true;
+}
+
+void Game::updateVineEntry() {
+    if (vineEntry_.phase == VineEntry::Phase::None) return;
+    if (vineEntry_.vine < 0 || vineEntry_.vine >= static_cast<int>(vines_.size())) {
+        vineEntry_.phase = VineEntry::Phase::None;
+        input1_.setScripted(false);
+        input2_.setScripted(false);
+        return;
+    }
+    const Vine& vine = vines_[static_cast<size_t>(vineEntry_.vine)];
+    std::vector<Mario*> players{&mario_};
+    if (twoPlayerMode_) players.push_back(&luigi_);
+    switch (vineEntry_.phase) {
+        case VineEntry::Phase::Grow:
+            if (vine.top > vine.targetTop) return;
+            // Crecio: suben solos hasta Y 0x98 (pies en 0x98 + 48).
+            for (Mario* player : players) player->autoClimbTo(0x98 + 48.0f);
+            vineEntry_.phase = VineEntry::Phase::Climb;
+            return;
+        case VineEntry::Phase::Climb: {
+            for (Mario* player : players) {
+                if (player->isAutoClimbing()) return;
+            }
+            for (Mario* player : players) player->stepOffVineRight();
+            input1_.setScripted(true, {Action::MoveRight});
+            input2_.setScripted(true, {Action::MoveRight});
+            vineEntry_.phase = VineEntry::Phase::Walk;
+            return;
+        }
+        case VineEntry::Phase::Walk:
+            if (mario_.x() < vineEntry_.walkTargetX && !mario_.isInDeathSequence()) return;
+            input1_.setScripted(false);
+            input2_.setScripted(false);
+            vineEntry_.phase = VineEntry::Phase::None;
+            return;
+        case VineEntry::Phase::None:
+            return;
+    }
+}
+
+void Game::renderVines() {
+    const int cam = static_cast<int>(std::lround(cameraX_));
+    for (const Vine& vine : vines_) {
+        const int x = static_cast<int>(std::lround(vine.x)) - 8 - cam;
+        if (x + 16 < 0 || x > gLogicalWidth) continue;
+        const int top = static_cast<int>(std::lround(vine.top));
+        const int bottom = static_cast<int>(std::lround(vine.bottom));
+        if (bottom - top <= 0) continue;
+        // Punta con el brote arriba, tallo repetido hasta la base.
+        vineSprite_.drawSlice(renderer_, 0, 0, 0, std::min(16, bottom - top), x, top, false);
+        for (int y = top + 16; y < bottom; y += 16) {
+            vineSprite_.drawSlice(renderer_, 0, 1, 0, std::min(16, bottom - y), x, y, false);
+        }
+    }
+}
+
 void Game::updatePlatformRiders(Mario& character, int& riding) {
     riding = character.isInDeathSequence() ? -1 : character.platformIndex();
     if (riding >= 0) platforms_[static_cast<size_t>(riding)].onStoodOn();
@@ -4444,9 +4640,10 @@ void Game::toggleFullscreen() {
     }
 }
 
-void Game::startWithLevelFile(const std::string& path, int startCol) {
+void Game::startWithLevelFile(const std::string& path, int startCol, int startRow) {
     customLevelPath_ = path;
     customStartCol_ = startCol;
+    customStartRow_ = startRow;
     startScenario(TestScenario::CustomLevel);
 }
 

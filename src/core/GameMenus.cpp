@@ -29,7 +29,7 @@ enum SettingsItem { kSetDisplay, kSetWindowSize, kSetAspect, kSetFps, kSetMaster
                     kSetLanguage, kSetVibration, kSetControls, kSetBack, kSetCount };
 // Filas del menu de controles: 5 acciones x 2 jugadores, 2 botones del
 // mando, restaurar, volver.
-constexpr int kActionCount = 5;
+constexpr int kActionCount = 6;
 constexpr int kCtrlPadJump = kActionCount * 2;
 constexpr int kCtrlPadRun = kCtrlPadJump + 1;
 constexpr int kCtrlReset = kCtrlPadRun + 1;
@@ -47,7 +47,7 @@ std::string upper(std::string text) {
 }
 
 Txt actionName(int action) {
-    static const Txt kNames[kActionCount] = {Txt::Left, Txt::Right, Txt::Jump, Txt::Run, Txt::Down};
+    static const Txt kNames[kActionCount] = {Txt::Left, Txt::Right, Txt::Jump, Txt::Run, Txt::Down, Txt::ClimbUp};
     return kNames[action];
 }
 
@@ -74,6 +74,7 @@ void Game::saveTopScore() {
 void Game::openTitle() {
     saveTopScore();
     choosingCharacter_ = false;
+    choosingLevel_ = false;
     audio_.stopMusic();
     cutscene_ = false;
     pipeTransitionTimer_ = 0.0f;
@@ -215,17 +216,40 @@ int stepSelection(int current, int delta, int count, const std::vector<bool>& di
 }
 
 std::vector<bool> titleDisabled() {
-    // Continuar y seleccionar mundo necesitan el guardado por mundo (seccion
+    // Continuar necesita el guardado por mundo (seccion
     // 6), que todavia no existe.
     std::vector<bool> disabled(kTitleCount, false);
     disabled[kTitleContinue] = true;
-    disabled[kTitleWorldSelect] = true;
     return disabled;
 }
 
 }  // namespace
 
 void Game::handleTitleInput(MenuInput input) {
+    if (choosingLevel_) {
+        // Arriba/abajo cambia de mundo, izquierda/derecha de nivel (pasa al
+        // mundo de al lado al dar la vuelta).
+        int index = (startWorld_ - 1) * 4 + (startLevel_ - 1);
+        if (input == MenuInput::Up) index -= 4;
+        if (input == MenuInput::Down) index += 4;
+        if (input == MenuInput::Left) index -= 1;
+        if (input == MenuInput::Right) index += 1;
+        if (input == MenuInput::Up || input == MenuInput::Down || input == MenuInput::Left ||
+            input == MenuInput::Right) {
+            index = (index % 32 + 32) % 32;
+            startWorld_ = index / 4 + 1;
+            startLevel_ = index % 4 + 1;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm) {
+            choosingLevel_ = false;
+            choosingCharacter_ = true;
+            characterChoice_ = playAsLuigi_ ? 1 : 0;
+            audio_.play(Sfx::Coin);
+        } else if (input == MenuInput::Back) {
+            choosingLevel_ = false;
+        }
+        return;
+    }
     if (choosingCharacter_) {
         // 1 jugador: elegir Mario o Luigi.
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
@@ -259,10 +283,17 @@ void Game::handleTitleInput(MenuInput input) {
     audio_.play(Sfx::Coin);
     switch (titleSelection_) {
         case kTitleOnePlayer:
+            startWorld_ = 1;
+            startLevel_ = 1;
             choosingCharacter_ = true;
             characterChoice_ = playAsLuigi_ ? 1 : 0;
             break;
-        case kTitleTwoPlayers: startCampaign(true); break;
+        case kTitleTwoPlayers:
+            startWorld_ = 1;
+            startLevel_ = 1;
+            startCampaign(true);
+            break;
+        case kTitleWorldSelect: choosingLevel_ = true; break;
         case kTitleOptions: openSettings(AppState::Title); break;
         case kTitleTestMode: openScenarioSelect(); break;
         case kTitleCredits: appState_ = AppState::Credits; break;
@@ -466,8 +497,8 @@ void Game::setPlayAsLuigi(bool luigi) {
 void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
-    campaignWorld_ = 1;
-    campaignLevel_ = 1;
+    campaignWorld_ = startWorld_;
+    campaignLevel_ = startLevel_;
     customLevelPath_ = campaignLevelPath(campaignWorld_, campaignLevel_);
     customStartCol_ = -1;
     startScenario(TestScenario::CustomLevel);
@@ -578,6 +609,19 @@ void Game::renderTitle() {
     } else {
         introMarioSprite_.draw(renderer_, 0, 0, heroX, heroY, false);
         if (titleSelection_ == kTitleTwoPlayers) introLuigiSprite_.draw(renderer_, 0, 0, heroX + 20, heroY, false);
+    }
+
+    if (choosingLevel_) {
+        const int boxW = 168;
+        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 132, boxW, 60};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 230);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(140, tr(Txt::ChooseLevel), 2, kMenuWhite);
+        char label[16];
+        std::snprintf(label, sizeof(label), "< %d-%d >", startWorld_, startLevel_);
+        drawCentered(162, label, 2, kMenuWhite);
     }
 
     if (choosingCharacter_) {

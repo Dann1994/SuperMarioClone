@@ -75,6 +75,8 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
 
     {"CON QUIEN JUGAS?", "CHOOSE PLAYER"},
     {"GRACIAS LUIGI!", "THANK YOU LUIGI!"},
+    {"ELEGI EL NIVEL", "SELECT LEVEL"},
+    {"ARRIBA", "UP"},
 }};
 
 }  // namespace

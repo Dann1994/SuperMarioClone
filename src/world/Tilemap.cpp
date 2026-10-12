@@ -49,6 +49,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         block.row = entry.at("row").get<int>();
         block.item = entry.value("item", std::string("coin"));
         block.hits = entry.value("hits", 1);
+        block.destCol = entry.value("dest_col", -1);
+        block.destRow = entry.value("dest_row", -1);
         blocks_.push_back(block);
     }
     warps_.clear();
@@ -68,6 +70,9 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         area.startCol = entry.at("start").get<int>();
         area.endCol = entry.at("end").get<int>();
         area.world = entry.value("world", std::string());
+        area.fallCol = entry.value("fall_col", -1);
+        area.fallRow = entry.value("fall_row", 2);
+        area.cloud = entry.value("cloud", false);
         areas_.push_back(area);
     }
     decorations_.clear();
@@ -107,6 +112,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         entity.endCol = entry.value("end_col", -1);
         entity.xOffset = entry.value("x_offset", 0.0f);
         entity.back = entry.value("back", 64);
+        entity.destCol = entry.value("dest_col", -1);
+        entity.destRow = entry.value("dest_row", -1);
         entities_.push_back(entity);
     }
     const auto rows = json.at("rows").get<std::vector<std::string>>();
@@ -171,11 +178,12 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
 }
 
 bool Tilemap::isSceneryChar(char c) {
-    return c == 't' || c == 'r' || c == 'm' || c == 'n' || c == 'R' || c == 'K' || c == 'c' || c == 'W' || c == 'w';
+    return c == 't' || c == 'r' || c == 'm' || c == 'n' || c == 'R' || c == 'K' || c == 'c' || c == 'W' || c == 'w' ||
+           c == 'N';
 }
 
 bool Tilemap::isSolidSceneryChar(char c) {
-    return c == 't' || c == 'm' || c == 'R' || c == 'K' || c == 'c';
+    return c == 't' || c == 'm' || c == 'R' || c == 'K' || c == 'c' || c == 'N';
 }
 
 char Tilemap::sceneryAt(int col, int row) const {
@@ -224,6 +232,7 @@ void Tilemap::renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, i
                 case 'c': frame = sceneryAt(col, row - 1) == 'c' ? 15 : 14; break;
                 case 'W': frame = sceneryAt(col, row - 1) == 'W' ? 17 : 16; break;
                 case 'w': frame = 18; break;
+                case 'N': frame = 19; break;  // bloque de nube
                 default: break;
             }
             if (frame >= 0) sprite.draw(renderer, worldRow, frame, x, y, false);

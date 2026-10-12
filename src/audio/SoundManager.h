@@ -34,6 +34,7 @@ enum class Sfx {
     TimeTally,
     GameOver,
     Pause,
+    Vine,
     Count,
 };
 

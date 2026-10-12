@@ -10,6 +10,8 @@ una columna por pieza (ver Tilemap::renderScenery):
   11   canon (boca)  12 canon (calavera)  13  canon (base)
   14   coral (tope) 15 coral (cuerpo)
   16   agua (olas)  17 agua (cuerpo)      18  superficie bajo el agua
+  19   bloque de nube (el piso de las areas de monedas en el cielo,
+       de "Palette 2")
 
 Solo el canon cambia de paleta (sale de "Palette 1"); el resto es igual
 en las cuatro filas.
@@ -29,6 +31,7 @@ SHARED = [
     None, None, None,                                 # canon (por paleta)
     (312, 640), (312, 656),                           # coral
     (616, 648), (616, 664), (616, 688),               # agua
+    (366, 16),                                        # bloque de nube
 ]
 
 # Canon en "Palette 1": columna 7, filas 0-2 (paso de 17 px), con el
@@ -43,7 +46,7 @@ PALETTE1_ORIGIN = {
 
 def is_background(rgb):
     r, g, b = rgb
-    if (r, g, b) == (0, 41, 140):
+    if (r, g, b) in ((0, 41, 140), (148, 148, 255)):
         return True
     return 135 <= r <= 155 and 135 <= g <= 155 and b >= 240
 

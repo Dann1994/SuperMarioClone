@@ -36,6 +36,12 @@ Music Game::levelMusic() const {
     // Con estrella suena la invencibilidad (cualquiera de los dos jugadores).
     const bool star = mario_.isInvincible() || (twoPlayerMode_ && luigi_.isInvincible());
     if (star) return hurryMusic_ ? Music::InvincibilityFast : Music::Invincibility;
+    // Areas de nubes (monedas en el cielo): MUSIC_AREA_CLOUD, el tema de la
+    // estrella.
+    if (currentArea_ >= 0 && currentArea_ < static_cast<int>(level_.areas().size()) &&
+        level_.areas()[static_cast<size_t>(currentArea_)].cloud) {
+        return hurryMusic_ ? Music::InvincibilityFast : Music::Invincibility;
+    }
     switch (worldType_) {
         case WorldType::Underground: return hurryMusic_ ? Music::UndergroundFast : Music::Underground;
         case WorldType::Underwater: return hurryMusic_ ? Music::UnderwaterFast : Music::Underwater;

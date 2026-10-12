@@ -33,6 +33,8 @@ struct LevelBlock {          // "blocks": contenido de un '?' / 'D'
     int row = 0;
     std::string item;        // coin, powerup, mushroom, fire_flower, star, one_up
     int hits = 1;            // golpes antes de quedar usado (bloque de N monedas)
+    int destCol = -1;        // vine: adonde lleva trepar hasta arriba (-1: a ningun lado)
+    int destRow = -1;        //       fila donde quedan los pies al llegar trepando
 };
 struct LevelWarp {           // "warps": tuberia que se entra apretando abajo
     int col = 0;             // columna izquierda del tope
@@ -51,6 +53,9 @@ struct LevelArea {           // "areas": tramos de columnas con camara propia
     int startCol = 0;
     int endCol = 0;          // inclusive
     std::string world;       // overworld/underground/underwater/castle; "" = el del nivel
+    int fallCol = -1;        // area de nubes: caerse por abajo lleva aca (cayendo desde fallRow)
+    int fallRow = -1;
+    bool cloud = false;      // area de nubes (monedas en el cielo): suena el tema de la estrella
 };
 struct LevelDecoration {     // "decorations": escenografia de fondo
     std::string type;        // castle_small, hill_big, hill_small, bush_big, bush_small, cloud_big, cloud_small, pipe_side
@@ -88,6 +93,10 @@ struct LevelEntity {         // "entities": enemigos del nivel
     float xOffset = 0.0f;
     // loop (laberinto de castillo): columnas que vuelve si se falla.
     int back = 64;
+    // vine (enredadera ya crecida, row = su base): adonde lleva trepar
+    // hasta arriba y la fila de los pies al llegar (-1: a ningun lado).
+    int destCol = -1;
+    int destRow = -1;
 };
 
 class Tilemap {
