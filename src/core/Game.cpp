@@ -3268,7 +3268,8 @@ void Game::render() {
                                        bump.col * level_.tileSize() - camOffset,
                                        bump.row * level_.tileSize() + offsetY, false);
         } else {
-            brickBlockSprite_.draw(renderer_, worldRow, 0, bump.col * level_.tileSize() - camOffset,
+            brickBlockSprite_.draw(renderer_, worldRow, level_.brickFrame(bump.col, bump.row),
+                                   bump.col * level_.tileSize() - camOffset,
                                     bump.row * level_.tileSize() + offsetY, false);
         }
     }

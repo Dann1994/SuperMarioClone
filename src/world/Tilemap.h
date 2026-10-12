@@ -197,6 +197,10 @@ public:
     // rompiendo un ladrillo del borde real de una plataforma/piso que nunca
     // tuvo nada ahi. Lo usa HammerBro::applyHorizontalWithWallBounce para
     // no tenerle miedo a esos agujeros (ver el comentario de esa funcion).
+    // Cuadro del ladrillo en brick_block.png: 0 con brillo arriba (el de mas
+    // arriba de un grupo o una fila suelta), 1 sin brillo (tiene otro
+    // ladrillo encima). Ver gen_brick_variants.py.
+    int brickFrame(int col, int row) const;
     bool wasBrickTile(int col, int row) const;
     // Lo rompe: deja de ser solido y de ser ladrillo, como si nunca hubiera
     // estado ahi (salvo para wasBrickTile, ver arriba). No hace nada si el

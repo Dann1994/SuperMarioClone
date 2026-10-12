@@ -267,6 +267,12 @@ bool Tilemap::isBrickTile(int col, int row) const {
     return brick_[row * width_ + col] != 0;
 }
 
+int Tilemap::brickFrame(int col, int row) const {
+    // Con otro ladrillo encima (como estaba al cargar el nivel, asi romper el
+    // de arriba no cambia el dibujo, igual que el original): sin brillo.
+    return (wasBrickTile(col, row - 1) || isDispenserTile(col, row - 1)) ? 1 : 0;
+}
+
 bool Tilemap::wasBrickTile(int col, int row) const {
     if (col < 0 || row < 0 || col >= width_ || row >= height_) {
         return false;
@@ -545,7 +551,7 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
         for (int col = 0; col < width_; ++col) {
             if (isHidden(col, row)) continue;
             if (isBrickTile(col, row)) {
-                brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
+                brickSprite.draw(renderer, worldRow, brickFrame(col, row), col * tileSize_ - camOffset, row * tileSize_, false);
             } else if (isDispenserTile(col, row)) {
                 // Usado: mismo frame "vacio" que un bloque de interrogacion
                 // usado (Tilemap::kQuestionUsedFrame), a pedido del usuario
@@ -557,7 +563,7 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
                     questionSprite->draw(renderer, worldRow, kQuestionUsedFrame, col * tileSize_ - camOffset,
                                           row * tileSize_, false);
                 } else {
-                    brickSprite.draw(renderer, worldRow, 0, col * tileSize_ - camOffset, row * tileSize_, false);
+                    brickSprite.draw(renderer, worldRow, brickFrame(col, row), col * tileSize_ - camOffset, row * tileSize_, false);
                 }
             }
         }
