@@ -4,6 +4,9 @@
 #include <cmath>
 
 void BuzzyBeetle::spawn(float x, float y, bool movingRight) {
+    touching_ = {};
+    shellChain_ = 0;
+    kicker_ = nullptr;
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;
@@ -56,6 +59,7 @@ void BuzzyBeetle::kick(bool kickRight, const void* character) {
     postStompCooldown_ = kPostStompCooldown;
     stompCooldownOwner_ = character;
     kicker_ = character;
+    shellChain_ = 0;
 }
 
 bool BuzzyBeetle::killFalling(bool flyRight) {

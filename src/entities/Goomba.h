@@ -68,8 +68,8 @@ public:
 
 private:
     static constexpr float kSpeed = 30.0f;              // px/s horizontal, constante
-    static constexpr float kGravity = 1000.0f;          // px/s^2
-    static constexpr float kMaxFallSpeed = 300.0f;      // px/s
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;  // s por frame de caminata
     static constexpr float kSquishDuration = 0.5f;      // s achatado antes de desaparecer

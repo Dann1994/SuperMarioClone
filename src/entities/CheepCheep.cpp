@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-void CheepCheep::spawn(float x, float y, bool movingRight) {
+void CheepCheep::spawn(float x, float y, bool movingRight, float driftSpeed) {
     x_ = x;
     y_ = y;
     baseY_ = y;
@@ -17,7 +17,8 @@ void CheepCheep::spawn(float x, float y, bool movingRight) {
         // Arranca ya con el envion hacia arriba (ver el comentario de la
         // clase): no espera parada en ningun piso, la parabola empieza en el
         // mismo frame del spawn.
-        velX_ = movingRight ? kJumpDriftSpeed : -kJumpDriftSpeed;
+        const float drift = driftSpeed >= 0.0f ? driftSpeed : kJumpDriftSpeed;
+        velX_ = movingRight ? drift : -drift;
         velY_ = kJumpImpulse;
     } else {
         const float speed = swimPattern_ == SwimPattern::Straight ? kStraightSwimSpeed : kOscillateDriftSpeed;

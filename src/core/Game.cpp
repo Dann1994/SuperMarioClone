@@ -96,6 +96,8 @@ constexpr float kCastleClearDelay = 2.5f;
 constexpr float kCannonIntervalMin = 2.5f;
 constexpr float kCannonIntervalMax = 4.5f;
 constexpr float kCannonSafeDistance = 40.0f;
+// Lakitu: cuanto tarda en volver si lo matan (original: ~7 ciclos de 0x80 cuadros).
+constexpr float kLakituRespawnDelay = 15.0f;
 
 // Piezas de escenografia (assets/sprites/scenery_<type>.png, ver
 // tools/asset_scripts/gen_scenery.py), mismo orden que
@@ -174,8 +176,8 @@ constexpr float kPiranhaPlantTestX = 192.0f;
 constexpr float kPiranhaPlantTestPipeTopY = 192.0f;
 // Que tan cerca (en X e Y) puede estar un personaje del cano sin que la
 // planta se niegue a asomar (ver Game::isSafeForPiranhaPlant).
-constexpr float kPiranhaSafeDistanceX = 32.0f;
-constexpr float kPiranhaSafeDistanceY = 48.0f;
+constexpr float kPiranhaSafeDistanceX = 33.0f;  // original: 0x21 px, solo horizontal
+constexpr float kPiranhaSafeDistanceY = 10000.0f;
 
 // Hammer Bro de prueba: arranca sobre la plataforma de bloques de abajo de
 // test_hammerbro.json (fila 11, columnas 5-10) para poder ver que le teme a
@@ -227,8 +229,8 @@ constexpr float kCheepCheepJumpSpawnY = static_cast<float>(kWorldViewBottom) + 8
 // punto fijo, para que no se note el patron.
 constexpr float kCheepCheepJumpAheadOffsetMin = 40.0f;
 constexpr float kCheepCheepJumpAheadOffsetMax = 90.0f;
-constexpr float kCheepCheepJumpIntervalMin = 1.0f;
-constexpr float kCheepCheepJumpIntervalMax = 2.0f;
+constexpr float kCheepCheepJumpIntervalMin = 0.27f;  // original: 0x10..0x60 cuadros
+constexpr float kCheepCheepJumpIntervalMax = 1.6f;
 
 // Bill Bala de prueba: dos instancias disparadas en direcciones opuestas
 // desde los dos bordes de test_bulletbill.json, a la misma altura, para
@@ -286,7 +288,7 @@ constexpr float kMoveThreshold = 15.0f;       // px/s de velocidad de acercamien
 constexpr float kMinCollisionSpeed = 45.0f;   // px/s, piso de velocidad de choque usado para el impulso (ver mas abajo)
 constexpr float kStompBounce = -180.0f;       // px/s, pisada normal (mas chica que el salto: -260)
 constexpr float kStompBounceBoosted = -260.0f; // px/s, pisada con Jump sostenido: igual a un salto completo
-constexpr float kKoopaStompBounce = -220.0f;  // px/s, pisar un Koopa rebota un poco mas alto que el resto
+constexpr float kKoopaStompBounce = -240.0f;  // px/s: -4 px/cuadro, el rebote del original al pisar un Koopa
 // s de invulnerabilidad post-respawn bajo el agua (ver
 // Game::grantRespawnInvincibilityForWorld) -- el doble de la normal
 // (Mario::kHurtInvincibleDuration = 2s), Mario nada mucho mas lento que
@@ -805,6 +807,7 @@ void Game::loadScenario(TestScenario scenario) {
     cutscene_ = level_.introArea() >= 0 && checkpointCol_ < 0;
     pipeTransitionTimer_ = 0.0f;
     pipeAnim_ = PipeAnim{};
+    enemyContacts_.clear();
     input1_.setScripted(cutscene_, {Action::MoveRight});
     input2_.setScripted(cutscene_, {Action::MoveRight});
     appStateTimer_ = kLevelIntroDuration;
@@ -1203,47 +1206,93 @@ bool Game::handleUnderwaterContactDamage(Mario& character) {
     return true;
 }
 
-void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float prevY) {
+void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*/) {
     setScorer(character);
     // Sin colision mientras esta en su secuencia de muerte: ya esta cayendo
-    // con la pose de "muerto" fija, no tiene sentido que un enemigo lo
-    // pisotee/dane/mate de nuevo hasta que reaparezca (relevante en 2P: el
-    // otro jugador puede seguir jugando mientras este cae).
+    // con la pose de "muerto" fija (relevante en 2P: el otro sigue jugando).
     if (character.isInDeathSequence()) return;
-    if (!goomba.isDangerous()) return;
+    if (!goomba.isDangerous()) {
+        endContact(&goomba, &character);
+        return;
+    }
 
     const bool overlap =
         character.x() < goomba.x() + Goomba::kSize && character.x() + character.width() > goomba.x() &&
         character.y() < goomba.y() + Goomba::kSize && character.y() + character.height() > goomba.y();
-    if (!overlap) return;
-
-    // Con estrella: lo elimina de un toque, desde cualquier lado, sin
-    // pisoton (no hay rebote) ni dano -- la invencibilidad ya cubre el "no
-    // recibe dano" del lado del personaje. Muerte distinta a un pisoton: sale
-    // despedido en parabola hacia el lado contrario de donde vino el
-    // personaje, en vez de achatarse (ver Goomba::killFalling).
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= goomba.x();
-        killEnemyFalling(goomba, flyRight);
+    if (!overlap) {
+        endContact(&goomba, &character);
         return;
     }
+    // Con estrella: sale despedido en parabola (no se achata).
+    if (character.isInvincible()) {
+        killEnemyFalling(goomba, character.x() <= goomba.x());
+        return;
+    }
+    if (!beginContact(&goomba, &character)) return;
     if (handleUnderwaterContactDamage(character)) return;
 
-    // Pisoton: los pies YA estaban por encima de la cabeza del Goomba antes
-    // de moverse este frame (no importa cuanto se haya hundido AHORA -- eso
-    // evita confundirlo con un golpe de costado por caer rapido o pegarle
-    // en diagonal, que es lo que fallaba comparando solo la posicion actual).
-    const bool fromAbove = (prevY + character.height()) <= goomba.y() + kStompLeewayPx &&
-                            character.velocityY() > 0.0f;
-    if (fromAbove) {
+    // Como el original: cayendo es pisoton (sin importar la altura del
+    // contacto), si no lastima.
+    if (isStompContact(character, goomba.y(), StompRule::Falling)) {
         goomba.squish();
-        character.setVelocityY(kStompBounce);
+        character.setVelocityY(kKoopaStompBounce);
         audio_.play(Sfx::StompKill);
-        awardEnemyPoints(goomba.x(), goomba.y(), 100);
+        awardStompPoints(character, goomba.x(), goomba.y());
         return;
     }
+    applyContactDamage(character);
+}
 
-    // Contacto de costado: mismo dano que takeDamage()/startDeath() normal.
+bool Game::isStompContact(const Mario& character, float enemyTop, StompRule rule) {
+    if (rule == StompRule::Never) return false;
+    if (character.velocityY() > 0.0f) return true;
+    if (rule == StompRule::Falling) return false;
+    // El original compara contra el tope de la caja de 32 px del jugador
+    // (tambien chico): el enemigo mas de 12 px por debajo de ese tope.
+    const float playerTop = character.y() + static_cast<float>(character.height()) - 32.0f;
+    return enemyTop > playerTop + 12.0f;
+}
+
+bool Game::beginContact(const void* enemy, const void* character) {
+    for (const auto& [e, c] : enemyContacts_) {
+        if (e == enemy && c == character) return false;
+    }
+    enemyContacts_.emplace_back(enemy, character);
+    return true;
+}
+
+void Game::endContact(const void* enemy, const void* character) {
+    for (auto it = enemyContacts_.begin(); it != enemyContacts_.end(); ++it) {
+        if (it->first == enemy && it->second == character) {
+            enemyContacts_.erase(it);
+            return;
+        }
+    }
+}
+
+template <typename T>
+void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce) {
+    const bool overlap = character.x() < enemy.x() + enemy.width() && character.x() + character.width() > enemy.x() &&
+                         character.y() < enemy.y() + enemy.height() &&
+                         character.y() + character.height() > enemy.y();
+    if (!overlap) {
+        endContact(&enemy, &character);
+        return;
+    }
+    if (character.isInvincible()) {
+        killEnemyFalling(enemy, character.x() <= enemy.x());
+        return;
+    }
+    if (!beginContact(&enemy, &character)) return;
+    if (handleUnderwaterContactDamage(character)) return;
+    if (isStompContact(character, enemy.y(), rule)) {
+        if (enemy.killFalling(character.x() <= enemy.x())) {
+            audio_.play(Sfx::StompKill);
+            awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
+        }
+        character.setVelocityY(bounce);
+        return;
+    }
     applyContactDamage(character);
 }
 
@@ -1261,88 +1310,11 @@ void Game::checkFireballGoombaCollision(Fireball& fireball, Goomba& goomba) {
     fireball.explode();
 }
 
-void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
+void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float /*prevY*/) {
     setScorer(character);
-    // Ver el comentario en checkGoombaCollision.
     if (character.isInDeathSequence()) return;
     if (!koopa.isDangerous()) return;
-    // Este personaje puntual esta inmune (recien lo piso/pateo, ver
-    // Koopa::isImmuneTo) -- el otro jugador y los demas enemigos no se ven
-    // afectados por esto, siguen interactuando con el caparazon normal.
-    if (koopa.isImmuneTo(&character)) return;
-
-    const bool overlap =
-        character.x() < koopa.x() + koopa.width() && character.x() + character.width() > koopa.x() &&
-        character.y() < koopa.y() + koopa.height() && character.y() + character.height() > koopa.y();
-    if (!overlap) return;
-
-    // Con estrella: lo elimina en cualquier estado, igual que al Goomba.
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= koopa.x();
-        killEnemyFalling(koopa, flyRight);
-        return;
-    }
-    if (handleUnderwaterContactDamage(character)) return;
-
-    bool fromAbove;
-    if (koopa.state() == KoopaState::ShellMoving) {
-        // Regla estricta aparte para el caparazon en movimiento (el que mas
-        // problemas daba de clasificar bien, por lo rapido que se mueve):
-        // solo cuenta como pisoton si los pies del personaje quedan en la
-        // mitad de arriba del hitbox del caparazon -- ahi le pega "a la
-        // altura de las piernas" y lo frena; si se hunde mas que eso, le
-        // pega "del pecho para arriba" y hace dano. Puramente geometrico,
-        // con las hitboxes tal cual estan ahora (sin velocidad ni posicion
-        // previa de por medio).
-        fromAbove = (character.y() + character.height()) <= (koopa.y() + koopa.height() / 2.0f);
-    } else {
-        // Walking / ShellIdle: los pies YA estaban por encima del Koopa
-        // antes de moverse este frame (ver el comentario en checkGoombaCollision).
-        fromAbove = (prevY + character.height()) <= koopa.y() + kStompLeewayPx &&
-                    character.velocityY() > 0.0f;
-    }
-
-    if (koopa.state() == KoopaState::ShellIdle) {
-        if (fromAbove) {
-            // Pisar un caparazon quieto tambien lo patea (no solo el toque
-            // de costado): sin un "lado" natural para un pisoton, usa hacia
-            // donde esta mirando el personaje en ese momento. Sin rebote (a
-            // diferencia del resto de los pisotones) -- pero hay que frenar
-            // la caida en seco igual (no dejarla en positivo): si no, el
-            // personaje sigue "cayendo" sobre el caparazon que el mismo
-            // acaba de patear (ya ShellMoving) y al toque siguiente frame
-            // deja de contar como pisoton (los pies ya bajaron de mas) y
-            // pasa a tratarse como toque de costado contra un ShellMoving,
-            // que SI hace dano -- terminaria matando al que lo piso.
-            koopa.kick(character.facingRight(), &character);
-            audio_.play(Sfx::Kick);
-            character.setVelocityY(0.0f);
-            // Empuje lateral (igual que el pisoton Mario<->Luigi, ver
-            // resolveCharacterCollision): si el personaje se queda parado en
-            // el mismo lugar, la gravedad lo hace caer de nuevo justo ahi y
-            // vuelve a pisar el caparazon ya pateado -- que al estar quieto
-            // otra vez lo re-patearia sin parar en vez de quedar quieto.
-            character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
-        } else {
-            // De costado: patada, hacia el lado contrario de donde vino el personaje.
-            const bool kickRight = character.x() <= koopa.x();
-            koopa.kick(kickRight, &character);
-            audio_.play(Sfx::Kick);
-        }
-        return;
-    }
-
-    // Walking o ShellMoving: pisoton lo esconde/frena (con rebote); de
-    // costado hace dano como cualquier enemigo.
-    if (fromAbove) {
-        koopa.stomp(&character);
-        awardEnemyPoints(koopa.x(), koopa.y(), 100);
-        character.setVelocityY(kKoopaStompBounce);
-        character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
-        audio_.play(Sfx::StompKill);
-        return;
-    }
-    applyContactDamage(character);
+    resolveShellEnemyContact(character, koopa, koopa.state() == KoopaState::ShellIdle);
 }
 
 void Game::checkFireballKoopaCollision(Fireball& fireball, Koopa& koopa) {
@@ -1368,10 +1340,8 @@ void Game::checkShellVsGoomba(Koopa& koopa, Goomba& goomba) {
         koopa.y() < goomba.y() + Goomba::kSize && koopa.y() + koopa.height() > goomba.y();
     if (!overlap) return;
 
-    const bool flyRight = goomba.x() >= koopa.x();
-    setScorerFromKicker(koopa.kicker());
-    killEnemyFalling(goomba, flyRight);
     // El caparazon sigue de largo (no se frena al matar a otro enemigo).
+    killByShell(goomba, goomba.x() >= koopa.x(), koopa);
 }
 
 void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
@@ -1385,20 +1355,21 @@ void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
     const bool aMoving = a.isMovingShell();
     const bool bMoving = b.isMovingShell();
     if (!aMoving && !bMoving) return;
-    audio_.play(Sfx::Kick);
-    setScorerFromKicker(aMoving ? a.kicker() : b.kicker());
 
     if (aMoving && bMoving) {
-        // Chocan de frente: mueren los dos, cada uno hacia el lado contrario del otro.
+        // Chocan de frente: mueren los dos (como el original, uno da 1000 y
+        // el otro los puntos de la cadena del primero).
         const bool aFliesRight = a.x() >= b.x();
-        killEnemyFalling(a, aFliesRight);
-        killEnemyFalling(b, !aFliesRight);
+        if (a.killFalling(aFliesRight)) {
+            audio_.play(Sfx::Kick);
+            setScorerFromKicker(b.kicker());
+            awardIndexedPoints(a.x(), a.y(), 6);
+        }
+        killByShell(b, !aFliesRight, a);
     } else if (aMoving) {
-        const bool bFliesRight = b.x() >= a.x();
-        killEnemyFalling(b, bFliesRight);
+        killByShell(b, b.x() >= a.x(), a);
     } else {
-        const bool aFliesRight = a.x() >= b.x();
-        killEnemyFalling(a, aFliesRight);
+        killByShell(a, a.x() >= b.x(), b);
     }
 }
 
@@ -1447,59 +1418,63 @@ void Game::checkKoopaKoopaBounce(Koopa& a, Koopa& b) {
     b.bounceOffEnemy(aOnLeft ? pushAmount : -pushAmount);
 }
 
-void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float prevY) {
+void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float /*prevY*/) {
     setScorer(character);
-    // Identico a checkKoopaCollision salvo que no hay caso de fuego (ver el
-    // comentario de BuzzyBeetle.h) -- esa funcion ni se llama para este
-    // enemigo.
+    // Igual que el Koopa (ver resolveShellEnemyContact); al fuego es inmune,
+    // eso va aparte (checkFireballBuzzyBeetleCollision).
     if (character.isInDeathSequence()) return;
     if (!buzzy.isDangerous()) return;
-    if (buzzy.isImmuneTo(&character)) return;
+    resolveShellEnemyContact(character, buzzy, buzzy.state() == BuzzyBeetleState::ShellIdle);
+}
 
+// Reglas del original (PlayerEnemyCollision de Super Mario Bros.):
+// - Un contacto por encuentro: al empezar a tocarse se procesa una vez y no
+//   vuelve a reaccionar con ese personaje hasta que se separan.
+// - Caparazon quieto: cualquier contacto (de arriba o de costado) lo patea
+//   hacia el lado contrario del personaje, sin rebote.
+// - Caminando, con alas o caparazon en movimiento: si el personaje viene
+//   CAYENDO es pisoton (se esconde / pierde las alas / se frena, y el
+//   personaje rebota); si no, lo lastima. No importa la altura del contacto.
+template <typename Shell>
+void Game::resolveShellEnemyContact(Mario& character, Shell& enemy, bool shellIdle) {
     const bool overlap =
-        character.x() < buzzy.x() + buzzy.width() && character.x() + character.width() > buzzy.x() &&
-        character.y() < buzzy.y() + buzzy.height() && character.y() + character.height() > buzzy.y();
-    if (!overlap) return;
-
-    // Con estrella: lo elimina en cualquier estado, igual que al Koopa.
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= buzzy.x();
-        killEnemyFalling(buzzy, flyRight);
+        character.x() < enemy.x() + enemy.width() && character.x() + character.width() > enemy.x() &&
+        character.y() < enemy.y() + enemy.height() && character.y() + character.height() > enemy.y();
+    if (!overlap) {
+        enemy.setTouching(&character, false);
         return;
     }
+    // Con estrella: lo voltea en cualquier estado.
+    if (character.isInvincible()) {
+        killEnemyFalling(enemy, character.x() <= enemy.x());
+        return;
+    }
+    if (enemy.isTouching(&character)) return;
+    enemy.setTouching(&character, true);
     if (handleUnderwaterContactDamage(character)) return;
 
-    bool fromAbove;
-    if (buzzy.state() == BuzzyBeetleState::ShellMoving) {
-        // Misma regla estricta que Koopa::ShellMoving, ver ese comentario.
-        fromAbove = (character.y() + character.height()) <= (buzzy.y() + buzzy.height() / 2.0f);
-    } else {
-        fromAbove = (prevY + character.height()) <= buzzy.y() + kStompLeewayPx && character.velocityY() > 0.0f;
-    }
-
-    if (buzzy.state() == BuzzyBeetleState::ShellIdle) {
-        if (fromAbove) {
-            buzzy.kick(character.facingRight(), &character);
-            audio_.play(Sfx::Kick);
-            character.setVelocityY(0.0f);
-            character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
-        } else {
-            const bool kickRight = character.x() <= buzzy.x();
-            buzzy.kick(kickRight, &character);
-            audio_.play(Sfx::Kick);
-        }
+    const float characterCenter = character.x() + static_cast<float>(character.width()) / 2.0f;
+    const float enemyCenter = enemy.x() + static_cast<float>(enemy.width()) / 2.0f;
+    if (shellIdle) {
+        const int pointsIndex = kickShellPointsIndex(enemy.shellIdleRemaining());
+        enemy.kick(characterCenter <= enemyCenter, &character);
+        audio_.play(Sfx::Kick);
+        awardIndexedPoints(enemy.x(), enemy.y(), pointsIndex);
         return;
     }
-
-    // Walking o ShellMoving: pisoton lo esconde/frena (con rebote); de
-    // costado hace dano como cualquier enemigo.
-    if (fromAbove) {
-        buzzy.stomp(&character);
-        awardEnemyPoints(buzzy.x(), buzzy.y(), 100);
+    if (character.velocityY() > 0.0f) {
+        enemy.stomp(&character);
         character.setVelocityY(kKoopaStompBounce);
-        character.setVelocityX(character.facingRight() ? kStompSidewaysSpeed : -kStompSidewaysSpeed);
         audio_.play(Sfx::StompKill);
+        awardStompPoints(character, enemy.x(), enemy.y());
         return;
+    }
+    // Lastima; si el enemigo caminaba alejandose del personaje, se da
+    // vuelta (como el original).
+    if (enemy.state() == decltype(enemy.state())::Walking) {
+        const bool movingRight = enemy.velocityX() > 0.0f;
+        const bool characterOnRight = characterCenter >= enemyCenter;
+        if (movingRight != characterOnRight) enemy.turnAround();
     }
     applyContactDamage(character);
 }
@@ -1529,19 +1504,19 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
     const bool koopaMoving = koopa.isMovingShell();
     const bool buzzyMoving = buzzy.isMovingShell();
     if (!koopaMoving && !buzzyMoving) return;
-    audio_.play(Sfx::Kick);
-    setScorerFromKicker(koopaMoving ? koopa.kicker() : buzzy.kicker());
 
     if (koopaMoving && buzzyMoving) {
         const bool koopaFliesRight = koopa.x() >= buzzy.x();
-        killEnemyFalling(koopa, koopaFliesRight);
-        killEnemyFalling(buzzy, !koopaFliesRight);
+        if (koopa.killFalling(koopaFliesRight)) {
+            audio_.play(Sfx::Kick);
+            setScorerFromKicker(buzzy.kicker());
+            awardIndexedPoints(koopa.x(), koopa.y(), 6);
+        }
+        killByShell(buzzy, !koopaFliesRight, koopa);
     } else if (koopaMoving) {
-        const bool buzzyFliesRight = buzzy.x() >= koopa.x();
-        killEnemyFalling(buzzy, buzzyFliesRight);
+        killByShell(buzzy, buzzy.x() >= koopa.x(), koopa);
     } else {
-        const bool koopaFliesRight = koopa.x() >= buzzy.x();
-        killEnemyFalling(koopa, koopaFliesRight);
+        killByShell(koopa, koopa.x() >= buzzy.x(), buzzy);
     }
 }
 
@@ -1554,9 +1529,7 @@ void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy, Goomba& goomba) {
         buzzy.y() < goomba.y() + Goomba::kSize && buzzy.y() + buzzy.height() > goomba.y();
     if (!overlap) return;
 
-    const bool flyRight = goomba.x() >= buzzy.x();
-    setScorerFromKicker(buzzy.kicker());
-    killEnemyFalling(goomba, flyRight);
+    killByShell(goomba, goomba.x() >= buzzy.x(), buzzy);
 }
 
 void Game::checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy) {
@@ -1647,36 +1620,14 @@ bool Game::isSafeForPiranhaPlant(const PiranhaPlant& plant) const {
     return true;
 }
 
-void Game::checkHammerBroCollision(Mario& character, HammerBro& bro, float prevY) {
+void Game::checkHammerBroCollision(Mario& character, HammerBro& bro, float /*prevY*/) {
     setScorer(character);
     if (character.isInDeathSequence()) return;
-    if (!bro.isDangerous()) return;
-
-    const bool overlap = character.x() < bro.x() + bro.width() &&
-                          character.x() + character.width() > bro.x() &&
-                          character.y() < bro.y() + bro.height() &&
-                          character.y() + character.height() > bro.y();
-    if (!overlap) return;
-
-    // Cualquier forma de matarlo usa la misma parabola (ver HammerBro.h):
-    // no hay caparazon ni frame de achatado propio en el arte fuente.
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= bro.x();
-        killEnemyFalling(bro, flyRight);
+    if (!bro.isDangerous()) {
+        endContact(&bro, &character);
         return;
     }
-    if (handleUnderwaterContactDamage(character)) return;
-
-    const bool fromAbove = (prevY + character.height()) <= bro.y() + kStompLeewayPx &&
-                            character.velocityY() > 0.0f;
-    if (fromAbove) {
-        const bool flyRight = character.x() <= bro.x();
-        killEnemyFalling(bro, flyRight);
-        character.setVelocityY(kStompBounce);
-        return;
-    }
-
-    applyContactDamage(character);
+    resolveStompableContact(character, bro, StompRule::Falling, kStompBounce);
 }
 
 void Game::checkFireballHammerBroCollision(Fireball& fireball, HammerBro& bro) {
@@ -1712,37 +1663,14 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     applyContactDamage(character);
 }
 
-void Game::checkLakituCollision(Mario& character, float prevY) {
+void Game::checkLakituCollision(Mario& character, float /*prevY*/) {
     setScorer(character);
     if (character.isInDeathSequence()) return;
-    if (!lakitu_.isDangerous()) return;
-
-    const bool overlap = character.x() < lakitu_.x() + lakitu_.width() &&
-                          character.x() + character.width() > lakitu_.x() &&
-                          character.y() < lakitu_.y() + lakitu_.height() &&
-                          character.y() + character.height() > lakitu_.y();
-    if (!overlap) return;
-
-    // Cualquier forma de matarlo usa la misma parabola (ver Lakitu.h): a
-    // diferencia de la Pirana Plant, aca el pisoton SI lo mata (no hay
-    // razon para que un salto encima no lo tire de la nube).
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= lakitu_.x();
-        killEnemyFalling(lakitu_, flyRight);
+    if (!lakitu_.isDangerous()) {
+        endContact(&lakitu_, &character);
         return;
     }
-    if (handleUnderwaterContactDamage(character)) return;
-
-    const bool fromAbove = (prevY + character.height()) <= lakitu_.y() + kStompLeewayPx &&
-                            character.velocityY() > 0.0f;
-    if (fromAbove) {
-        const bool flyRight = character.x() <= lakitu_.x();
-        killEnemyFalling(lakitu_, flyRight);
-        character.setVelocityY(kStompBounce);
-        return;
-    }
-
-    applyContactDamage(character);
+    resolveStompableContact(character, lakitu_, StompRule::FallingOrBelow, kStompBounce);
 }
 
 void Game::checkFireballLakituCollision(Fireball& fireball) {
@@ -1824,23 +1752,13 @@ void Game::checkSpinyBounce(Spiny& a, Spiny& b) {
 void Game::checkBlooperCollision(Mario& character, Blooper& blooper) {
     setScorer(character);
     if (character.isInDeathSequence()) return;
-    if (!blooper.isDangerous()) return;
-
-    const bool overlap = character.x() < blooper.x() + blooper.width() &&
-                          character.x() + character.width() > blooper.x() &&
-                          character.y() < blooper.y() + blooper.height() &&
-                          character.y() + character.height() > blooper.y();
-    if (!overlap) return;
-
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= blooper.x();
-        killEnemyFalling(blooper, flyRight);
+    if (!blooper.isDangerous()) {
+        endContact(&blooper, &character);
         return;
     }
-
-    // Sin pisoton (ver Blooper.h): cualquier contacto hace dano, sin
-    // importar de que lado venga.
-    applyContactDamage(character);
+    // En el agua (donde vive) cualquier contacto lastima; fuera del agua se
+    // puede pisar como el resto (handleUnderwaterContactDamage resuelve lo primero).
+    resolveStompableContact(character, blooper, StompRule::FallingOrBelow, kStompBounce);
 }
 
 void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
@@ -1858,37 +1776,14 @@ void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
     fireball.explode();
 }
 
-void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, float prevY) {
+void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, float /*prevY*/) {
     setScorer(character);
     if (character.isInDeathSequence()) return;
-    if (!cheepCheep.isDangerous()) return;
-
-    const bool overlap = character.x() < cheepCheep.x() + CheepCheep::kSize &&
-                          character.x() + character.width() > cheepCheep.x() &&
-                          character.y() < cheepCheep.y() + CheepCheep::kSize &&
-                          character.y() + character.height() > cheepCheep.y();
-    if (!overlap) return;
-
-    // Cualquier forma de matarlo usa la misma parabola (ver CheepCheep.h):
-    // no hay caparazon ni frame de achatado propio en el arte fuente en
-    // ninguna de las dos variantes.
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= cheepCheep.x();
-        killEnemyFalling(cheepCheep, flyRight);
+    if (!cheepCheep.isDangerous()) {
+        endContact(&cheepCheep, &character);
         return;
     }
-    if (handleUnderwaterContactDamage(character)) return;
-
-    const bool fromAbove = (prevY + character.height()) <= cheepCheep.y() + kStompLeewayPx &&
-                            character.velocityY() > 0.0f;
-    if (fromAbove) {
-        const bool flyRight = character.x() <= cheepCheep.x();
-        killEnemyFalling(cheepCheep, flyRight);
-        character.setVelocityY(kStompBounce);
-        return;
-    }
-
-    applyContactDamage(character);
+    resolveStompableContact(character, cheepCheep, StompRule::FallingOrBelow, kStompBounce);
 }
 
 void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& cheepCheep) {
@@ -1907,69 +1802,40 @@ void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& chee
 }
 
 void Game::spawnNextCheepCheepJump() {
+    // Tablas del original (InitFlyingCheepCheep): la velocidad y donde
+    // aparece dependen de si el jugador esta quieto, caminando o corriendo.
+    // Quieto: algunas saltan hacia atras; si no, todas van para adelante.
+    static const float kOffsets[3][4] = {{128, 48, 64, 128}, {48, 80, 80, 112}, {32, 64, 128, 160}};
+    static const float kSpeeds[3][4] = {{14, 5, 6, 14}, {28, 32, 16, 12}, {30, 34, 24, 20}};
     for (CheepCheep& fish : cheepCheepJumps_) {
         if (fish.isAlive()) continue;
         const bool leaderIsLuigi = twoPlayerMode_ && luigi_.x() > mario_.x();
         const Mario& leader = leaderIsLuigi ? luigi_ : mario_;
-        const float offset = randomRange(kCheepCheepJumpAheadOffsetMin, kCheepCheepJumpAheadOffsetMax);
-
-        // De que lado salta: moneda 50/50 -- la inclinacion segun
-        // caminando/corriendo (comportamiento real de SMB1) terminaba
-        // saltando casi siempre de atras en este escenario largo, porque en
-        // un nivel tan largo el personaje pasa la mayor parte del tiempo
-        // corriendo (Action::Run sostenido) para cruzarlo. Se saca el sesgo
-        // del todo para que se note bien mezclado sin importar la velocidad.
-        const bool spawnBehind = randomRange(0.0f, 1.0f) < 0.5f;
-        const bool travelingRight = leader.facingRight();
-        const float signedAheadOffset = travelingRight ? offset : -offset;
-        const float spawnX = leader.x() + (spawnBehind ? -signedAheadOffset : signedAheadOffset);
-
-        // Deriva propia (izquierda o derecha, ver el comentario de
-        // CheepCheep.h): alternada, no una moneda independiente cada vez --
-        // con moneda independiente una racha de varias seguidas al mismo
-        // lado es estadisticamente normal pero se nota mal en la practica
-        // (parece que "solo saltan para un lado").
-        cheepCheepJumpLastDriftRight_ = !cheepCheepJumpLastDriftRight_;
-        fish.spawn(spawnX, kCheepCheepJumpSpawnY, cheepCheepJumpLastDriftRight_);
+        const float speed = std::abs(leader.velocityX());
+        const int row = speed < 5.0f ? 0 : speed <= 90.0f ? 1 : 2;
+        const int pick = static_cast<int>(randomRange(0.0f, 3.999f));
+        const bool forward = leader.facingRight();
+        bool alongPlayer = true;
+        if (row == 0 && pick >= 2) alongPlayer = false;
+        // Las dos primeras de cada fila aparecen detras del jugador, las
+        // otras dos delante (sentido en el que mira).
+        const float offset = kOffsets[row][pick];
+        const float side = pick < 2 ? -1.0f : 1.0f;
+        const float spawnX = leader.x() + (forward ? side : -side) * offset;
+        const bool movingRight = forward == alongPlayer;
+        fish.spawn(spawnX, kCheepCheepJumpSpawnY, movingRight, kSpeeds[row][pick] * 3.75f);
         return;
     }
 }
 
-void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, float prevY) {
+void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, float /*prevY*/) {
     setScorer(character);
-    // Ver el comentario en checkGoombaCollision.
     if (character.isInDeathSequence()) return;
-    if (!bulletBill.isDangerous()) return;
-
-    const bool overlap = character.x() < bulletBill.x() + BulletBill::kSize &&
-                          character.x() + character.width() > bulletBill.x() &&
-                          character.y() < bulletBill.y() + BulletBill::kSize &&
-                          character.y() + character.height() > bulletBill.y();
-    if (!overlap) return;
-
-    // Con estrella: lo elimina de un toque, desde cualquier lado, sin
-    // pisoton (ver el mismo criterio en checkGoombaCollision).
-    if (character.isInvincible()) {
-        const bool flyRight = character.x() <= bulletBill.x();
-        killEnemyFalling(bulletBill, flyRight);
+    if (!bulletBill.isDangerous()) {
+        endContact(&bulletBill, &character);
         return;
     }
-    if (handleUnderwaterContactDamage(character)) return;
-
-    // Pisoton: SI se puede pisar (a diferencia de Blooper/Spiny/Pirana
-    // Plant, ver BulletBill.h) -- mismo criterio de "los pies ya estaban
-    // por encima" que el resto del elenco.
-    const bool fromAbove = (prevY + character.height()) <= bulletBill.y() + kStompLeewayPx &&
-                            character.velocityY() > 0.0f;
-    if (fromAbove) {
-        const bool flyRight = character.x() <= bulletBill.x();
-        killEnemyFalling(bulletBill, flyRight);
-        character.setVelocityY(kStompBounce);
-        return;
-    }
-
-    // De frente: dano (ver el comentario de la clase).
-    applyContactDamage(character);
+    resolveStompableContact(character, bulletBill, StompRule::FallingOrBelow, kStompBounce);
 }
 
 void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bulletBill) {
@@ -2566,6 +2432,9 @@ SDL_Point Game::findRespawnPoint(float aroundX, int characterHeight) const {
 }
 
 void Game::respawnNearestPlatform(Mario& character) {
+    enemyContacts_.erase(std::remove_if(enemyContacts_.begin(), enemyContacts_.end(),
+                                        [&](const auto& contact) { return contact.second == &character; }),
+                         enemyContacts_.end());
     // Preferentemente en el centro de la pantalla (en coordenadas de nivel:
     // hay que sumarle cuanto scrolleo la camara, si no siempre apunta al
     // centro de la PRIMERA pantalla aunque ya se haya avanzado de ahi), no
@@ -2829,6 +2698,8 @@ void Game::update(float dt) {
         resolveCharacterCollision();
     }
 
+    if (mario_.isGrounded()) stompChain_[0] = 0;
+    if (twoPlayerMode_ && luigi_.isGrounded()) stompChain_[1] = 0;
     updatePlatformRiders(mario_, marioPlatform_);
     if (twoPlayerMode_) updatePlatformRiders(luigi_, luigiPlatform_);
     checkPitDeath(mario_);
@@ -3743,6 +3614,33 @@ void Game::renderGameOver() {
     DebugFont::drawText(renderer_, (gLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
 }
 
+void Game::awardIndexedPoints(float x, float y, int index) {
+    static const char* const kPoints[] = {"100", "200", "400", "500", "800", "1000", "2000", "4000", "5000", "8000"};
+    if (index >= 11) {
+        ++livesCount_;
+        audio_.play(Sfx::OneUp);
+        spawnScorePopup(x, y, "1UP");
+        return;
+    }
+    spawnScorePopup(x, y, kPoints[std::clamp(index, 1, 10) - 1]);
+}
+
+void Game::awardStompPoints(Mario& character, float x, float y) {
+    int& chain = stompChain_[&character == &luigi_ ? 1 : 0];
+    ++chain;
+    awardIndexedPoints(x, y, chain);
+}
+
+int Game::kickShellPointsIndex(float idleRemaining) const {
+    // El original cuenta en intervalos de 21 cuadros (0.35 s): en el ultimo
+    // 8000, en el anteultimo 1000, antes 500; si no, 400.
+    const int intervals = static_cast<int>(idleRemaining / 0.35f);
+    if (intervals <= 0) return 10;
+    if (intervals == 1) return 6;
+    if (intervals == 2) return 4;
+    return 3;
+}
+
 void Game::awardEnemyPoints(float x, float y, int points) {
     spawnScorePopup(x, y, std::to_string(points));
 }
@@ -3790,6 +3688,8 @@ void Game::loadLevelData() {
     firebars_.clear();
     cheepJumpZones_.clear();
     lakituEndX_ = -1.0f;
+    lakituZoneActive_ = false;
+    lakituRespawnTimer_ = 0.0f;
     for (const LevelEntity& entity : level_.entities()) {
         if (entity.type == "firebar") {
             firebars_.push_back(Firebar{(static_cast<float>(entity.col) + 0.5f) * ts,
@@ -3845,6 +3745,9 @@ void Game::spawnLevelEntities() {
             });
         } else if (entity.type == "lakitu") {
             if (!lakitu_.isAlive()) lakitu_.spawn(x, static_cast<float>(entity.row) * ts, entity.movingRight);
+            lakituZoneActive_ = true;
+            lakituSpawnY_ = static_cast<float>(entity.row) * ts;
+            lakituRespawnTimer_ = 0.0f;
             spawned = true;
         } else if (entity.type == "blooper") {
             spawned = spawnInPool(bloopers_, [&](Blooper& blooper) {
@@ -3858,9 +3761,17 @@ void Game::spawnLevelEntities() {
             });
         } else if (entity.type == "podoboo") {
             spawned = spawnInPool(podoboos_, [&](Podoboo& podoboo) {
-                podoboo.spawn(x, static_cast<float>(entity.row) * ts);
+                // Como el original: sale de abajo de la pantalla.
+                podoboo.spawn(x, static_cast<float>(level_.heightPixels()));
             });
         } else if (entity.type == "bowser") {
+            {
+                const std::string& name = level_.name();
+                const int world = (!name.empty() && name[0] >= '1' && name[0] <= '8') ? name[0] - '0' : 1;
+                bowser_.setAttackMode(world >= 8   ? BowserAttackMode::Both
+                                      : world >= 6 ? BowserAttackMode::HammerOnly
+                                                   : BowserAttackMode::FireOnly);
+            }
             bowser_.spawn(x, feetY - static_cast<float>(Bowser::kHeight), entity.movingRight);
             spawned = true;
         } else if (entity.type == "axe") {
@@ -3979,8 +3890,24 @@ bool Game::inCheepJumpZone() const {
 }
 
 void Game::updateLakituZone() {
-    // Pasado el final de su zona, el Lakitu se va (deja de perseguir).
-    if (lakituEndX_ >= 0.0f && lakitu_.isAlive() && mario_.x() > lakituEndX_) lakitu_.reset();
+    if (!lakituZoneActive_) return;
+    // Pasado el final de su zona, el Lakitu se va y no vuelve.
+    if (lakituEndX_ >= 0.0f && mario_.x() > lakituEndX_) {
+        lakitu_.reset();
+        lakituZoneActive_ = false;
+        return;
+    }
+    // Como el original: si lo matan, al rato vuelve a aparecer por la
+    // derecha de la pantalla.
+    if (lakitu_.isAlive()) {
+        lakituRespawnTimer_ = 0.0f;
+        return;
+    }
+    lakituRespawnTimer_ += 1.0f / 60.0f;
+    if (lakituRespawnTimer_ >= kLakituRespawnDelay) {
+        lakituRespawnTimer_ = 0.0f;
+        lakitu_.spawn(cameraX_ + static_cast<float>(gLogicalWidth) + 16.0f, lakituSpawnY_, false);
+    }
 }
 
 void Game::renderDecorations(bool front) {

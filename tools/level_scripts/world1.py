@@ -58,7 +58,7 @@ def gen_1_4(path):
     lv.castle_ceiling(14, 30, (1, 2))
     lv.fill(18, 20, 13, 15, 'L')
     lv.ground(21, 30, top=10)
-    lv.enemy("firebar", 25, 10, length=6, speed=100)
+    lv.enemy("firebar", 25, 10, length=6, speed=105)
     lv.put(25, 10, 'S')
     lv.q(28, 6, "powerup")
     # Pasillo con techo bajo y barras de fuego.
@@ -66,7 +66,7 @@ def gen_1_4(path):
     lv.castle_ceiling(31, 70, (1, 7))
     for c in (40, 52, 64):
         lv.put(c, 13, 'S')
-        lv.enemy("firebar", c, 13, length=5, speed=-110 if c == 52 else 110)
+        lv.enemy("firebar", c, 13, length=5, speed=-105 if c == 52 else 105)
     # Pozo de lava con Podoboo y plataformas de bloques.
     lv.fill(71, 74, 13, 15, 'L')
     lv.enemy("podoboo", 72, 13)
@@ -77,7 +77,7 @@ def gen_1_4(path):
     lv.castle_ceiling(71, 112, (1, 3))
     for c in (95, 105):
         lv.put(c, 6, 'S')
-        lv.enemy("firebar", c, 6, length=6, speed=90)
+        lv.enemy("firebar", c, 6, length=6, speed=105)
     # Puente de Bowser.
     lv.castle_ceiling(113, 125, (1, 2))
     end = lv.bowser_bridge(113, 13, row=10)

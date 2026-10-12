@@ -72,7 +72,8 @@ public:
     // que se mide la caida (ver baseY_ en el comentario de la clase) -- normal
     // que quien la spawnee (Game.cpp) le pase una Y por debajo del borde
     // inferior de pantalla, no una posicion real del nivel.
-    void spawn(float x, float y, bool movingRight);
+    // driftSpeed: solo Jumping (px/s horizontal); <0 = kJumpDriftSpeed.
+    void spawn(float x, float y, bool movingRight, float driftSpeed = -1.0f);
     // Lo desactiva sin ninguna animacion de muerte: para cuando se cambia
     // de escenario de prueba y este no tiene que seguir vivo.
     void reset();
@@ -106,20 +107,20 @@ private:
     // Misma velocidad horizontal para las dos (a pedido del usuario, antes
     // Straight iba mas rapido) -- lo unico que las distingue ahora es el
     // vaiven vertical de Oscillating (ver el comentario de la clase).
-    static constexpr float kStraightSwimSpeed = 10.0f;     // px/s horizontal, SwimPattern::Straight
-    static constexpr float kOscillateDriftSpeed = 10.0f;   // px/s horizontal, SwimPattern::Oscillating
-    static constexpr float kOscillateAmplitude = 5.0f;     // px, vaiven corto de Oscillating
-    static constexpr float kOscillateFrequency = 1.2f;     // rad/s, vaiven lento de Oscillating
+    static constexpr float kStraightSwimSpeed = 15.0f;  // px/s: la gris, 0x40/256 px/cuadro
+    static constexpr float kOscillateDriftSpeed = 30.0f;  // px/s: la roja, 0x80/256 px/cuadro
+    static constexpr float kOscillateAmplitude = 14.0f;  // px: sube y baja 0x0e desde su altura
+    static constexpr float kOscillateFrequency = 0.536f;  // rad/s: ~7.5 px/s de velocidad vertical
 
     // Parabola ancha y alta (a pedido del usuario, en base al comportamiento
     // real de World 2-3/7-3/8-4 de SMB1 -- salta bien alto): gravedad propia
     // mas floja que kGravity de abajo (esa es solo para la caida al morir,
     // compartida con Swimming, no se toca para no afectar esa animacion).
-    static constexpr float kJumpDriftSpeed = 110.0f;     // px/s horizontal, Jumping -- deriva bien abierta
-    static constexpr float kJumpImpulse = -460.0f;       // px/s, envion inicial de Jumping
-    static constexpr float kJumpGravity = 700.0f;        // px/s^2, mas floja que kGravity -> parabola mas abierta
-    static constexpr float kGravity = 1000.0f;           // caida post-muerte (killFalling), las dos variantes
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kJumpDriftSpeed = 105.0f;  // px/s: tabla del original con el jugador caminando
+    static constexpr float kJumpImpulse = -300.0f;  // px/s: -5 px/cuadro, como el original
+    static constexpr float kJumpGravity = 183.0f;  // px/s^2: 0x0d/256 px/cuadro^2, como el original
+    static constexpr float kGravity = 394.0f;  // px/s^2: caida al derrotarla (0x1c)
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s
 
     static constexpr float kAnimFrameDuration = 0.15f;   // s por frame de nado/salto
     static constexpr float kFallKillHopImpulse = -180.0f;

@@ -79,8 +79,9 @@ public:
 
 private:
     static constexpr float kWalkSpeed = 30.0f;           // px/s, igual que el Goomba
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kEggGravity = 450.0f;  // px/s^2, original: 0x20 para el huevo
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;
     static constexpr float kFallKillHopImpulse = -180.0f;

@@ -37,8 +37,8 @@ public:
     static constexpr int kSize = 16;
 
 private:
-    static constexpr float kGravity = 900.0f;
-    static constexpr float kMaxFallSpeed = 400.0f;
+    static constexpr float kGravity = 225.0f;  // px/s^2: 0x10/256 px/cuadro^2, como el original
+    static constexpr float kMaxFallSpeed = 240.0f;  // px/s: 4 px/cuadro
     static constexpr float kSpinFrameDuration = 0.06f;  // s por frame de giro
 
     float x_ = 0.0f;

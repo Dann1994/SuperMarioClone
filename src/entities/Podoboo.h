@@ -54,9 +54,12 @@ public:
     static constexpr int kSize = 16;
 
 private:
-    static constexpr float kSubmergedDuration = 1.2f;  // s escondido antes de saltar
-    static constexpr float kJumpImpulse = -300.0f;      // px/s, envion inicial
-    static constexpr float kGravity = 700.0f;           // px/s^2
+    // Espera entre saltos al azar (original: 6 a 15 intervalos de 21 cuadros).
+    static constexpr float kSubmergedMin = 2.1f;
+    static constexpr float kSubmergedMax = 5.25f;
+    static constexpr float kSubmergedDuration = 0.35f;  // s: el primer salto sale casi enseguida
+    static constexpr float kJumpImpulse = -420.0f;  // px/s: -7 px/cuadro, como el original
+    static constexpr float kGravity = 394.0f;  // px/s^2: 0x1c/256 px/cuadro^2
 
     float x_ = 0.0f;
     float y_ = 0.0f;

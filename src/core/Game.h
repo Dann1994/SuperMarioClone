@@ -332,11 +332,47 @@ private:
     static int enemyPoints(const T&) { return 100; }
     static int enemyPoints(const HammerBro&) { return 1000; }
     static int enemyPoints(const Lakitu&) { return 800; }
-    static int enemyPoints(const Blooper&) { return 200; }
+    static int enemyPoints(const Blooper&) { return 1000; }
     static int enemyPoints(const CheepCheep&) { return 200; }
     static int enemyPoints(const BulletBill&) { return 200; }
     // Popup + puntaje (spawnScorePopup los suma) sobre el enemigo.
     void awardEnemyPoints(float x, float y, int points);
+    // Puntos de la tabla del original por indice: 1=100, 2=200, 3=400,
+    // 4=500, 5=800, 6=1000, 7=2000, 8=4000, 9=5000, 10=8000, 11 o mas = 1-UP.
+    void awardIndexedPoints(float x, float y, int index);
+    // Pisoton: la cadena sube con cada enemigo pisado sin tocar el piso
+    // (100, 200, 400...); se reinicia al apoyarse (ver Game::update).
+    void awardStompPoints(Mario& character, float x, float y);
+    // Patear un caparazon: 400, salvo que el Koopa este por salir (500,
+    // 1000 y 8000 en el ultimo instante, como el original).
+    int kickShellPointsIndex(float idleRemaining) const;
+    // Contacto personaje-Koopa/Buzzy Beetle con las reglas del original
+    // (ver checkKoopaCollision).
+    template <typename Shell>
+    void resolveShellEnemyContact(Mario& character, Shell& enemy, bool shellIdle);
+    // Cuando se puede pisar a un enemigo (PlayerEnemyCollision del original):
+    // Falling = solo cayendo (Goomba, Koopa, Hammer Bro); FallingOrBelow =
+    // cayendo, o si el enemigo esta claramente mas abajo aunque el jugador
+    // suba (Lakitu, Bill Bala, Cheep Cheep, Blooper); Never = siempre lastima.
+    enum class StompRule { Falling, FallingOrBelow, Never };
+    static bool isStompContact(const Mario& character, float enemyTop, StompRule rule);
+    // Contacto generico con un enemigo que al pisarlo cae volteado
+    // (killFalling): estrella lo voltea, pisoton lo voltea con rebote,
+    // si no lastima. Un contacto por encuentro (ver beginContact).
+    template <typename T>
+    void resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce);
+    // Contacto unico por encuentro (como el original): true solo el primer
+    // cuadro en que se tocan; endContact cuando dejan de tocarse.
+    bool beginContact(const void* enemy, const void* character);
+    void endContact(const void* enemy, const void* character);
+    // Un enemigo muerto por un caparazon: puntos de la cadena del caparazon.
+    template <typename T, typename Shell>
+    void killByShell(T& enemy, bool flyRight, Shell& shell) {
+        if (!enemy.killFalling(flyRight)) return;
+        audio_.play(Sfx::Kick);
+        setScorerFromKicker(shell.kicker());
+        awardIndexedPoints(enemy.x(), enemy.y(), shell.takeShellChain() + 4);
+    }
     // Pisoton (achata y hace rebotar) o dano de costado (como el hazard de
     // prueba), segun de donde venga el contacto.
     // prevY: character.y() de ANTES de moverse este frame (ver el comentario
@@ -896,6 +932,10 @@ private:
     std::array<int, 2> playerCoins_{};
     int scorer_ = 0;
     int levelFinisher_ = 0;
+    // Cadena de pisotones de cada jugador (se reinicia al apoyarse).
+    std::array<int, 2> stompChain_{};
+    // Pares (enemigo, personaje) que se estan tocando ahora (ver beginContact).
+    std::vector<std::pair<const void*, const void*>> enemyContacts_;
     int livesCount_ = 0;
     int score_ = 0;
     // Columna del checkpoint mas adelantado alcanzado en este nivel (-1 =
@@ -1149,6 +1189,10 @@ private:
     std::vector<std::pair<float, float>> cheepJumpZones_;
     // X donde el Lakitu del nivel se retira (-1: nunca).
     float lakituEndX_ = -1.0f;
+    // Zona del Lakitu en curso (para que vuelva si lo matan).
+    bool lakituZoneActive_ = false;
+    float lakituSpawnY_ = 48.0f;
+    float lakituRespawnTimer_ = 0.0f;
     // Castillo terminado: cartel del Toad (o el de la princesa en el 8-4).
     bool castleMessage_ = false;
     SpriteSheet sceneryTilesSprite_;

@@ -59,6 +59,10 @@ private:
     // Cuanto sube/baja como mucho (ver el comentario de la clase) y cuanto
     // tarda en llegar ahi apenas sale -- despues de esa ventana sigue
     // derecho, sin mas cambio vertical.
+    // Como el original: la llama sube o baja 1 px por cuadro hasta una de
+    // tres alturas al azar (32, 48 o 64 px por encima del piso de Bowser).
+    static constexpr float kVerticalSpeed = 60.0f;
+    float targetY_ = 0.0f;
     static constexpr float kVerticalShiftPixels = 10.0f;
     static constexpr float kVerticalShiftDuration = 0.2f;
     // Probabilidad de que le toque bajar (a pedido del usuario, mas seguido

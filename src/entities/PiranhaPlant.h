@@ -65,9 +65,9 @@ public:
     static constexpr int kHeight = 24;
 
 private:
-    static constexpr float kHiddenDuration = 2.5f;   // s escondida antes de intentar asomar
-    static constexpr float kUpDuration = 2.0f;       // s bien asomada
-    static constexpr float kTransitionDuration = 0.5f;  // s asomando/escondiendose
+    static constexpr float kHiddenDuration = 1.07f;  // s: 0x40 cuadros adentro, como el original
+    static constexpr float kUpDuration = 1.07f;  // s: 0x40 cuadros afuera
+    static constexpr float kTransitionDuration = 0.8f;  // s: 24 px a 1 px cada 2 cuadros
     static constexpr float kRetryDelay = 0.4f;       // s antes de reintentar si no era seguro asomar
     static constexpr float kBiteFrameDuration = 0.2f;   // s por frame de "muerde" (boca abierta/cerrada)
 

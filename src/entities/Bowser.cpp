@@ -23,6 +23,8 @@ void Bowser::spawn(float x, float y, bool movingRight) {
     x_ = x;
     y_ = y;
     spawnX_ = x;
+    patrolRange_ = randomPatrolRange();
+    flameTimerIndex_ = 0;
     groundY_ = y;
     velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;
     velY_ = 0.0f;
@@ -31,7 +33,7 @@ void Bowser::spawn(float x, float y, bool movingRight) {
     defeated_ = false;
     lastFacingRight_ = movingRight;
     jumpTimer_ = randomRange(kJumpIntervalMin, kJumpIntervalMax);
-    attackTimer_ = randomRange(kAttackIntervalMin, kAttackIntervalMax);
+    attackTimer_ = nextAttackDelay();
     attackWindupTimer_ = 0.0f;
     attackRecoverTimer_ = 0.0f;
     // Con Both arranca con fuego (da igual cual, se alterna de ahi en mas);
@@ -114,6 +116,20 @@ float Bowser::hammerOriginY() const { return y_; }
 float Bowser::hammerVelocityX() const { return lastFacingRight_ ? kHammerSpeedX : -kHammerSpeedX; }
 float Bowser::hammerVelocityY() const { return kHammerSpeedY; }
 
+float Bowser::randomPatrolRange() {
+    static const float kRanges[4] = {17.0f, 33.0f, 49.0f, 65.0f};
+    return kRanges[static_cast<int>(randomRange(0.0f, 3.999f))];
+}
+
+float Bowser::nextAttackDelay() {
+    // Original: una pausa de 0x20 cuadros y despues la espera de la tabla
+    // (0xbf o 0x40 cuadros) en un orden fijo que se repite.
+    static const float kTable[8] = {3.18f, 1.07f, 3.18f, 3.18f, 3.18f, 1.07f, 1.07f, 3.18f};
+    const float delay = 0.53f + kTable[flameTimerIndex_];
+    flameTimerIndex_ = (flameTimerIndex_ + 1) % 8;
+    return delay;
+}
+
 void Bowser::update(float dt, int screenHeight) {
     if (!alive_) return;
 
@@ -152,12 +168,14 @@ void Bowser::update(float dt, int screenHeight) {
         // comentario de la clase): rebota en esos bordes, no en tiles --
         // sigue caminando aunque este en el aire de un salto.
         x_ += velX_ * dt;
-        if (x_ <= spawnX_ - kPatrolRange) {
-            x_ = spawnX_ - kPatrolRange;
+        if (x_ <= spawnX_ - patrolRange_) {
+            x_ = spawnX_ - patrolRange_;
             velX_ = kWalkSpeed;
-        } else if (x_ >= spawnX_ + kPatrolRange) {
-            x_ = spawnX_ + kPatrolRange;
+            patrolRange_ = randomPatrolRange();
+        } else if (x_ >= spawnX_ + patrolRange_) {
+            x_ = spawnX_ + patrolRange_;
             velX_ = -kWalkSpeed;
+            patrolRange_ = randomPatrolRange();
         }
 
         // Los dos timers cuentan siempre, este en el aire o no (si no, un
@@ -225,7 +243,7 @@ void Bowser::update(float dt, int screenHeight) {
         attackRecoverTimer_ -= dt;
         if (attackRecoverTimer_ <= 0.0f) {
             attackRecoverTimer_ = 0.0f;
-            attackTimer_ = randomRange(kAttackIntervalMin, kAttackIntervalMax);
+            attackTimer_ = nextAttackDelay();
         }
     }
 }

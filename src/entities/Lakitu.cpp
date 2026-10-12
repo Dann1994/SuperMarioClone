@@ -14,6 +14,8 @@ void Lakitu::spawn(float x, float y, bool movingRight) {
     lastFacingRight_ = movingRight;
     catchingUp_ = false;
     hoverPhase_ = 0.0f;
+    moveRight_ = movingRight;
+    moveSpeed_ = 0.0f;
     throwTimer_ = kThrowInterval;
     throwWindupTimer_ = 0.0f;
     throwRequested_ = false;
@@ -60,45 +62,28 @@ void Lakitu::update(float dt, float targetX, float cameraScrollSpeed, int levelW
         return;
     }
 
-    // Sigue al personaje mas cercano en X (ver el comentario de la clase):
-    // normal la mayoria del tiempo, en rafaga mientras la camara esta
-    // scrolleando de verdad (o, sin scroll, si se quedo demasiado atras --
-    // ver kCatchUpThreshold).
+    // Persecucion del original (MoveLakitu/PlayerLakituDiff): la velocidad
+    // es mas alta cuanto MAS CERCA esta del personaje (base - distancia/4),
+    // con una base segun como se mueve la camara (quieta 21, lento 48,
+    // corriendo 64, en 1/16 px por cuadro). El sentido solo cambia cuando
+    // ya se paso 60 px: ahi frena de a una unidad por cuadro y recien en 0
+    // da la vuelta -- de ahi el vaiven por encima del jugador.
     const float center = x_ + static_cast<float>(kWidth) / 2.0f;
     const float diff = targetX - center;
-    const bool scrolling = std::abs(cameraScrollSpeed) > kScrollActiveThreshold;
-
-    if (scrolling) {
-        // Con scroll activo el sentido lo da la camara, no la diferencia de
-        // posiciones (ver el comentario de la clase) -- se reafirma todos
-        // los cuadros, no solo al arrancar la rafaga.
-        catchingUp_ = true;
-        catchUpRight_ = cameraScrollSpeed > 0.0f;
-    } else if (!catchingUp_ && std::abs(diff) > kCatchUpThreshold) {
-        catchingUp_ = true;
-        catchUpRight_ = diff > 0.0f;
-    }
-
-    if (catchingUp_) {
-        velX_ = catchUpRight_ ? kCatchUpSpeed : -kCatchUpSpeed;
-        lastFacingRight_ = catchUpRight_;
-        x_ += velX_ * dt;
-        // Termina cuando queda kAheadOffset por delante del personaje Y ya
-        // no hay scroll activo (ver el comentario de la clase) -- mientras
-        // la camara siga moviendose, sigue acompañandola aunque ya este
-        // adelante, en vez de frenar y quedarse atras de nuevo.
-        const float newDiff = targetX - (x_ + static_cast<float>(kWidth) / 2.0f);
-        const bool aheadEnough = catchUpRight_ ? (newDiff <= -kAheadOffset) : (newDiff >= kAheadOffset);
-        if (aheadEnough && !scrolling) {
-            catchingUp_ = false;
-        }
-    } else if (std::abs(diff) > kFollowDeadzone) {
-        velX_ = diff > 0.0f ? kFollowSpeed : -kFollowSpeed;
-        lastFacingRight_ = velX_ > 0.0f;
-        x_ += velX_ * dt;
+    const bool targetRight = diff > 0.0f;
+    const float distance = std::min(std::abs(diff), 60.0f);
+    if (distance >= 60.0f && targetRight != moveRight_ && moveSpeed_ > 0.0f) {
+        moveSpeed_ = std::max(0.0f, moveSpeed_ - 60.0f * dt);
+        if (moveSpeed_ <= 0.0f) moveRight_ = targetRight;
     } else {
-        velX_ = 0.0f;
+        if (distance >= 60.0f) moveRight_ = targetRight;
+        const float scroll = std::abs(cameraScrollSpeed);
+        const float base = scroll < kScrollActiveThreshold ? 21.0f : scroll <= 90.0f ? 48.0f : 64.0f;
+        moveSpeed_ = base - (std::floor(distance / 4.0f) + 1.0f);
     }
+    velX_ = (moveRight_ ? 1.0f : -1.0f) * moveSpeed_ * 3.75f;
+    lastFacingRight_ = targetRight;
+    x_ += velX_ * dt;
     x_ = std::clamp(x_, 0.0f, static_cast<float>(levelWidthPixels - kWidth));
 
     // Hamacado suave alrededor de la altura de spawn, no una fisica real

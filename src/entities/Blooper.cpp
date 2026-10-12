@@ -113,7 +113,10 @@ void Blooper::update(float dt, const Tilemap& level, float targetX, float target
             // Si el piso esta cerca no espera el timer (ver el comentario
             // de la clase): pasa a WindingUp de una para tener tiempo de
             // frenar antes de tocarlo.
-            if (phaseTimer_ <= 0.0f || isNearFloor(level)) {
+            // Como el original: se hunde hacia el jugador y recien se
+            // impulsa cuando el jugador esta a su altura o mas arriba (o si
+            // el piso quedo cerca).
+            if ((phaseTimer_ <= 0.0f && targetY <= y_ + 16.0f) || isNearFloor(level)) {
                 state_ = BlooperState::WindingUp;
                 phaseTimer_ = kWindupDuration;
             }
@@ -130,7 +133,7 @@ void Blooper::update(float dt, const Tilemap& level, float targetX, float target
                 state_ = BlooperState::Bursting;
                 phaseTimer_ = kBurstDuration;
                 const bool wantRight = targetX >= x_;
-                const bool wantDown = !isNearFloor(level) && targetY >= y_;
+                const bool wantDown = false;  // el original solo se impulsa para arriba
                 velX_ = wantRight ? kBurstSpeedX : -kBurstSpeedX;
                 velY_ = wantDown ? kBurstSpeedY : -kBurstSpeedY;
                 lastFacingRight_ = wantRight;
@@ -147,8 +150,9 @@ void Blooper::update(float dt, const Tilemap& level, float targetX, float target
     if (applyVerticalWithFloorCollision(dt, level) && state_ == BlooperState::Bursting) {
         backToResting();
     }
-    if (y_ < 0.0f) {
-        y_ = 0.0f;
+    // Mas arriba de la superficie (original: Y 0x20) no sube.
+    if (y_ < 48.0f) {
+        y_ = 48.0f;
         if (state_ == BlooperState::Bursting) backToResting();
     }
 

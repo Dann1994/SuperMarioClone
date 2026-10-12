@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <SDL.h>
 
 #include "../render/SpriteSheet.h"
@@ -86,6 +88,30 @@ public:
     // Quien lo pateo por ultima vez (el personaje, o nullptr): Game le
     // anota los enemigos que mata el caparazon.
     const void* kicker() const { return kicker_; }
+    // Contacto con un personaje, como el original: cuando empieza a tocarlo
+    // se procesa una vez y no vuelve a reaccionar con ese personaje hasta
+    // que se separan (asi patear o pisar no termina lastimando al toque
+    // siguiente). Uno por personaje: Mario y Luigi no se pisan.
+    bool isTouching(const void* character) const {
+        return touching_[0] == character || touching_[1] == character;
+    }
+    void setTouching(const void* character, bool on) {
+        for (const void*& slot : touching_) {
+            if (on && slot == nullptr) { slot = character; return; }
+            if (!on && slot == character) slot = nullptr;
+        }
+    }
+    // Cuanto falta para que salga del caparazon (decide los puntos de la
+    // patada, ver Game::kickShellPoints).
+    float shellIdleRemaining() const { return shellIdleTimer_; }
+    // Enemigos que ya mato este caparazon desde la ultima patada (los
+    // puntos suben con cada uno, como el original).
+    int takeShellChain() { return shellChain_++; }
+    // Se da vuelta (al lastimar a un personaje, si iba alejandose de el).
+    void turnAround() {
+        velX_ = -velX_;
+        if (velX_ != 0.0f) lastFacingRight_ = velX_ > 0.0f;
+    }
     // Estrella: se da vuelta y sale disparado en parabola hacia flyRight,
     // sin colision, hasta salir de pantalla (igual que Goomba/Koopa). El
     // fuego NO llega a llamar esto (ver el comentario de la clase).
@@ -107,12 +133,12 @@ public:
 
 private:
     static constexpr float kWalkSpeed = 30.0f;
-    static constexpr float kShellSpeed = 210.0f;
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kShellSpeed = 180.0f;  // px/s: 3 px/cuadro como el original (0x30)
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;
-    static constexpr float kShellIdleDuration = 8.0f;
+    static constexpr float kShellIdleDuration = 5.6f;  // s: 16 intervalos de 21 cuadros, como el original
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
     static constexpr float kPostStompCooldown = 0.4f;
@@ -129,6 +155,8 @@ private:
     float postStompCooldown_ = 0.0f;
     const void* stompCooldownOwner_ = nullptr;
     const void* kicker_ = nullptr;
+    std::array<const void*, 2> touching_{};
+    int shellChain_ = 0;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
 };

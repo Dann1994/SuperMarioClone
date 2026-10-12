@@ -166,6 +166,11 @@ void HammerBro::update(float dt, const Tilemap& level, int screenHeight) {
         animFrame_ = (animFrame_ + 1) % 2;
     }
 
+    walkFlipTimer_ -= dt;
+    if (walkFlipTimer_ <= 0.0f) {
+        walkFlipTimer_ += kWalkFlipInterval;
+        velX_ = -velX_;
+    }
     applyHorizontalWithWallBounce(dt, level);
 
     if (jumpCommitTimer_ > 0.0f) {

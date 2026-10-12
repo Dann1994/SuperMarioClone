@@ -28,18 +28,10 @@ void BowserFire::spawn(float x, float y, float velX, float maxY) {
     // fijo para todo el vuelo, no cambia a mitad de camino. La velocidad se
     // calcula para llegar justo a kVerticalShiftPixels de desvio al cabo de
     // kVerticalShiftDuration (ver update()): de ahi en mas sigue derecho.
-    const float roll = randomRange(0.0f, 1.0f);
-    const float upChance = kDownChance + (1.0f - kDownChance) / 2.0f;
-    if (roll < kDownChance) {
-        velY_ = kVerticalShiftPixels / kVerticalShiftDuration;
-        verticalShiftTimer_ = kVerticalShiftDuration;
-    } else if (roll < upChance) {
-        velY_ = -kVerticalShiftPixels / kVerticalShiftDuration;
-        verticalShiftTimer_ = kVerticalShiftDuration;
-    } else {
-        velY_ = 0.0f;
-        verticalShiftTimer_ = 0.0f;
-    }
+    static const float kTargetOffsets[4] = {32.0f, 48.0f, 64.0f, 32.0f};
+    targetY_ = maxY - kTargetOffsets[static_cast<int>(randomRange(0.0f, 3.999f))];
+    velY_ = 0.0f;
+    verticalShiftTimer_ = 0.0f;
     alive_ = true;
     animTimer_ = 0.0f;
     animFrame_ = 0;
@@ -49,15 +41,11 @@ void BowserFire::update(float dt, int screenWidth, int screenHeight) {
     if (!alive_) return;
 
     x_ += velX_ * dt;
-    if (verticalShiftTimer_ > 0.0f) {
-        verticalShiftTimer_ -= dt;
-        y_ = std::min(y_ + velY_ * dt, maxY_);
-        if (verticalShiftTimer_ <= 0.0f) {
-            // Ya se acomodo a la altura que le toco: de aca en mas, derecho
-            // (ver el comentario de la clase).
-            verticalShiftTimer_ = 0.0f;
-            velY_ = 0.0f;
-        }
+    // Se acomoda a su altura objetivo y despues sigue derecho.
+    if (y_ < targetY_) {
+        y_ = std::min(targetY_, y_ + kVerticalSpeed * dt);
+    } else if (y_ > targetY_) {
+        y_ = std::max(targetY_, y_ - kVerticalSpeed * dt);
     }
 
     animTimer_ += dt;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <SDL.h>
 
 #include "../render/SpriteSheet.h"
@@ -146,6 +148,30 @@ public:
     // Quien lo pateo por ultima vez (el personaje, o nullptr): Game le
     // anota los enemigos que mata el caparazon.
     const void* kicker() const { return kicker_; }
+    // Contacto con un personaje, como el original: cuando empieza a tocarlo
+    // se procesa una vez y no vuelve a reaccionar con ese personaje hasta
+    // que se separan (asi patear o pisar no termina lastimando al toque
+    // siguiente). Uno por personaje: Mario y Luigi no se pisan.
+    bool isTouching(const void* character) const {
+        return touching_[0] == character || touching_[1] == character;
+    }
+    void setTouching(const void* character, bool on) {
+        for (const void*& slot : touching_) {
+            if (on && slot == nullptr) { slot = character; return; }
+            if (!on && slot == character) slot = nullptr;
+        }
+    }
+    // Cuanto falta para que salga del caparazon (decide los puntos de la
+    // patada, ver Game::kickShellPoints).
+    float shellIdleRemaining() const { return shellIdleTimer_; }
+    // Enemigos que ya mato este caparazon desde la ultima patada (los
+    // puntos suben con cada uno, como el original).
+    int takeShellChain() { return shellChain_++; }
+    // Se da vuelta (al lastimar a un personaje, si iba alejandose de el).
+    void turnAround() {
+        velX_ = -velX_;
+        if (velX_ != 0.0f) lastFacingRight_ = velX_ > 0.0f;
+    }
     // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
     // flyRight, sin colision, hasta salir de pantalla (igual que Goomba).
     bool killFalling(bool flyRight);
@@ -189,16 +215,18 @@ private:
     void applyHorizontalWithWallBounce(float dt, const Tilemap& level, int hitboxHeight, bool fearsLedges);
 
     static constexpr float kWalkSpeed = 30.0f;                 // px/s, igual que el Goomba
-    static constexpr float kShellSpeed = 210.0f;                // px/s, caparazon deslizando
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kShellSpeed = 180.0f;  // px/s: 3 px/cuadro como el original (0x30)                // px/s, caparazon deslizando
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.25f;          // s por frame de caminata
     static constexpr float kFlyFrameDuration = 0.15f;           // s por frame de aleteo (mas rapido que caminar)
-    static constexpr float kFlyHoverAmplitude = 12.0f;          // px, cuanto sube/baja desde la altura de spawn
-    static constexpr float kFlyHoverSpeed = 2.5f;               // rad/s, velocidad del hamacado
-    static constexpr float kJumpHopImpulse = -220.0f;           // px/s, impulso de cada salto al aterrizar
-    static constexpr float kShellIdleDuration = 8.0f;           // s escondido antes de salir solo
+    static constexpr float kFlyHoverAmplitude = 48.0f;  // px: el original oscila 0x30 por encima/debajo de un centro
+    static constexpr float kFlyHoverSpeed = 1.32f;  // rad/s: ~1 px/cuadro de velocidad maxima, como el original
+    // Gravedad mientras salta (paratroopa verde): la de salto del original (0x1c).
+    static constexpr float kJumpGravity = 394.0f;
+    static constexpr float kJumpHopImpulse = -180.0f;  // px/s, original: -3 px/cuadro al aterrizar
+    static constexpr float kShellIdleDuration = 5.6f;  // s: 16 intervalos de 21 cuadros, como el original
     // Ultimo tramo escondido: parpadea entre shell1/shell2 como aviso de que
     // esta por salir (shell2 NO es una animacion de bamboleo continua, es
     // especificamente este aviso).
@@ -226,6 +254,8 @@ private:
     float postStompCooldown_ = 0.0f;
     const void* stompCooldownOwner_ = nullptr;
     const void* kicker_ = nullptr;
+    std::array<const void*, 2> touching_{};
+    int shellChain_ = 0;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
 };

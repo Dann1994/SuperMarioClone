@@ -86,11 +86,11 @@ class Castle:
 def gen_2_4(path):
     k = Castle("2-4")
     k.floor(14, top=8)
-    k.floor(4, top=10, ceil=(1, 2)).lava(3).floor(10, top=10, firebars=[(5, 10, 6, 100)], qs=[(3, 6, "powerup")])
+    k.floor(4, top=10, ceil=(1, 2)).lava(3).floor(10, top=10, firebars=[(5, 10, 6, 105)], qs=[(3, 6, "powerup")])
     k.lift(12, 10).floor(6, top=10)
-    k.corridor(40, firebars=[(8, 13, 5, -100), (20, 9, 5, 120), (32, 13, 5, 100)])
+    k.corridor(40, firebars=[(8, 13, 5, -105), (20, 9, 5, 148), (32, 13, 5, 105)])
     k.lava(4).floor(4, top=12).lava(4).floor(4, top=12).lava(4)
-    k.floor(22, top=10, firebars=[(8, 6, 6, 90), (16, 6, 6, -90)])
+    k.floor(22, top=10, firebars=[(8, 6, 6, 105), (16, 6, 6, -105)])
     k.bridge()
     k.save(path, 76)
 
@@ -98,12 +98,12 @@ def gen_2_4(path):
 def gen_3_4(path):
     k = Castle("3-4")
     k.floor(12, top=8)
-    k.floor(4, top=10).lava(4).floor(8, top=10, firebars=[(4, 6, 6, 110)])
+    k.floor(4, top=10).lava(4).floor(8, top=10, firebars=[(4, 6, 6, 105)])
     k.lava(3).floor(6, top=9, qs=[(3, 5, "powerup")]).lava(3)
-    k.corridor(36, firebars=[(6, 13, 5, 110), (14, 9, 5, -110), (22, 13, 5, 110), (30, 9, 5, -110)])
+    k.corridor(36, firebars=[(6, 13, 5, 105), (14, 9, 5, -105), (22, 13, 5, 105), (30, 9, 5, -105)])
     k.lift(14, 9, mode="vertical", range=4, period=3).floor(6, top=10)
     k.lava(4).floor(4, top=10).lava(4)
-    k.floor(24, top=10, firebars=[(6, 6, 6, 100), (14, 6, 6, 100)])
+    k.floor(24, top=10, firebars=[(6, 6, 6, 105), (14, 6, 6, 105)])
     k.bridge()
     k.save(path, 80)
 
@@ -113,12 +113,12 @@ def gen_4_4(path):
     # escaleras, sin el bucle que hace volver al principio.
     k = Castle("4-4")
     k.floor(12, top=8)
-    k.floor(18, top=10, ceil=(1, 5), firebars=[(8, 10, 6, -100)])
+    k.floor(18, top=10, ceil=(1, 5), firebars=[(8, 10, 6, -105)])
     k.lava(3).floor(14, top=8, ceil=(1, 2))
-    k.lava(4).corridor(20, firebars=[(6, 13, 5, 110), (14, 13, 5, -110)])
+    k.lava(4).corridor(20, firebars=[(6, 13, 5, 105), (14, 13, 5, -105)])
     k.floor(10, top=11).lava(3).floor(10, top=9, qs=[(5, 5, "powerup")])
     k.lift(12, 9).floor(4, top=10)
-    k.floor(24, top=10, firebars=[(5, 6, 6, 110), (12, 10, 6, -110), (19, 6, 6, 110)])
+    k.floor(24, top=10, firebars=[(5, 6, 6, 105), (12, 10, 6, -105), (19, 6, 6, 105)])
     k.bridge()
     k.save(path, 88)
 
@@ -126,12 +126,12 @@ def gen_4_4(path):
 def gen_5_4(path):
     k = Castle("5-4")
     k.floor(12, top=8)
-    k.floor(4, top=10).lava(4).floor(12, top=10, firebars=[(4, 10, 6, 120), (9, 6, 6, -120)])
+    k.floor(4, top=10).lava(4).floor(12, top=10, firebars=[(4, 10, 6, 148), (9, 6, 6, -148)])
     k.lava(4).floor(4, top=10).lava(4)
-    k.corridor(30, firebars=[(8, 9, 6, 120), (20, 9, 6, -120)], qs=[(14, 10, "powerup")])
+    k.corridor(30, firebars=[(8, 9, 6, 148), (20, 9, 6, -148)], qs=[(14, 10, "powerup")])
     k.lift(13, 10).floor(4, top=10).lift(13, 9)
-    k.floor(10, top=10, firebars=[(5, 10, 12, 80)])
-    k.lava(4).floor(20, top=10, firebars=[(10, 6, 6, 130)])
+    k.floor(10, top=10, firebars=[(5, 10, 12, 105)])
+    k.lava(4).floor(20, top=10, firebars=[(10, 6, 6, 148)])
     k.bridge()
     k.save(path, 78)
 
@@ -139,12 +139,12 @@ def gen_5_4(path):
 def gen_6_4(path):
     k = Castle("6-4")
     k.floor(12, top=8)
-    k.floor(4, top=10).lava(3).floor(4, top=10).lava(3).floor(10, top=10, firebars=[(5, 10, 6, -120)])
-    k.corridor(34, firebars=[(6, 13, 6, 120), (14, 9, 6, -120), (22, 13, 6, 120)],
+    k.floor(4, top=10).lava(3).floor(4, top=10).lava(3).floor(10, top=10, firebars=[(5, 10, 6, -148)])
+    k.corridor(34, firebars=[(6, 13, 6, 148), (14, 9, 6, -148), (22, 13, 6, 148)],
             qs=[(28, 10, "powerup")])
-    k.lift(14, 10).floor(6, top=9, firebars=[(3, 9, 6, 130)])
+    k.lift(14, 10).floor(6, top=9, firebars=[(3, 9, 6, 148)])
     k.lava(4).floor(4, top=10).lava(4).floor(4, top=10)
-    k.floor(22, top=10, firebars=[(4, 6, 6, 120), (11, 10, 6, -120), (18, 6, 6, 120)])
+    k.floor(22, top=10, firebars=[(4, 6, 6, 148), (11, 10, 6, -148), (18, 6, 6, 148)])
     k.bridge()
     k.save(path, 84)
 
@@ -153,12 +153,12 @@ def gen_7_4(path):
     # Laberinto simplificado (ver gen_4_4).
     k = Castle("7-4")
     k.floor(12, top=8)
-    k.floor(16, top=10, ceil=(1, 4), firebars=[(7, 10, 6, 120)])
+    k.floor(16, top=10, ceil=(1, 4), firebars=[(7, 10, 6, 148)])
     k.floor(20, top=7, ceil=(1, 2))
-    k.corridor(20, firebars=[(5, 13, 5, -120), (13, 13, 5, 120)], qs=[(10, 10, "powerup")])
+    k.corridor(20, firebars=[(5, 13, 5, -148), (13, 13, 5, 148)], qs=[(10, 10, "powerup")])
     k.lava(4).floor(4, top=11).lava(4).floor(4, top=10).lava(4)
     k.lift(14, 9).floor(6, top=10)
-    k.floor(24, top=10, firebars=[(4, 6, 6, 130), (12, 6, 6, -130), (20, 10, 6, 130)])
+    k.floor(24, top=10, firebars=[(4, 6, 6, 148), (12, 6, 6, -148), (20, 10, 6, 148)])
     k.bridge()
     k.save(path, 88)
 
@@ -168,13 +168,13 @@ def gen_8_4(path):
     # puente espera un Hammer Bro, como el original.
     k = Castle("8-4", time=400)
     k.floor(12, top=8)
-    k.floor(6, top=10).lava(4).floor(10, top=10, firebars=[(5, 10, 6, 130)])
+    k.floor(6, top=10).lava(4).floor(10, top=10, firebars=[(5, 10, 6, 148)])
     k.lava(4).floor(4, top=10).lava(4)
-    k.corridor(30, firebars=[(6, 13, 6, 130), (16, 9, 6, -130), (24, 13, 6, 130)],
+    k.corridor(30, firebars=[(6, 13, 6, 148), (16, 9, 6, -148), (24, 13, 6, 148)],
             qs=[(11, 10, "powerup")], enemies=[("buzzy", 20), ("buzzy", 27)])
     k.lift(13, 10).floor(4, top=10).lift(13, 9)
     k.floor(6, top=10).lava(4).floor(6, top=10).lava(4)
-    k.floor(24, top=10, firebars=[(4, 6, 6, 130), (12, 10, 6, -130)], enemies=[("podoboo", 18, 13)])
+    k.floor(24, top=10, firebars=[(4, 6, 6, 148), (12, 10, 6, -148)], enemies=[("podoboo", 18, 13)])
     k.bridge(hammer_bro=True)
     k.save(path, 90)
 

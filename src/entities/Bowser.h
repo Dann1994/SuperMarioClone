@@ -130,6 +130,13 @@ private:
     enum class AttackType { Fire, Hammer };
 
     static constexpr float kWalkSpeed = 15.0f;    // px/s, patrulla lenta
+    // Recorrido desde el punto de partida: el original elige uno al azar
+    // (0x11, 0x21, 0x31 o 0x41 px) cada vez que vuelve.
+    float patrolRange_ = 48.0f;
+    // Ritmo del fuego (tabla del original, SetFlameTimer): indice que cicla.
+    int flameTimerIndex_ = 0;
+    float nextAttackDelay();
+    static float randomPatrolRange();
     static constexpr float kPatrolRange = 48.0f;  // px a cada lado del punto de spawn
     static constexpr float kGravity = 1000.0f;  // caida al derrotarlo (killFalling), no toca el salto en vivo
     static constexpr float kMaxFallSpeed = 300.0f;
@@ -138,18 +145,18 @@ private:
     // brinquito -- misma altura de antes pero el doble de lento (mismo
     // criterio que CheepCheep::kJumpGravity, separada de kGravity de arriba
     // para no afectar la caida al derrotarlo).
-    static constexpr float kJumpImpulse = -160.0f;   // px/s
-    static constexpr float kJumpGravity = 320.0f;    // px/s^2
-    static constexpr float kJumpIntervalMin = 1.5f;
-    static constexpr float kJumpIntervalMax = 3.0f;
+    static constexpr float kJumpImpulse = -120.0f;  // px/s: -2 px/cuadro, como el original
+    static constexpr float kJumpGravity = 211.0f;  // px/s^2: caida lenta del original (0x0f)
+    static constexpr float kJumpIntervalMin = 0.28f;  // s: tabla del original (0x11..0x41 cuadros)
+    static constexpr float kJumpIntervalMax = 1.08f;  // s
     static constexpr float kWalkFrameDuration = 0.25f;
     static constexpr float kAttackIntervalMin = 2.0f;
     static constexpr float kAttackIntervalMax = 3.5f;
     static constexpr float kAttackWindupDuration = 0.4f;   // amague antes de atacar de verdad
     static constexpr float kAttackRecoverDuration = 0.3f;  // un toque despues del ataque
-    static constexpr float kFireSpeedX = 70.0f;
-    static constexpr float kHammerSpeedX = 50.0f;
-    static constexpr float kHammerSpeedY = -270.0f;  // arco hacia arriba, igual que HammerBro
+    static constexpr float kFireSpeedX = 75.0f;  // px/s: 1.25 px/cuadro, como el original
+    static constexpr float kHammerSpeedX = 60.0f;  // px/s: igual que el Hammer Bro (original)
+    static constexpr float kHammerSpeedY = -120.0f;  // px/s: igual que el Hammer Bro (original)
     // Rafaga de martillos (ver el comentario de la clase): cuantos y cada
     // cuanto, uno detras del otro.
     static constexpr int kHammerBurstCount = 8;

@@ -4,6 +4,9 @@
 #include <cmath>
 
 void Koopa::spawn(float x, float y, bool movingRight, KoopaState initialState) {
+    touching_ = {};
+    shellChain_ = 0;
+    kicker_ = nullptr;
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;
@@ -77,6 +80,7 @@ void Koopa::kick(bool kickRight, const void* character) {
     postStompCooldown_ = kPostStompCooldown;
     stompCooldownOwner_ = character;
     kicker_ = character;
+    shellChain_ = 0;
 }
 
 bool Koopa::killFalling(bool flyRight) {
@@ -179,8 +183,13 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
             animTimer_ -= kFlyFrameDuration;
             animFrame_ = (animFrame_ + 1) % 2;
         }
+        // Como el original: arranca quieto en su altura y baja hasta 2
+        // amplitudes (o sube, si aparecio en la mitad de abajo de la
+        // pantalla) y vuelve, frenando en las puntas.
         flyPhase_ += kFlyHoverSpeed * dt;
-        float intendedY = flyBaseY_ + std::sin(flyPhase_) * kFlyHoverAmplitude;
+        const float flyDirection = flyBaseY_ < 144.0f ? 1.0f : -1.0f;
+        const float flyAmplitude = flyDirection > 0.0f ? kFlyHoverAmplitude : kFlyHoverAmplitude * 2.0f / 3.0f;
+        float intendedY = flyBaseY_ + flyDirection * flyAmplitude * (1.0f - std::cos(flyPhase_));
 
         // Si el hamacado lo mete contra un tile solido (el borde de abajo
         // de una plataforma, o el piso), no lo atraviesa -- se clava justo
@@ -227,6 +236,9 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
             animFrame_ = (animFrame_ + 1) % 2;
         }
         applyHorizontalWithWallBounce(dt, level, kWalkHeight, color_ == KoopaColor::Red);
+        // Salta con la gravedad mas floja del original (kJumpGravity):
+        // applyVerticalPhysics suma kGravity, aca se descuenta la diferencia.
+        velY_ -= (kGravity - kJumpGravity) * dt;
         if (applyVerticalPhysics(dt, level, kWalkHeight)) {
             velY_ = kJumpHopImpulse;
         }

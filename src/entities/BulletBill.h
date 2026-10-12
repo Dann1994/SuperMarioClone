@@ -55,9 +55,9 @@ public:
     static constexpr int kSize = 16;
 
 private:
-    static constexpr float kSpeed = 60.0f;  // px/s, linea recta constante
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kSpeed = 90.0f;  // px/s: 0x18/16 px/cuadro, como el original
+    static constexpr float kGravity = 394.0f;  // px/s^2: caida al derrotarlo (0x1c)
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 

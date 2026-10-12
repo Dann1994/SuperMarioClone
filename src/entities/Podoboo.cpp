@@ -1,6 +1,7 @@
 #include "Podoboo.h"
 
 #include <cmath>
+#include <cstdlib>
 
 void Podoboo::spawn(float x, float baseY) {
     x_ = x;
@@ -32,7 +33,7 @@ void Podoboo::update(float dt) {
         // Volvio a hundirse en la lava: arranca el proximo ciclo.
         y_ = baseY_;
         state_ = PodobooState::Submerged;
-        timer_ = kSubmergedDuration;
+        timer_ = kSubmergedMin + (kSubmergedMax - kSubmergedMin) * static_cast<float>(std::rand()) / RAND_MAX;
     }
 }
 

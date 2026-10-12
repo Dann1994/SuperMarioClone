@@ -85,12 +85,12 @@ public:
     static constexpr int kHeight = 24;
 
 private:
-    static constexpr float kFloatDownSpeed = 15.0f;    // px/s, hundimiento en reposo (Resting/WindingUp), derecho hacia abajo
-    static constexpr float kRestDuration = 1.5f;       // s en Resting antes de empezar a agacharse de nuevo
-    static constexpr float kWindupDuration = 0.5f;     // s con los tentaculos recogidos antes de tirarse (WindingUp)
-    static constexpr float kBurstDuration = 0.4f;      // s que dura el envion (Bursting)
-    static constexpr float kBurstSpeedX = 110.0f;      // px/s horizontal durante el envion
-    static constexpr float kBurstSpeedY = 130.0f;      // px/s vertical durante el envion (arriba o abajo)
+    static constexpr float kFloatDownSpeed = 30.0f;  // px/s: se hunde 1 px cada 2 cuadros, como el original
+    static constexpr float kRestDuration = 0.7f;  // s: 2 intervalos (0x2) antes del proximo impulso
+    static constexpr float kWindupDuration = 0.15f;  // s: pose de tentaculos recogidos antes de impulsarse
+    static constexpr float kBurstDuration = 0.4f;  // s: 24 cuadros (velocidad 1, 2, 1 px/cuadro)
+    static constexpr float kBurstSpeedX = 80.0f;  // px/s: ~32 px en el impulso, como el original
+    static constexpr float kBurstSpeedY = 80.0f;  // px/s: ~32 px hacia arriba en el impulso
     // px: si el piso esta mas cerca que esto fuerza el aviso y el envion
     // para arriba. Igual a la altura de Mario/Luigi chico (Mario::kSmallHeight,
     // ver el comentario de la clase) en vez de un numero suelto: asi
@@ -98,8 +98,8 @@ private:
     // (el caso mas alto que puede estorbar, ver kFloorAvoidDistance).
     static constexpr float kFloorAvoidDistance = static_cast<float>(Mario::kSmallHeight);
     static constexpr float kEdgeEpsilon = 0.01f;
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kGravity = 211.0f;  // px/s^2: caida lenta del original al derrotarlo (0x0f)
+    static constexpr float kMaxFallSpeed = 120.0f;  // px/s: 2 px/cuadro
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 

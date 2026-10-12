@@ -75,7 +75,7 @@ void Spiny::update(float dt, const Tilemap& level, int screenHeight) {
         x_ += velX_ * dt;
     }
 
-    velY_ = std::min(velY_ + kGravity * dt, kMaxFallSpeed);
+    velY_ = std::min(velY_ + (state_ == SpinyState::Egg ? kEggGravity : kGravity) * dt, kMaxFallSpeed);
     float newY = y_ + velY_ * dt;
     if (velY_ > 0.0f) {
         const int col0 = static_cast<int>(std::floor(x_ / ts));

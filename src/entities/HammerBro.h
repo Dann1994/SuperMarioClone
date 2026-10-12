@@ -110,16 +110,19 @@ private:
     // comentario de la clase), asi que nunca devuelve true en ese lapso.
     bool applyVerticalPhysics(float dt, const Tilemap& level);
 
-    static constexpr float kWalkSpeed = 20.0f;           // px/s, mas lento que el resto: patrulla, no persigue
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    // Cada cuanto cambia de sentido la caminata (original: cada 64 cuadros).
+    static constexpr float kWalkFlipInterval = 1.07f;
+    float walkFlipTimer_ = kWalkFlipInterval;
+    static constexpr float kWalkSpeed = 15.0f;  // px/s: el original va y viene a 4/16 px/cuadro
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
     static constexpr float kWalkFrameDuration = 0.2f;
-    static constexpr float kJumpImpulse = -420.0f;       // px/s, salto normal (puede trepar)
+    static constexpr float kJumpImpulse = -360.0f;  // px/s: -6 px/cuadro (salto para subir), como el original
     // Salto mas corto/bajo para cuando le toca bajar (ver kDescendChance):
     // no hace falta tomar altura para atravesar la plataforma en la que ya
     // esta parado, un saltito chico alcanza.
-    static constexpr float kDescendJumpImpulse = -180.0f;
+    static constexpr float kDescendJumpImpulse = -180.0f;  // px/s: -3 px/cuadro (saltito para bajar)
     // s entre saltos, al azar en este rango cada vez (ver el comentario de
     // la clase -- 192-255 frames a 60fps en el original).
     static constexpr float kJumpIntervalMin = 3.2f;
@@ -131,19 +134,19 @@ private:
     // solo rebotar -- tiene que durar lo suficiente para todo el arco
     // (subida + bajada, ahora con kDescendJumpImpulse en vez de
     // kJumpImpulse) mas lo justo para despegarse del todo de esa plataforma.
-    static constexpr float kJumpCommitDuration = 0.5f;
-    static constexpr float kDescendCommitDuration = 0.55f;
+    static constexpr float kJumpCommitDuration = 0.53f;  // s: 0x20 cuadros atravesando plataformas
+    static constexpr float kDescendCommitDuration = 0.53f;  // s: 0x20 cuadros
     // Si esta parado sobre una plataforma (no el piso de verdad) al saltar,
     // probabilidad de que ese salto en particular sea el largo (baja) en
     // vez del corto (rebota/trepa).
     static constexpr float kDescendChance = 0.4f;
-    static constexpr float kThrowInterval = 1.1f;        // s entre martillos (un poco mas lento que el original)
+    static constexpr float kThrowInterval = 0.8f;  // s: 0x30 cuadros entre martillos, como el original
     // Cuanto lo sostiene levantado sobre la cabeza antes de tirarlo de
     // verdad (ver isWindingUp()) -- no cuenta como parte de kThrowInterval,
     // se suma aparte.
     static constexpr float kThrowWindupDuration = 0.18f;
-    static constexpr float kHammerSpeedX = 50.0f;        // px/s horizontal del martillo, hacia donde mira
-    static constexpr float kHammerSpeedY = -270.0f;      // px/s vertical inicial del martillo (arco hacia arriba)
+    static constexpr float kHammerSpeedX = 60.0f;  // px/s: 16/16 px/cuadro, como el original
+    static constexpr float kHammerSpeedY = -120.0f;  // px/s: -2 px/cuadro, como el original
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 

@@ -117,20 +117,24 @@ private:
     // misma X), para terminar realmente adelante y no al lado -- pero solo
     // si para entonces el scroll tambien ya se corto (ver update()).
     static constexpr float kAheadOffset = 24.0f;
-    static constexpr float kHoverAmplitude = 6.0f;        // px, cuanto sube/baja desde la altura de spawn
+    static constexpr float kHoverAmplitude = 0.0f;  // px: el original vuela a altura fija
     static constexpr float kHoverSpeed = 2.0f;            // rad/s, velocidad del hamacado
-    static constexpr float kThrowInterval = 2.2f;         // s entre huevos
+    static constexpr float kThrowInterval = 2.13f;  // s: 0x80 cuadros entre huevos, como el original
     // Cuanto se queda agachado antes de tirar de verdad (ver isWindingUp())
     // -- no cuenta como parte de kThrowInterval, se suma aparte.
     static constexpr float kThrowWindupDuration = 0.35f;
-    static constexpr float kEggSpeedX = 40.0f;            // px/s horizontal del huevo, hacia donde mira
-    static constexpr float kEggSpeedY = -170.0f;          // px/s vertical inicial del huevo (lo tira para arriba antes de que la gravedad lo haga caer)
+    static constexpr float kEggSpeedX = 1.0f;  // px/s: el original lo tira casi vertical; el signo decide hacia donde camina al nacer
+    static constexpr float kEggSpeedY = -180.0f;  // px/s: -3 px/cuadro, como el original
     static constexpr float kSpawnAboveOffset = 10.0f;      // px por encima de la cabeza donde aparece el huevo (ver throwOriginY)
-    static constexpr float kGravity = 1000.0f;
-    static constexpr float kMaxFallSpeed = 300.0f;
+    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
 
+    // Persecucion del original (MoveLakitu/PlayerLakituDiff): sentido y
+    // velocidad en unidades del original (1/16 px por cuadro).
+    bool moveRight_ = false;
+    float moveSpeed_ = 0.0f;
     float x_ = 0.0f;
     float y_ = 0.0f;
     float velX_ = 0.0f;
