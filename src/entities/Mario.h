@@ -120,6 +120,10 @@ public:
     void setVelocityX(float v) { velX_ = v; }
     void setVelocityY(float v) { velY_ = v; }
     void nudgeX(float dx) { x_ += dx; }
+    void nudgeY(float dy) { y_ += dy; }
+    // Para las animaciones que mueven al personaje desde Game (tuberia):
+    // apoyado se dibuja parado en vez de en pose de salto.
+    void setGrounded(bool grounded) { grounded_ = grounded; }
     // Plataformas moviles del nivel (rectangulos en px, ver
     // Game::updatePlatforms): moveAndCollide las trata como piso de un solo
     // sentido -- se apoya cayendo desde arriba, se atraviesan subiendo. Al

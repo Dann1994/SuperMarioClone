@@ -15,6 +15,8 @@ enum class Txt {
     Player1, Player2, Gamepad, Left, Right, Jump, Run, Down, PressKey, PressButton, ResetDefaults,
     // Carteles y ayudas
     CourseClear, EndOfDemo, ThanksForPlaying, MenuHint, ValueHint, BindHint, ComingSoon,
+    // Castillos (Toad) y final del juego (princesa, despues del 8-4)
+    ThankYouMario, PrincessElsewhere1, PrincessElsewhere2, QuestOver1, QuestOver2, TheEnd,
     Count
 };
 

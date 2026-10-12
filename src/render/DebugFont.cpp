@@ -79,28 +79,63 @@ const std::unordered_map<char, Glyph>& glyphTable() {
     return table;
 }
 
+// Fuente del Super Mario Bros. original, 8x8 por caracter (ver
+// tools/asset_scripts/smb_font.py, que genera la tabla).
+using SmbGlyph = std::array<uint8_t, 8>;
+
+const std::unordered_map<char, SmbGlyph>& smbGlyphTable() {
+    static const std::unordered_map<char, SmbGlyph> table = {
+#include "SmbFontGlyphs.inc"
+    };
+    return table;
+}
+
+void drawMiniText(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale) {
+    const int advance = 4 * scale;  // 3 de letra + 1 de separacion
+    int cursorX = x;
+    for (char c : text) {
+        auto it = glyphTable().find(c);
+        if (it != glyphTable().end()) {
+            const Glyph& glyph = it->second;
+            for (int row = 0; row < 5; ++row) {
+                for (int col = 0; col < 3; ++col) {
+                    if (!(glyph[row] & (1 << (2 - col)))) continue;
+                    SDL_Rect pixel{cursorX + col * scale, y + row * scale, scale, scale};
+                    SDL_RenderFillRect(renderer, &pixel);
+                }
+            }
+        }
+        cursorX += advance;
+    }
+}
+
 }  // namespace
 
 void DebugFont::drawText(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale, SDL_Color color) {
     SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-
-    const int glyphWidth = 3 * scale;
-    const int advance = glyphWidth + scale;  // un pixel de separacion entre letras
+    // Escala 1 (overlay de debug, textos chicos del editor): la fuente
+    // mini de 3x5, la de 8x8 no entra en 4 px.
+    if (scale < 2) {
+        drawMiniText(renderer, x, y, text, scale);
+        return;
+    }
+    // Mismo avance que antes (4 px por escala) para no desarmar ningun
+    // layout: en escala 2 la letra queda a tamano NES (8x8, 1 px por punto).
+    const float pixel = static_cast<float>(scale) / 2.0f;
+    const int advance = 4 * scale;
     int cursorX = x;
-
     for (char c : text) {
-        const auto& table = glyphTable();
-        auto it = table.find(c);
-        if (it == table.end()) {
-            cursorX += advance;
-            continue;
-        }
-        const Glyph& glyph = it->second;
-        for (int row = 0; row < 5; ++row) {
-            for (int col = 0; col < 3; ++col) {
-                if (glyph[row] & (1 << (2 - col))) {
-                    SDL_Rect pixel{cursorX + col * scale, y + row * scale, scale, scale};
-                    SDL_RenderFillRect(renderer, &pixel);
+        // Minusculas como mayusculas, salvo la "x" chica del HUD.
+        const char key = (c >= 'a' && c <= 'z' && c != 'x') ? static_cast<char>(c - 'a' + 'A') : c;
+        auto it = smbGlyphTable().find(key);
+        if (it != smbGlyphTable().end()) {
+            const SmbGlyph& glyph = it->second;
+            for (int row = 0; row < 8; ++row) {
+                for (int col = 0; col < 8; ++col) {
+                    if (!(glyph[row] & (0x80 >> col))) continue;
+                    SDL_FRect dot{static_cast<float>(cursorX) + col * pixel, static_cast<float>(y) + row * pixel,
+                                  pixel, pixel};
+                    SDL_RenderFillRectF(renderer, &dot);
                 }
             }
         }

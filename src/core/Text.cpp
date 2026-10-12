@@ -17,7 +17,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"1 JUGADOR", "1 PLAYER GAME"},
     {"2 JUGADORES", "2 PLAYER GAME"},
     {"CONTINUAR", "CONTINUE"},
-    {"SELECCIONAR MUNDO", "WORLD SELECT"},
+    {"ELEGIR MUNDO", "WORLD SELECT"},
     {"CONFIGURACION", "OPTIONS"},
     {"MODO PRUEBA", "TEST MODE"},
     {"CREDITOS", "CREDITS"},
@@ -65,6 +65,13 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"< > : CAMBIAR VALOR", "< > : CHANGE VALUE"},
     {"ENTER / A: CAMBIAR    ESC / B: VOLVER", "ENTER / A: CHANGE    ESC / B: BACK"},
     {"(PROXIMAMENTE)", "(COMING SOON)"},
+
+    {"GRACIAS MARIO!", "THANK YOU MARIO!"},
+    {"PERO NUESTRA PRINCESA ESTA", "BUT OUR PRINCESS IS IN"},
+    {"EN OTRO CASTILLO!", "ANOTHER CASTLE!"},
+    {"TU AVENTURA TERMINO.", "YOUR QUEST IS OVER."},
+    {"TE DAMOS UNA NUEVA AVENTURA!", "WE PRESENT YOU A NEW QUEST."},
+    {"FIN", "THE END"},
 }};
 
 }  // namespace

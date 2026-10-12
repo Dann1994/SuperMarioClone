@@ -3,9 +3,9 @@
 #include <SDL.h>
 #include <string>
 
-// Fuente bitmap minima (3x5 px por caracter) para overlays de debug (FPS,
-// etc). No depende de ningun asset externo, asi que esta disponible desde
-// el arranque del proyecto, antes de tener fuentes reales para los menus.
+// Texto del juego: la fuente del Super Mario Bros. original (8x8, ver
+// SmbFontGlyphs.inc) desde escala 2, y una mini de 3x5 en escala 1 (overlay
+// de debug, editor). El avance es siempre 4 px por escala.
 namespace DebugFont {
 
 void drawText(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale, SDL_Color color);

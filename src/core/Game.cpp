@@ -81,11 +81,21 @@ constexpr float kLevelIntroDuration = 2.0f;
 constexpr float kGameOverDuration = 4.0f;
 // Lo que dura el jingle de "entrar a la tuberia" de la intro (into_pipe.ogg).
 constexpr float kIntroPipeDuration = 3.6f;
+// Animacion de tuberia: cuanto tarda en hundirse/entrar y en salir, y
+// cuanto puede estar corrido del centro del cano para poder bajar.
+constexpr float kPipeEnterDuration = 0.8f;
+constexpr float kPipeExitDuration = 0.8f;
+constexpr float kPipeCenterTolerance = 6.0f;
 
 // Castillo: cada cuanto se cae un tramo del puente y cuanto se espera
 // despues de que Bowser cae a la lava antes de cerrar el nivel.
 constexpr float kBridgeCollapseInterval = 0.07f;
 constexpr float kCastleClearDelay = 2.5f;
+// Canones de Bill Bala: cada cuanto disparan y a que distancia del
+// personaje dejan de hacerlo.
+constexpr float kCannonIntervalMin = 2.5f;
+constexpr float kCannonIntervalMax = 4.5f;
+constexpr float kCannonSafeDistance = 40.0f;
 
 // Piezas de escenografia (assets/sprites/scenery_<type>.png, ver
 // tools/asset_scripts/gen_scenery.py), mismo orden que
@@ -555,6 +565,11 @@ bool Game::init() {
     if (!lavaSprite_.loadFromFile(renderer_, "assets/sprites/lava.png", 16, 16)) return false;
     if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
     if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
+    if (!sceneryTilesSprite_.loadFromFile(renderer_, "assets/sprites/scenery_tiles.png", 16, 16)) return false;
+    if (!titleLogoSprite_.loadFromFile(renderer_, "assets/sprites/title_logo.png", 176, 88)) return false;
+    if (!titleCursorSprite_.loadFromFile(renderer_, "assets/sprites/title_cursor.png", 8, 8)) return false;
+    if (!hudCoinSprite_.loadFromFile(renderer_, "assets/sprites/hud_coin.png", 8, 8)) return false;
+    if (!introMarioSprite_.loadFromFile(renderer_, "assets/sprites/mario_small.png", 16, 16)) return false;
     for (int i = 0; i < kDecorationCount; ++i) {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
@@ -641,6 +656,7 @@ void Game::loadScenario(TestScenario scenario) {
     bridgeCollapsing_ = false;
     bridgeTilesToCollapse_.clear();
     castleClearTimer_ = 0.0f;
+    castleMessage_ = false;
     marioPlatform_ = -1;
     luigiPlatform_ = -1;
     platformRects_.clear();
@@ -706,19 +722,22 @@ void Game::loadScenario(TestScenario scenario) {
     koopaJumping_.reset();
     koopaRed_.reset();
     koopaRedFlying_.reset();
-    buzzyBeetle_.reset();
-    piranhaPlant_.reset();
-    hammerBro_.reset();
+    for (BuzzyBeetle& buzzy : buzzyBeetles_) buzzy.reset();
+    for (PiranhaPlant& plant : piranhaPlants_) plant.reset();
+    for (HammerBro& bro : hammerBros_) bro.reset();
     for (Hammer& hammer : hammers_) hammer.reset();
     lakitu_.reset();
     for (Spiny& spiny : spinies_) spiny.reset();
-    blooper_.reset();
+    for (Blooper& blooper : bloopers_) blooper.reset();
     cheepCheepSwim_.reset();
     cheepCheepSwimOsc_.reset();
+    for (CheepCheep& fish : levelCheeps_) fish.reset();
     for (CheepCheep& fish : cheepCheepJumps_) fish.reset();
-    bulletBillA_.reset();
-    bulletBillB_.reset();
-    podoboo_.reset();
+    // Margen antes del primer Cheep Cheep saltarin (en una zona "cheep_jump"
+    // que empieza enseguida no sale uno encima del personaje al arrancar).
+    cheepCheepJumpSpawnTimer_ = kCheepCheepJumpIntervalMax;
+    for (BulletBill& bill : bulletBills_) bill.reset();
+    for (Podoboo& podoboo : podoboos_) podoboo.reset();
     bowser_.reset();
     for (BowserFire& fire : bowserFires_) fire.reset();
     axe_.reset();
@@ -771,6 +790,7 @@ void Game::loadScenario(TestScenario scenario) {
     // principio, no reapareciendo en un checkpoint.
     cutscene_ = level_.introArea() >= 0 && checkpointCol_ < 0;
     pipeTransitionTimer_ = 0.0f;
+    pipeAnim_ = PipeAnim{};
     input1_.setScripted(cutscene_, {Action::MoveRight});
     input2_.setScripted(cutscene_, {Action::MoveRight});
     appStateTimer_ = kLevelIntroDuration;
@@ -1601,30 +1621,30 @@ bool Game::isSafeForPiranhaPlant(const PiranhaPlant& plant) const {
     return true;
 }
 
-void Game::checkHammerBroCollision(Mario& character, float prevY) {
+void Game::checkHammerBroCollision(Mario& character, HammerBro& bro, float prevY) {
     if (character.isInDeathSequence()) return;
-    if (!hammerBro_.isDangerous()) return;
+    if (!bro.isDangerous()) return;
 
-    const bool overlap = character.x() < hammerBro_.x() + hammerBro_.width() &&
-                          character.x() + character.width() > hammerBro_.x() &&
-                          character.y() < hammerBro_.y() + hammerBro_.height() &&
-                          character.y() + character.height() > hammerBro_.y();
+    const bool overlap = character.x() < bro.x() + bro.width() &&
+                          character.x() + character.width() > bro.x() &&
+                          character.y() < bro.y() + bro.height() &&
+                          character.y() + character.height() > bro.y();
     if (!overlap) return;
 
     // Cualquier forma de matarlo usa la misma parabola (ver HammerBro.h):
     // no hay caparazon ni frame de achatado propio en el arte fuente.
     if (character.isInvincible()) {
-        const bool flyRight = character.x() <= hammerBro_.x();
-        killEnemyFalling(hammerBro_, flyRight);
+        const bool flyRight = character.x() <= bro.x();
+        killEnemyFalling(bro, flyRight);
         return;
     }
     if (handleUnderwaterContactDamage(character)) return;
 
-    const bool fromAbove = (prevY + character.height()) <= hammerBro_.y() + kStompLeewayPx &&
+    const bool fromAbove = (prevY + character.height()) <= bro.y() + kStompLeewayPx &&
                             character.velocityY() > 0.0f;
     if (fromAbove) {
-        const bool flyRight = character.x() <= hammerBro_.x();
-        killEnemyFalling(hammerBro_, flyRight);
+        const bool flyRight = character.x() <= bro.x();
+        killEnemyFalling(bro, flyRight);
         character.setVelocityY(kStompBounce);
         return;
     }
@@ -1632,18 +1652,18 @@ void Game::checkHammerBroCollision(Mario& character, float prevY) {
     applyContactDamage(character);
 }
 
-void Game::checkFireballHammerBroCollision(Fireball& fireball) {
+void Game::checkFireballHammerBroCollision(Fireball& fireball, HammerBro& bro) {
     if (!fireball.isAlive() || fireball.isExploding()) return;
-    if (!hammerBro_.isDangerous()) return;
+    if (!bro.isDangerous()) return;
 
-    const bool overlap = fireball.x() < hammerBro_.x() + hammerBro_.width() &&
-                          fireball.x() + Fireball::kSize > hammerBro_.x() &&
-                          fireball.y() < hammerBro_.y() + hammerBro_.height() &&
-                          fireball.y() + Fireball::kSize > hammerBro_.y();
+    const bool overlap = fireball.x() < bro.x() + bro.width() &&
+                          fireball.x() + Fireball::kSize > bro.x() &&
+                          fireball.y() < bro.y() + bro.height() &&
+                          fireball.y() + Fireball::kSize > bro.y();
     if (!overlap) return;
 
-    const bool flyRight = fireball.x() <= hammerBro_.x();
-    killEnemyFalling(hammerBro_, flyRight);
+    const bool flyRight = fireball.x() <= bro.x();
+    killEnemyFalling(bro, flyRight);
     fireball.explode();
 }
 
@@ -2039,6 +2059,7 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     // killByAxe() sobre un Bowser que ya no es "dangerous".
     axe.collect();
     levelEnding_ = true;
+    castleMessage_ = true;
     if (level_.hasAnyBridge()) {
         startBridgeCollapse();
         return;
@@ -2065,11 +2086,13 @@ void Game::checkPipeWarp(Mario& character, Input& input) {
 
     for (const PipeWarp& warp : pipeWarps_) {
         if (warp.side || warp.row != row) continue;
-        // Cualquiera de las dos mitades del tope (warp.col o warp.col + 1).
         if (col1 < warp.col || col0 > warp.col + 1) continue;
         if (!level_.isPipeTopTile(warp.col, warp.row)) continue;  // por si el nivel cambio
-        audio_.play(Sfx::Pipe);
-        performWarp(character, warp);
+        // Como el original: hay que estar parado en el medio del cano.
+        const float pipeCenter = static_cast<float>(warp.col * ts + ts);
+        const float center = character.x() + static_cast<float>(character.width()) / 2.0f;
+        if (std::abs(center - pipeCenter) > kPipeCenterTolerance) continue;
+        startPipeEnter(character, warp);
         return;
     }
 }
@@ -2093,10 +2116,93 @@ void Game::checkSideWarp(Mario& character) {
             pipeTransitionTimer_ = kIntroPipeDuration;
             audio_.playMusic(Music::IntoPipe, false);
         } else {
-            audio_.play(Sfx::Pipe);
-            performWarp(character, warp);
+            startPipeEnter(character, warp);
         }
         return;
+    }
+}
+
+void Game::startPipeEnter(Mario& character, const PipeWarp& warp) {
+    audio_.play(Sfx::Pipe);
+    pipeAnim_ = PipeAnim{};
+    pipeAnim_.active = true;
+    pipeAnim_.character = &character;
+    pipeAnim_.warp = warp;
+    pipeAnim_.timer = kPipeEnterDuration;
+    character.setVelocityX(0.0f);
+    character.setVelocityY(0.0f);
+    character.setGrounded(true);
+    if (warp.side) {
+        // Lateral: sigue caminando hacia adentro hasta quedar tapado.
+        character.setFacingRight(true);
+        pipeAnim_.velX = static_cast<float>(level_.tileSize() + character.width()) / kPipeEnterDuration;
+    } else {
+        // Vertical: centrado en el cano, se hunde su propio alto.
+        const float ts = static_cast<float>(level_.tileSize());
+        character.nudgeX(static_cast<float>(warp.col) * ts + ts - static_cast<float>(character.width()) / 2.0f -
+                         character.x());
+        pipeAnim_.velY = static_cast<float>(character.height()) / kPipeEnterDuration;
+    }
+}
+
+void Game::updatePipeAnim(float dt) {
+    Mario& character = *pipeAnim_.character;
+    character.nudgeX(pipeAnim_.velX * dt);
+    character.nudgeY(pipeAnim_.velY * dt);
+    character.setGrounded(true);
+    pipeAnim_.timer -= dt;
+    if (pipeAnim_.timer > 0.0f) return;
+
+    if (pipeAnim_.exiting) {
+        // Termino de salir: sigue el juego.
+        pipeAnim_ = PipeAnim{};
+        return;
+    }
+    performWarp(character, pipeAnim_.warp);
+    // Si el destino esta sobre una tuberia, sale de ella (arranca adentro
+    // y sube su propio alto); si no, aparece normal (por ejemplo cayendo en
+    // un cuarto subterraneo).
+    const int ts = level_.tileSize();
+    const int centerX = static_cast<int>(character.x()) + character.width() / 2;
+    int col = centerX / ts;
+    for (int row = static_cast<int>(character.y()) / ts; row < level_.heightTiles(); ++row) {
+        if (!level_.isSolidTile(col, row)) continue;
+        if (level_.isPipeTopTile(col, row)) {
+            const int left = level_.isPipeLeftHalf(col, row) ? col : col - 1;
+            const float pipeTop = static_cast<float>(row * ts);
+            character.spawn(static_cast<float>(left * ts + ts) - static_cast<float>(character.width()) / 2.0f,
+                            pipeTop);
+            character.setGrounded(true);
+            audio_.play(Sfx::Pipe);
+            pipeAnim_.exiting = true;
+            pipeAnim_.velX = 0.0f;
+            pipeAnim_.velY = -static_cast<float>(character.height()) / kPipeExitDuration;
+            pipeAnim_.timer = kPipeExitDuration;
+            return;
+        }
+        break;
+    }
+    pipeAnim_ = PipeAnim{};
+}
+
+void Game::keepCharacterInsideArea(Mario& character) {
+    if (character.isInDeathSequence() || character.isOnFlagpole()) return;
+    const std::vector<LevelArea>& areas = level_.areas();
+    const float ts = static_cast<float>(level_.tileSize());
+    float minX = 0.0f;
+    float maxX = static_cast<float>(level_.widthPixels());
+    const int index = areaIndexAt(character.x() + static_cast<float>(character.width()) / 2.0f);
+    if (index >= 0 && index < static_cast<int>(areas.size())) {
+        minX = static_cast<float>(areas[static_cast<size_t>(index)].startCol) * ts;
+        maxX = static_cast<float>(areas[static_cast<size_t>(index)].endCol + 1) * ts;
+    }
+    maxX -= static_cast<float>(character.width());
+    if (character.x() < minX) {
+        character.nudgeX(minX - character.x());
+        if (character.velocityX() < 0.0f) character.setVelocityX(0.0f);
+    } else if (character.x() > maxX) {
+        character.nudgeX(maxX - character.x());
+        if (character.velocityX() > 0.0f) character.setVelocityX(0.0f);
     }
 }
 
@@ -2207,12 +2313,15 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
             koopa->killFalling(true);
         }
     }
-    if (buzzyBeetle_.isDangerous() &&
-        onTop(buzzyBeetle_.x(), buzzyBeetle_.y(), BuzzyBeetle::kSize, BuzzyBeetle::kSize)) {
-        killEnemyFalling(buzzyBeetle_, true);
+    for (BuzzyBeetle& buzzy : buzzyBeetles_) {
+        if (buzzy.isDangerous() && onTop(buzzy.x(), buzzy.y(), BuzzyBeetle::kSize, BuzzyBeetle::kSize)) {
+            killEnemyFalling(buzzy, true);
+        }
     }
-    if (hammerBro_.isDangerous() && onTop(hammerBro_.x(), hammerBro_.y(), HammerBro::kWidth, HammerBro::kHeight)) {
-        killEnemyFalling(hammerBro_, true);
+    for (HammerBro& bro : hammerBros_) {
+        if (bro.isDangerous() && onTop(bro.x(), bro.y(), HammerBro::kWidth, HammerBro::kHeight)) {
+            killEnemyFalling(bro, true);
+        }
     }
     for (Spiny& spiny : spinies_) {
         if (spiny.isDangerous() && onTop(spiny.x(), spiny.y(), Spiny::kSize, Spiny::kSize)) {
@@ -2430,8 +2539,11 @@ void Game::respawnNearestPlatform(Mario& character) {
 
 void Game::placeCharactersAtStart() {
     if (checkpointCol_ < 0) {
-        mario_.spawn(kMarioSpawnX, kMarioSpawnY);
-        luigi_.spawn(kLuigiSpawnX, kLuigiSpawnY);
+        // Parados sobre el piso de entrada (no cayendo desde arriba).
+        const SDL_Point marioPoint = findRespawnPoint(kMarioSpawnX + 1.0f, mario_.height());
+        mario_.spawn(static_cast<float>(marioPoint.x), static_cast<float>(marioPoint.y));
+        const SDL_Point luigiPoint = findRespawnPoint(kLuigiSpawnX + 1.0f, luigi_.height());
+        luigi_.spawn(static_cast<float>(luigiPoint.x), static_cast<float>(luigiPoint.y));
     } else {
         // Parados sobre el piso de la columna del checkpoint (o la mas
         // cercana con piso, ver findRespawnPoint), Luigi un poco atras.
@@ -2599,6 +2711,11 @@ void Game::update(float dt) {
         updateBridgeCollapse(dt);
         return;
     }
+    if (pipeAnim_.active) {
+        updatePipeAnim(dt);
+        updateCamera(dt);
+        return;
+    }
 
     // Congelado (secuencias de danio/crecer, o alguien que "muere del
     // todo"): todo lo demas se pausa. En 2P eso es cuando mueren los dos a
@@ -2684,6 +2801,8 @@ void Game::update(float dt) {
 
     updateCamera(dt);
     keepCharactersOnScreen();
+    keepCharacterInsideArea(mario_);
+    if (twoPlayerMode_) keepCharacterInsideArea(luigi_);
     spawnLevelEntities();
 
     // Emergiendo de un bloque (ver ItemEmerge en Game.h): la reposiciona a
@@ -2755,36 +2874,43 @@ void Game::update(float dt) {
         cullIfLeftBehindReset(goomba, static_cast<float>(Goomba::kSize), cameraX_);
     }
 
-    buzzyBeetle_.update(dt, level_, kWorldViewBottom);
-    checkBuzzyBeetleCollision(mario_, buzzyBeetle_, marioPrevY);
-    if (twoPlayerMode_) checkBuzzyBeetleCollision(luigi_, buzzyBeetle_, luigiPrevY);
-    for (Goomba& goomba : goombas_) {
-        checkBuzzyShellVsGoomba(buzzyBeetle_, goomba);
-        checkGoombaBuzzyBeetleBounce(goomba, buzzyBeetle_);
-    }
-    cullIfLeftBehindReset(buzzyBeetle_, static_cast<float>(BuzzyBeetle::kSize), cameraX_);
-
-    piranhaPlant_.update(dt, isSafeForPiranhaPlant(piranhaPlant_));
-    checkPiranhaPlantCollision(mario_, piranhaPlant_);
-    if (twoPlayerMode_) checkPiranhaPlantCollision(luigi_, piranhaPlant_);
-
-    hammerBro_.update(dt, level_, kWorldViewBottom);
-    // Mira al personaje mas cercano (ver el comentario de faceTowards),
-    // independiente de hacia donde este caminando.
-    if (twoPlayerMode_ && std::abs(luigi_.x() - hammerBro_.x()) < std::abs(mario_.x() - hammerBro_.x())) {
-        hammerBro_.faceTowards(luigi_.x());
-    } else {
-        hammerBro_.faceTowards(mario_.x());
-    }
-    checkHammerBroCollision(mario_, marioPrevY);
-    if (twoPlayerMode_) checkHammerBroCollision(luigi_, luigiPrevY);
-    if (hammerBro_.consumeThrowRequest()) {
-        for (Hammer& hammer : hammers_) {
-            if (hammer.isAlive()) continue;
-            hammer.spawn(hammerBro_.throwOriginX(), hammerBro_.throwOriginY(), hammerBro_.throwVelocityX(),
-                         hammerBro_.throwVelocityY());
-            break;
+    for (BuzzyBeetle& buzzy : buzzyBeetles_) {
+        buzzy.update(dt, level_, kWorldViewBottom);
+        checkBuzzyBeetleCollision(mario_, buzzy, marioPrevY);
+        if (twoPlayerMode_) checkBuzzyBeetleCollision(luigi_, buzzy, luigiPrevY);
+        for (Goomba& goomba : goombas_) {
+            checkBuzzyShellVsGoomba(buzzy, goomba);
+            checkGoombaBuzzyBeetleBounce(goomba, buzzy);
         }
+        cullIfLeftBehindReset(buzzy, static_cast<float>(BuzzyBeetle::kSize), cameraX_);
+    }
+
+    for (PiranhaPlant& plant : piranhaPlants_) {
+        plant.update(dt, isSafeForPiranhaPlant(plant));
+        checkPiranhaPlantCollision(mario_, plant);
+        if (twoPlayerMode_) checkPiranhaPlantCollision(luigi_, plant);
+        cullIfLeftBehindReset(plant, static_cast<float>(PiranhaPlant::kWidth), cameraX_);
+    }
+
+    for (HammerBro& bro : hammerBros_) {
+        bro.update(dt, level_, kWorldViewBottom);
+        // Mira al personaje mas cercano (ver el comentario de faceTowards),
+        // independiente de hacia donde este caminando.
+        if (twoPlayerMode_ && std::abs(luigi_.x() - bro.x()) < std::abs(mario_.x() - bro.x())) {
+            bro.faceTowards(luigi_.x());
+        } else {
+            bro.faceTowards(mario_.x());
+        }
+        checkHammerBroCollision(mario_, bro, marioPrevY);
+        if (twoPlayerMode_) checkHammerBroCollision(luigi_, bro, luigiPrevY);
+        if (bro.consumeThrowRequest()) {
+            for (Hammer& hammer : hammers_) {
+                if (hammer.isAlive()) continue;
+                hammer.spawn(bro.throwOriginX(), bro.throwOriginY(), bro.throwVelocityX(), bro.throwVelocityY());
+                break;
+            }
+        }
+        cullIfLeftBehindReset(bro, static_cast<float>(HammerBro::kWidth), cameraX_);
     }
     for (Hammer& hammer : hammers_) {
         hammer.update(dt, level_, level_.widthPixels(), kWorldViewBottom);
@@ -2821,20 +2947,20 @@ void Game::update(float dt) {
         }
     }
 
-    // Mismo criterio que Lakitu (targetX): apunta al personaje mas cercano,
-    // esta clase tampoco conoce a Mario/Luigi. Ademas necesita Y (el chorro
-    // apunta en las dos direcciones, no solo en X).
-    {
+    for (Blooper& blooper : bloopers_) {
+        // Mismo criterio que Lakitu (targetX): apunta al personaje mas
+        // cercano, esta clase tampoco conoce a Mario/Luigi. Ademas necesita
+        // Y (el chorro apunta en las dos direcciones, no solo en X).
         const bool luigiCloser = twoPlayerMode_ &&
-            std::hypot(luigi_.x() - blooper_.x(), luigi_.y() - blooper_.y()) <
-                std::hypot(mario_.x() - blooper_.x(), mario_.y() - blooper_.y());
+            std::hypot(luigi_.x() - blooper.x(), luigi_.y() - blooper.y()) <
+                std::hypot(mario_.x() - blooper.x(), mario_.y() - blooper.y());
         const float blooperTargetX = luigiCloser ? luigi_.x() : mario_.x();
         const float blooperTargetY = luigiCloser ? luigi_.y() : mario_.y();
-        blooper_.update(dt, level_, blooperTargetX, blooperTargetY, kWorldViewBottom);
+        blooper.update(dt, level_, blooperTargetX, blooperTargetY, kWorldViewBottom);
+        checkBlooperCollision(mario_, blooper);
+        if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper);
+        cullIfLeftBehindReset(blooper, static_cast<float>(Blooper::kWidth), cameraX_);
     }
-    checkBlooperCollision(mario_, blooper_);
-    if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper_);
-    cullIfLeftBehindReset(blooper_, static_cast<float>(Blooper::kWidth), cameraX_);
 
     cheepCheepSwim_.update(dt, level_.widthPixels(), kWorldViewBottom);
     checkCheepCheepCollision(mario_, cheepCheepSwim_, marioPrevY);
@@ -2845,7 +2971,16 @@ void Game::update(float dt) {
     if (twoPlayerMode_) checkCheepCheepCollision(luigi_, cheepCheepSwimOsc_, luigiPrevY);
     cullIfLeftBehindReset(cheepCheepSwimOsc_, static_cast<float>(CheepCheep::kSize), cameraX_);
 
-    if (scenario_ == TestScenario::CheepCheepJump) {
+    for (CheepCheep& fish : levelCheeps_) {
+        fish.update(dt, level_.widthPixels(), kWorldViewBottom);
+        checkCheepCheepCollision(mario_, fish, marioPrevY);
+        if (twoPlayerMode_) checkCheepCheepCollision(luigi_, fish, luigiPrevY);
+        cullIfLeftBehindReset(fish, static_cast<float>(CheepCheep::kSize), cameraX_);
+    }
+
+    // Cheep Cheep saltarinas: en todo el escenario de prueba, o en un nivel
+    // mientras el personaje esta dentro de una zona "cheep_jump".
+    if (scenario_ == TestScenario::CheepCheepJump || inCheepJumpZone()) {
         cheepCheepJumpSpawnTimer_ -= dt;
         if (cheepCheepJumpSpawnTimer_ <= 0.0f) {
             spawnNextCheepCheepJump();
@@ -2859,18 +2994,24 @@ void Game::update(float dt) {
         cullIfLeftBehindReset(fish, static_cast<float>(CheepCheep::kSize), cameraX_);
     }
 
-    bulletBillA_.update(dt, level_.widthPixels(), kWorldViewBottom);
-    checkBulletBillCollision(mario_, bulletBillA_, marioPrevY);
-    if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillA_, luigiPrevY);
-    cullIfLeftBehindReset(bulletBillA_, static_cast<float>(BulletBill::kSize), cameraX_);
-    bulletBillB_.update(dt, level_.widthPixels(), kWorldViewBottom);
-    checkBulletBillCollision(mario_, bulletBillB_, marioPrevY);
-    if (twoPlayerMode_) checkBulletBillCollision(luigi_, bulletBillB_, luigiPrevY);
-    cullIfLeftBehindReset(bulletBillB_, static_cast<float>(BulletBill::kSize), cameraX_);
+    updateCannons(dt);
+    for (BulletBill& bill : bulletBills_) {
+        bill.update(dt, level_.widthPixels(), kWorldViewBottom);
+        checkBulletBillCollision(mario_, bill, marioPrevY);
+        if (twoPlayerMode_) checkBulletBillCollision(luigi_, bill, luigiPrevY);
+        // Los que se alejan de la pantalla (para cualquier lado) se apagan.
+        if (bill.isAlive() && (bill.x() < cameraX_ - 64.0f || bill.x() > cameraX_ + gLogicalWidth + 64.0f)) {
+            bill.reset();
+        }
+    }
 
-    podoboo_.update(dt);
-    checkPodobooCollision(mario_, podoboo_);
-    if (twoPlayerMode_) checkPodobooCollision(luigi_, podoboo_);
+    for (Podoboo& podoboo : podoboos_) {
+        podoboo.update(dt);
+        checkPodobooCollision(mario_, podoboo);
+        if (twoPlayerMode_) checkPodobooCollision(luigi_, podoboo);
+    }
+    updateFirebars(dt);
+    updateLakituZone();
 
     // Mismo criterio que HammerBro::faceTowards: apunta al personaje mas
     // cercano, esta clase tampoco conoce a Mario/Luigi -- independiente de
@@ -2935,8 +3076,10 @@ void Game::update(float dt) {
             checkShellVsGoomba(*koopa, goomba);
             checkGoombaKoopaBounce(goomba, *koopa);
         }
-        checkShellVsBuzzyBeetle(*koopa, buzzyBeetle_);
-        checkKoopaBuzzyBeetleBounce(*koopa, buzzyBeetle_);
+        for (BuzzyBeetle& buzzy : buzzyBeetles_) {
+            checkShellVsBuzzyBeetle(*koopa, buzzy);
+            checkKoopaBuzzyBeetleBounce(*koopa, buzzy);
+        }
         cullIfLeftBehindReset(*koopa, static_cast<float>(koopa->width()), cameraX_);
     }
     for (size_t i = 0; i < koopas.size(); ++i) {
@@ -2988,18 +3131,18 @@ void Game::update(float dt) {
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
         for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
-        checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
-        checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
-        checkFireballHammerBroCollision(fireball);
+        for (BuzzyBeetle& buzzy : buzzyBeetles_) checkFireballBuzzyBeetleCollision(fireball, buzzy);
+        for (PiranhaPlant& plant : piranhaPlants_) checkFireballPiranhaPlantCollision(fireball, plant);
+        for (HammerBro& bro : hammerBros_) checkFireballHammerBroCollision(fireball, bro);
         checkFireballLakituCollision(fireball);
         for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
-        checkFireballBlooperCollision(fireball, blooper_);
+        for (Blooper& blooper : bloopers_) checkFireballBlooperCollision(fireball, blooper);
         checkFireballCheepCheepCollision(fireball, cheepCheepSwim_);
         checkFireballCheepCheepCollision(fireball, cheepCheepSwimOsc_);
+        for (CheepCheep& fish : levelCheeps_) checkFireballCheepCheepCollision(fireball, fish);
         for (CheepCheep& fish : cheepCheepJumps_) checkFireballCheepCheepCollision(fireball, fish);
-        checkFireballBulletBillCollision(fireball, bulletBillA_);
-        checkFireballBulletBillCollision(fireball, bulletBillB_);
-        checkFireballPodobooCollision(fireball, podoboo_);
+        for (BulletBill& bill : bulletBills_) checkFireballBulletBillCollision(fireball, bill);
+        for (Podoboo& podoboo : podoboos_) checkFireballPodobooCollision(fireball, podoboo);
         checkFireballBowserCollision(fireball);
     }
 
@@ -3010,18 +3153,18 @@ void Game::update(float dt) {
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
             for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
-            checkFireballBuzzyBeetleCollision(fireball, buzzyBeetle_);
-            checkFireballPiranhaPlantCollision(fireball, piranhaPlant_);
-            checkFireballHammerBroCollision(fireball);
+            for (BuzzyBeetle& buzzy : buzzyBeetles_) checkFireballBuzzyBeetleCollision(fireball, buzzy);
+            for (PiranhaPlant& plant : piranhaPlants_) checkFireballPiranhaPlantCollision(fireball, plant);
+            for (HammerBro& bro : hammerBros_) checkFireballHammerBroCollision(fireball, bro);
             checkFireballLakituCollision(fireball);
             for (Spiny& spiny : spinies_) checkFireballSpinyCollision(fireball, spiny);
-            checkFireballBlooperCollision(fireball, blooper_);
+            for (Blooper& blooper : bloopers_) checkFireballBlooperCollision(fireball, blooper);
             checkFireballCheepCheepCollision(fireball, cheepCheepSwim_);
             checkFireballCheepCheepCollision(fireball, cheepCheepSwimOsc_);
+            for (CheepCheep& fish : levelCheeps_) checkFireballCheepCheepCollision(fireball, fish);
             for (CheepCheep& fish : cheepCheepJumps_) checkFireballCheepCheepCollision(fireball, fish);
-            checkFireballBulletBillCollision(fireball, bulletBillA_);
-            checkFireballBulletBillCollision(fireball, bulletBillB_);
-            checkFireballPodobooCollision(fireball, podoboo_);
+            for (BulletBill& bill : bulletBills_) checkFireballBulletBillCollision(fireball, bill);
+            for (Podoboo& podoboo : podoboos_) checkFireballPodobooCollision(fireball, podoboo);
             checkFireballBowserCollision(fireball);
         }
     }
@@ -3067,11 +3210,24 @@ void Game::render() {
     for (const BlockBump& bump : blockBumps_) {
         if (bump.active) bumpingTiles.push_back(SDL_Point{bump.col, bump.row});
     }
-    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, gLogicalWidth,
-                         cameraX_);
+    // Fondo, escenografia (colinas, nubes, arbustos) y recien despues los
+    // bloques: la escenografia queda siempre detras.
+    {
+        const SDL_Color bg = backgroundColorFor(worldType_);
+        SDL_SetRenderDrawColor(renderer_, bg.r, bg.g, bg.b, 255);
+        SDL_RenderFillRect(renderer_, nullptr);
+    }
     renderDecorations(false);
+    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, gLogicalWidth,
+                         cameraX_, false);
+    level_.renderScenery(renderer_, sceneryTilesSprite_, worldRow, gLogicalWidth, cameraX_);
     level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, gLogicalWidth, cameraX_);
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
+    // Las Piranha Plant van ANTES que las tuberias: asi la tuberia las tapa
+    // mientras asoman o se esconden.
+    for (const PiranhaPlant& plant : piranhaPlants_) plant.render(renderer_, piranhaPlantSprite_, worldRow, cameraX_);
+    // El que esta entrando/saliendo de una tuberia va detras de ella.
+    if (pipeAnim_.active && pipeAnim_.character) pipeAnim_.character->render(renderer_, cameraX_);
     level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
     flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
@@ -3126,30 +3282,31 @@ void Game::render() {
     koopaJumping_.render(renderer_, koopaSprite_, worldRow, cameraX_);
     koopaRed_.render(renderer_, koopaRedSprite_, worldRow, cameraX_);
     koopaRedFlying_.render(renderer_, koopaRedSprite_, worldRow, cameraX_);
-    buzzyBeetle_.render(renderer_, buzzyBeetleSprite_, worldRow, cameraX_);
-    piranhaPlant_.render(renderer_, piranhaPlantSprite_, worldRow, cameraX_);
-    hammerBro_.render(renderer_, hammerBroSprite_, worldRow, cameraX_);
-    if (hammerBro_.isWindingUp()) {
+    for (const BuzzyBeetle& buzzy : buzzyBeetles_) buzzy.render(renderer_, buzzyBeetleSprite_, worldRow, cameraX_);
+    for (const HammerBro& bro : hammerBros_) {
+        bro.render(renderer_, hammerBroSprite_, worldRow, cameraX_);
+        if (!bro.isWindingUp()) continue;
         // Amague antes de tirar (ver HammerBro::isWindingUp): el martillo
         // quieto sobre la cabeza un instante, reusando el sprite del
         // proyectil (frame 0, cualquiera sirve para la pose quieta) en vez
         // de necesitar un frame propio de HammerBro para esto.
-        const int drawX = static_cast<int>(std::lround(hammerBro_.throwOriginX())) - Hammer::kSize / 2 - camOffset;
-        const int drawY = static_cast<int>(std::lround(hammerBro_.y())) - Hammer::kSize + 4;
+        const int drawX = static_cast<int>(std::lround(bro.throwOriginX())) - Hammer::kSize / 2 - camOffset;
+        const int drawY = static_cast<int>(std::lround(bro.y())) - Hammer::kSize + 4;
         hammerSprite_.draw(renderer_, worldRow, 0, drawX, drawY, false);
     }
     lakitu_.render(renderer_, lakituSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de Spiny.h): fila 0 siempre, no worldRow.
     for (const Spiny& spiny : spinies_) spiny.render(renderer_, spinySprite_, 0, cameraX_);
-    blooper_.render(renderer_, blooperSprite_, worldRow, cameraX_);
+    for (const Blooper& blooper : bloopers_) blooper.render(renderer_, blooperSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de CheepCheep.h): sin worldRow.
     cheepCheepSwim_.render(renderer_, cheepCheepSprite_, cameraX_);
     cheepCheepSwimOsc_.render(renderer_, cheepCheepSprite_, cameraX_);
     for (const CheepCheep& fish : cheepCheepJumps_) fish.render(renderer_, cheepCheepSprite_, cameraX_);
-    bulletBillA_.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
-    bulletBillB_.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
+    for (const CheepCheep& fish : levelCheeps_) fish.render(renderer_, cheepCheepSprite_, cameraX_);
+    for (const BulletBill& bill : bulletBills_) bill.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de Podoboo.h): sin worldRow.
-    podoboo_.render(renderer_, podobooSprite_, cameraX_);
+    for (const Podoboo& podoboo : podoboos_) podoboo.render(renderer_, podobooSprite_, cameraX_);
+    renderFirebars();
     // El hacha primero, Bowser encima -- si llegaran a superponerse (no
     // deberia pasar con las posiciones de prueba) que se vea el jefe, no el
     // objeto quieto de fondo.
@@ -3171,10 +3328,10 @@ void Game::render() {
     const int bowserWorldRow =
         worldType_ == WorldType::Castle ? static_cast<int>(WorldType::Overworld) : worldRow;
     bowser_.render(renderer_, bowserSprite_, bowserWorldRow, cameraX_);
-    renderCharacter(mario_, marioPlatform_);
+    if (!(pipeAnim_.active && pipeAnim_.character == &mario_)) renderCharacter(mario_, marioPlatform_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
-        renderCharacter(luigi_, luigiPlatform_);
+        if (!(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
         for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     }
     renderDecorations(true);
@@ -3186,8 +3343,19 @@ void Game::render() {
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
-    if (levelClearTimer_ > 0.0f) {
-        // Placeholder hasta tener HUD/paso al nivel siguiente (seccion 6).
+    if (castleMessage_ && castleClearTimer_ <= 0.0f) {
+        // Castillo: el Toad (o la princesa, en el ultimo) mientras se cuenta
+        // el tiempo que sobro.
+        const SDL_Color white{255, 255, 255, 255};
+        drawCentered(70, tr(Txt::ThankYouMario), 2, white);
+        if (campaign_ && campaignWorld_ == 8) {
+            drawCentered(100, tr(Txt::QuestOver1), 2, white);
+            drawCentered(120, tr(Txt::QuestOver2), 2, white);
+        } else {
+            drawCentered(100, tr(Txt::PrincessElsewhere1), 2, white);
+            drawCentered(120, tr(Txt::PrincessElsewhere2), 2, white);
+        }
+    } else if (levelClearTimer_ > 0.0f) {
         drawCentered(100, tr(Txt::CourseClear), 2, SDL_Color{255, 255, 255, 255});
     }
 
@@ -3414,66 +3582,54 @@ void Game::updateLevelTimer(float dt) {
     }
 }
 
-namespace {
-
-// Moneda chica del HUD (6x8), dibujada a mano: la de los sprites mide 16px
-// y no entra en el renglon de texto.
-void drawHudCoin(SDL_Renderer* renderer, int x, int y) {
-    static const char* const kRows[8] = {
-        ".####.", "#oooo#", "#o##o#", "#o##o#", "#o##o#", "#o##o#", "#oooo#", ".####.",
-    };
-    for (int row = 0; row < 8; ++row) {
-        for (int col = 0; col < 6; ++col) {
-            const char c = kRows[row][col];
-            if (c == '.') continue;
-            if (c == '#') {
-                SDL_SetRenderDrawColor(renderer, 136, 64, 0, 255);
-            } else {
-                SDL_SetRenderDrawColor(renderer, 252, 188, 60, 255);
-            }
-            SDL_Rect pixel{x + col, y + row, 1, 1};
-            SDL_RenderFillRect(renderer, &pixel);
-        }
-    }
-}
-
-}  // namespace
 
 void Game::renderHud() {
-    // Mismo layout que el original (grilla de 8px, ver DebugFont a escala 2:
-    // 8px por caracter): titulos arriba, valores abajo.
+    // Mismo layout que el original (grilla de 8px, la fuente a escala 2 es
+    // la del juego, 8x8): titulos arriba, valores en el renglon de abajo.
     // Las cuatro columnas del original (pensadas para 256px) se reparten en
     // el ancho real con la misma proporcion.
     const SDL_Color white{255, 255, 255, 255};
     constexpr int kTitleY = 8;
-    constexpr int kValueY = 20;
+    constexpr int kValueY = 16;
     auto column = [](int classicX) { return classicX * gLogicalWidth / kClassicWidth; };
     const int marioX = column(24);
     const int coinX = column(96);
     const int worldX = column(144);
     const int timeX = column(200);
+    const bool onTitle = appState_ == AppState::Title;
 
     DebugFont::drawText(renderer_, marioX, kTitleY, "MARIO", 2, white);
     char text[16];
     std::snprintf(text, sizeof(text), "%06d", std::min(score_, 999999));
     DebugFont::drawText(renderer_, marioX, kValueY, text, 2, white);
 
-    drawHudCoin(renderer_, coinX, kValueY + 1);
+    // La moneda cicla de brillo junto con los bloques ?, como el original.
+    hudCoinSprite_.draw(renderer_, static_cast<int>(onTitle ? WorldType::Overworld : worldType_),
+                        questionBlockAnimFrame_, coinX, kValueY, false);
     std::snprintf(text, sizeof(text), "x%02d", coinCount_);
     DebugFont::drawText(renderer_, coinX + 8, kValueY, text, 2, white);
 
     DebugFont::drawText(renderer_, worldX, kTitleY, "WORLD", 2, white);
-    DebugFont::drawText(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
+    if (onTitle) {
+        std::snprintf(text, sizeof(text), "%d-%d", campaignWorld_, campaignLevel_);
+        DebugFont::drawText(renderer_, worldX + 8, kValueY, text, 2, white);
+    } else {
+        DebugFont::drawText(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
+    }
 
     DebugFont::drawText(renderer_, timeX, kTitleY, "TIME", 2, white);
-    std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
-    DebugFont::drawText(renderer_, timeX + 8, kValueY, text, 2, white);
+    // En el titulo y las pantallas negras el tiempo no se muestra (como el original).
+    if (appState_ == AppState::Playing || appState_ == AppState::Paused) {
+        std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
+        DebugFont::drawText(renderer_, timeX + 8, kValueY, text, 2, white);
+    }
 }
 
 void Game::onAllPlayersDied() {
     --livesCount_;
     if (livesCount_ <= 0) {
         livesCount_ = 0;
+        saveTopScore();
         appState_ = AppState::GameOver;
         appStateTimer_ = kGameOverDuration;
         audio_.playMusic(Music::GameOver, false);
@@ -3506,10 +3662,12 @@ void Game::renderLevelIntro() {
     const SDL_Color white{255, 255, 255, 255};
     const std::string world = "WORLD " + level_.name();
     DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
+    // Mario chico parado, una "x" y las vidas (como el original).
+    const int x = gLogicalWidth / 2 - 28;
+    introMarioSprite_.draw(renderer_, 0, 0, x, 108, false);
     char text[16];
-    std::snprintf(text, sizeof(text), "MARIO x %d", livesCount_);
-    DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(std::strlen(text)) * 8) / 2, 120, text, 2,
-                        white);
+    std::snprintf(text, sizeof(text), "x  %d", livesCount_);
+    DebugFont::drawText(renderer_, x + 24, 112, text, 2, white);
 }
 
 void Game::renderGameOver() {
@@ -3553,6 +3711,28 @@ void Game::loadLevelData() {
         pipeWarps_.push_back(PipeWarp{warp.col, warp.row, warp.destCol * ts, warp.destRow * ts, warp.dir == "right"});
     }
     entitySpawned_.assign(level_.entities().size(), false);
+
+    cannons_.clear();
+    for (int col = 0; col < level_.widthTiles(); ++col) {
+        for (int row = 0; row < level_.heightTiles(); ++row) {
+            if (level_.isCannonTopTile(col, row)) cannons_.push_back(Cannon{col, row, 1.0f});
+        }
+    }
+    firebars_.clear();
+    cheepJumpZones_.clear();
+    lakituEndX_ = -1.0f;
+    for (const LevelEntity& entity : level_.entities()) {
+        if (entity.type == "firebar") {
+            firebars_.push_back(Firebar{(static_cast<float>(entity.col) + 0.5f) * ts,
+                                        (static_cast<float>(entity.row) + 0.5f) * ts, entity.length, 0.0f,
+                                        entity.speed});
+        } else if (entity.type == "cheep_jump") {
+            const int endCol = entity.endCol >= 0 ? entity.endCol : level_.widthTiles();
+            cheepJumpZones_.emplace_back(static_cast<float>(entity.col) * ts, static_cast<float>(endCol) * ts);
+        } else if (entity.type == "lakitu" && entity.endCol >= 0) {
+            lakituEndX_ = static_cast<float>(entity.endCol) * ts;
+        }
+    }
 }
 
 void Game::spawnLevelEntities() {
@@ -3580,6 +3760,45 @@ void Game::spawnLevelEntities() {
                                      : entity.state == "flying" ? KoopaState::Flying
                                                                 : KoopaState::Walking;
             spawned = spawnLevelKoopa(x, feetY - static_cast<float>(Koopa::kWalkHeight), entity.movingRight, color, state);
+        } else if (entity.type == "buzzy") {
+            spawned = spawnInPool(buzzyBeetles_, [&](BuzzyBeetle& buzzy) {
+                buzzy.spawn(x, feetY - static_cast<float>(BuzzyBeetle::kSize), entity.movingRight);
+            });
+        } else if (entity.type == "piranha") {
+            // col/row: tope izquierdo de la tuberia (2 tiles de ancho).
+            spawned = spawnInPool(piranhaPlants_, [&](PiranhaPlant& plant) {
+                plant.spawn(x + ts - static_cast<float>(PiranhaPlant::kWidth) / 2.0f,
+                            static_cast<float>(entity.row) * ts);
+            });
+        } else if (entity.type == "hammer_bro") {
+            spawned = spawnInPool(hammerBros_, [&](HammerBro& bro) {
+                bro.spawn(x, feetY - static_cast<float>(HammerBro::kHeight), entity.movingRight);
+            });
+        } else if (entity.type == "lakitu") {
+            if (!lakitu_.isAlive()) lakitu_.spawn(x, static_cast<float>(entity.row) * ts, entity.movingRight);
+            spawned = true;
+        } else if (entity.type == "blooper") {
+            spawned = spawnInPool(bloopers_, [&](Blooper& blooper) {
+                blooper.spawn(x, static_cast<float>(entity.row) * ts);
+            });
+        } else if (entity.type == "cheep") {
+            spawned = spawnInPool(levelCheeps_, [&](CheepCheep& fish) {
+                fish.setVariant(CheepCheepVariant::Swimming);
+                fish.setSwimPattern(entity.color == "red" ? SwimPattern::Oscillating : SwimPattern::Straight);
+                fish.spawn(x, static_cast<float>(entity.row) * ts, entity.movingRight);
+            });
+        } else if (entity.type == "podoboo") {
+            spawned = spawnInPool(podoboos_, [&](Podoboo& podoboo) {
+                podoboo.spawn(x, static_cast<float>(entity.row) * ts);
+            });
+        } else if (entity.type == "bowser") {
+            bowser_.spawn(x, feetY - static_cast<float>(Bowser::kHeight), entity.movingRight);
+            spawned = true;
+        } else if (entity.type == "axe") {
+            axe_.spawn(x, static_cast<float>(entity.row) * ts);
+            spawned = true;
+        } else if (entity.type == "firebar" || entity.type == "cheep_jump") {
+            spawned = true;  // ya armados en loadLevelData
         } else {
             SDL_Log("Entidad de nivel desconocida '%s' (columna %d)", entity.type.c_str(), entity.col);
             spawned = true;  // no reintentar cada cuadro
@@ -3621,6 +3840,78 @@ int Game::areaIndexAt(float x) const {
         if (col >= areas[i].startCol && col <= areas[i].endCol) return static_cast<int>(i);
     }
     return 0;
+}
+
+void Game::updateCannons(float dt) {
+    const float ts = static_cast<float>(level_.tileSize());
+    for (Cannon& cannon : cannons_) {
+        const float x = static_cast<float>(cannon.col) * ts;
+        // Solo dispara en pantalla, como el original.
+        if (x + ts < cameraX_ || x > cameraX_ + static_cast<float>(gLogicalWidth)) continue;
+        cannon.timer -= dt;
+        if (cannon.timer > 0.0f) continue;
+        cannon.timer = randomRange(kCannonIntervalMin, kCannonIntervalMax);
+        const Mario& target =
+            (twoPlayerMode_ && std::abs(luigi_.x() - x) < std::abs(mario_.x() - x)) ? luigi_ : mario_;
+        // Pegado al canon no dispara (si no seria imposible pasarlo).
+        if (std::abs(target.x() - x) < kCannonSafeDistance) continue;
+        const bool right = target.x() > x;
+        for (BulletBill& bill : bulletBills_) {
+            if (bill.isAlive()) continue;
+            bill.spawn(right ? x + ts : x - static_cast<float>(BulletBill::kSize),
+                       static_cast<float>(cannon.row) * ts, right);
+            audio_.play(Sfx::BillFirework);
+            break;
+        }
+    }
+}
+
+void Game::updateFirebars(float dt) {
+    for (Firebar& bar : firebars_) {
+        bar.angle = std::fmod(bar.angle + bar.speed * dt + 360.0f, 360.0f);
+        const float radians = bar.angle * 3.14159265f / 180.0f;
+        for (int i = 0; i < bar.length; ++i) {
+            // Una bola de 8 px cada 8 px desde el centro del bloque.
+            const float cx = bar.centerX + std::cos(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cy = bar.centerY + std::sin(radians) * static_cast<float>(i * Fireball::kSize);
+            for (Mario* character : {&mario_, &luigi_}) {
+                if (character == &luigi_ && !twoPlayerMode_) continue;
+                if (character->isInDeathSequence() || character->isInvincible()) continue;
+                // Hitbox un poco mas chica que el sprite (como el original).
+                const float half = static_cast<float>(Fireball::kSize) / 2.0f - 1.0f;
+                const bool overlap = character->x() < cx + half && character->x() + character->width() > cx - half &&
+                                     character->y() < cy + half && character->y() + character->height() > cy - half;
+                if (overlap) applyContactDamage(*character);
+            }
+        }
+    }
+}
+
+void Game::renderFirebars() {
+    const int frame = static_cast<int>(SDL_GetTicks() / 100) % 4;
+    for (const Firebar& bar : firebars_) {
+        const float radians = bar.angle * 3.14159265f / 180.0f;
+        for (int i = 0; i < bar.length; ++i) {
+            const float cx = bar.centerX + std::cos(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cy = bar.centerY + std::sin(radians) * static_cast<float>(i * Fireball::kSize);
+            fireballSprite_.draw(renderer_, 0, frame,
+                                 static_cast<int>(std::lround(cx - cameraX_)) - Fireball::kSize / 2,
+                                 static_cast<int>(std::lround(cy)) - Fireball::kSize / 2, false);
+        }
+    }
+}
+
+bool Game::inCheepJumpZone() const {
+    const float x = mario_.x();
+    for (const auto& [start, end] : cheepJumpZones_) {
+        if (x >= start && x <= end) return true;
+    }
+    return false;
+}
+
+void Game::updateLakituZone() {
+    // Pasado el final de su zona, el Lakitu se va (deja de perseguir).
+    if (lakituEndX_ >= 0.0f && lakitu_.isAlive() && mario_.x() > lakituEndX_) lakitu_.reset();
 }
 
 void Game::renderDecorations(bool front) {

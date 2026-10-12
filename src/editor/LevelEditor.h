@@ -72,7 +72,8 @@ private:
         int offsetRow = 0;
     };
     enum class Mode { Edit, OpenFile, TextInput, PickWarpDest };
-    enum class Button { Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, Count };
+    // World: ocupa todo el ancho, debajo de los demas (cicla el tipo de mundo).
+    enum class Button { Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, World, Count };
 
     // --- modelo
     void newLevel();
@@ -155,8 +156,8 @@ private:
     static constexpr int kPaletteCellH = 26;
     static constexpr int kTabsY = 36;
     static constexpr int kPaletteTop = 50;
-    static constexpr int kRecentsY = 166;
-    static constexpr int kButtonsY = 206;
+    static constexpr int kRecentsY = 208;  // 6 filas de paleta (kPaletteTop + 6 * kPaletteCellH + 2)
+    static constexpr int kButtonsY = 248;
     static constexpr int kMaxRecents = 4;
 
     SDL_Window* window_ = nullptr;
@@ -218,6 +219,7 @@ private:
     SpriteSheet pipeSprite_;
     SpriteSheet lavaSprite_;
     SpriteSheet bridgeSprite_;
+    SpriteSheet sceneryTilesSprite_;
     SpriteSheet flagpoleSprite_;
     SpriteSheet liftSprite_;
     SpriteSheet goombaSprite_;

@@ -18,15 +18,32 @@ bool Tilemap::loadFromFile(const std::string& path) {
     return loadFromJson(json);
 }
 
+namespace {
+
+// Lista del JSON del nivel; vacia si falta o no es una lista (un nivel a
+// medio armar en el editor puede tener la clave en null).
+nlohmann::json arrayField(const nlohmann::json& json, const char* key) {
+    auto it = json.find(key);
+    if (it == json.end() || !it->is_array()) return nlohmann::json::array();
+    return *it;
+}
+
+}  // namespace
+
 bool Tilemap::loadFromJson(const nlohmann::json& json) {
     tileSize_ = json.value("tile_size", 16);
     world_ = json.value("world", std::string());
     name_ = json.value("name", std::string("TEST"));
     timeLimit_ = json.value("time", 400);
-    checkpointCols_ = json.value("checkpoints", std::vector<int>{});
+    checkpointCols_.clear();
+    if (json.contains("checkpoints") && json["checkpoints"].is_array()) {
+        for (const auto& col : json["checkpoints"]) {
+            if (col.is_number_integer()) checkpointCols_.push_back(col.get<int>());
+        }
+    }
 
     blocks_.clear();
-    for (const auto& entry : json.value("blocks", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "blocks")) {
         LevelBlock block;
         block.col = entry.at("col").get<int>();
         block.row = entry.at("row").get<int>();
@@ -35,7 +52,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         blocks_.push_back(block);
     }
     warps_.clear();
-    for (const auto& entry : json.value("warps", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "warps")) {
         LevelWarp warp;
         warp.col = entry.at("col").get<int>();
         warp.row = entry.at("row").get<int>();
@@ -45,7 +62,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         warps_.push_back(warp);
     }
     areas_.clear();
-    for (const auto& entry : json.value("areas", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "areas")) {
         LevelArea area;
         area.startCol = entry.at("start").get<int>();
         area.endCol = entry.at("end").get<int>();
@@ -53,7 +70,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         areas_.push_back(area);
     }
     decorations_.clear();
-    for (const auto& entry : json.value("decorations", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "decorations")) {
         LevelDecoration decoration;
         decoration.type = entry.at("type").get<std::string>();
         decoration.col = entry.at("col").get<int>();
@@ -63,7 +80,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     }
     introArea_ = json.contains("intro") ? json["intro"].value("area", -1) : -1;
     platforms_.clear();
-    for (const auto& entry : json.value("platforms", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "platforms")) {
         LevelPlatform platform;
         platform.col = entry.at("col").get<int>();
         platform.row = entry.at("row").get<int>();
@@ -75,7 +92,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         platforms_.push_back(platform);
     }
     entities_.clear();
-    for (const auto& entry : json.value("entities", nlohmann::json::array())) {
+    for (const auto& entry : arrayField(json, "entities")) {
         LevelEntity entity;
         entity.type = entry.at("type").get<std::string>();
         entity.col = entry.at("col").get<int>();
@@ -83,6 +100,9 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         entity.movingRight = entry.value("moving_right", false);
         entity.color = entry.value("color", std::string("green"));
         entity.state = entry.value("state", std::string("walking"));
+        entity.length = entry.value("length", 6);
+        entity.speed = entry.value("speed", 100.0f);
+        entity.endCol = entry.value("end_col", -1);
         entities_.push_back(entity);
     }
     const auto rows = json.at("rows").get<std::vector<std::string>>();
@@ -113,6 +133,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     invisible_.assign(static_cast<size_t>(width_) * height_, 0);
     bridge_.assign(static_cast<size_t>(width_) * height_, 0);
     everBridge_.assign(static_cast<size_t>(width_) * height_, 0);
+    scenery_.assign(static_cast<size_t>(width_) * height_, 0);
 
     for (int row = 0; row < height_; ++row) {
         const std::string& line = rows[row];
@@ -120,7 +141,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
             solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b' ||
-                         c == 'X') ? 1 : 0;
+                         c == 'X' || isSolidSceneryChar(c)) ? 1 : 0;
+            scenery_[i] = isSceneryChar(c) ? static_cast<uint8_t>(c) : 0;
             hard_[i] = (c == 'S') ? 1 : 0;
             invisible_[i] = (c == 'X') ? 1 : 0;
             platform_[i] = (c == '=') ? 1 : 0;
@@ -140,6 +162,67 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     }
 
     return true;
+}
+
+bool Tilemap::isSceneryChar(char c) {
+    return c == 't' || c == 'r' || c == 'm' || c == 'n' || c == 'R' || c == 'K' || c == 'c' || c == 'W' || c == 'w';
+}
+
+bool Tilemap::isSolidSceneryChar(char c) {
+    return c == 't' || c == 'm' || c == 'R' || c == 'K' || c == 'c';
+}
+
+char Tilemap::sceneryAt(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) return 0;
+    return static_cast<char>(scenery_[static_cast<size_t>(row) * width_ + col]);
+}
+
+bool Tilemap::isCannonTopTile(int col, int row) const {
+    return sceneryAt(col, row) == 'K' && sceneryAt(col, row - 1) != 'K';
+}
+
+void Tilemap::renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, int viewWidth,
+                            float cameraX) const {
+    const int camOffset = static_cast<int>(std::lround(cameraX));
+    const int firstCol = std::max(0, camOffset / tileSize_);
+    const int lastCol = std::min(width_ - 1, (camOffset + viewWidth) / tileSize_ + 1);
+    for (int row = 0; row < height_; ++row) {
+        for (int col = firstCol; col <= lastCol; ++col) {
+            const char c = sceneryAt(col, row);
+            const int x = col * tileSize_ - camOffset;
+            const int y = row * tileSize_;
+            int frame = -1;
+            switch (c) {
+                case 't':  // copa de arbol: bordes redondeados donde termina
+                case 'm': {  // sombrero de hongo, mismo criterio
+                    const int base = c == 't' ? 0 : 4;
+                    const bool left = sceneryAt(col - 1, row) != c;
+                    const bool right = sceneryAt(col + 1, row) != c;
+                    frame = base + (left ? 0 : right ? 2 : 1);
+                    break;
+                }
+                case 'r': frame = 3; break;
+                case 'n': frame = sceneryAt(col, row - 1) == 'm' ? 7 : 8; break;
+                case 'R':
+                    frame = 10;
+                    // Baranda del puente de soga, en el tile de arriba si esta libre.
+                    if (!isSolidTile(col, row - 1)) sprite.draw(renderer, worldRow, 9, x, y - tileSize_, false);
+                    break;
+                case 'K': {
+                    // Boca, calavera y el resto base (columna del canon).
+                    const bool top = sceneryAt(col, row - 1) != 'K';
+                    const bool second = !top && sceneryAt(col, row - 2) != 'K';
+                    frame = top ? 11 : second ? 12 : 13;
+                    break;
+                }
+                case 'c': frame = sceneryAt(col, row - 1) == 'c' ? 15 : 14; break;
+                case 'W': frame = sceneryAt(col, row - 1) == 'W' ? 17 : 16; break;
+                case 'w': frame = 18; break;
+                default: break;
+            }
+            if (frame >= 0) sprite.draw(renderer, worldRow, frame, x, y, false);
+        }
+    }
 }
 
 bool Tilemap::isFlagpoleTile(int col, int row) const {
@@ -407,14 +490,14 @@ bool Tilemap::isSolidAtPixel(float x, float y) const {
 }
 
 void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& terrainSprite,
-                            int worldRow, int viewWidth, float cameraX) const {
+                            int worldRow, int viewWidth, float cameraX, bool fillBackground) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     SDL_SetRenderDrawColor(renderer, backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a);
     // El fondo es un color plano: cubre toda la pantalla (nullptr = todo el
     // viewport), no el rectangulo del nivel -- con un nivel mas angosto que
     // la pantalla la camara queda en X negativa (centrado, ver
     // Game::updateCamera) y el rectangulo del nivel no la cubriria entera.
-    SDL_RenderFillRect(renderer, nullptr);
+    if (fillBackground) SDL_RenderFillRect(renderer, nullptr);
 
     for (int row = 0; row < height_; ++row) {
         for (int col = 0; col < width_; ++col) {
@@ -423,7 +506,7 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, c
             // propio sprite (renderBlocks/renderPipes/renderHazards).
             if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
                 isDispenserTile(col, row) || isPipeTile(col, row) || isBridgeTile(col, row) ||
-                isInvisibleSolidTile(col, row)) {
+                isInvisibleSolidTile(col, row) || sceneryAt(col, row) != 0) {
                 continue;
             }
             const int x = col * tileSize_ - camOffset;

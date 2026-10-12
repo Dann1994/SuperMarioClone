@@ -77,7 +77,17 @@ std::string upper(std::string text) {
 bool isBlockTile(char tile) { return tile == '?' || tile == 'D' || tile == 'H'; }
 
 const char* const kTabNames[] = {"TERRENO", "ITEMS", "ENEMIGOS", "OBJETOS"};
-const char* const kButtonNames[] = {"GOMA", "SELECCION", "DESHACER", "BORRAR TODO", "PROBAR", "PROBAR ACA", "SUBAREA"};
+const char* const kButtonNames[] = {"GOMA",       "SELECCION", "DESHACER", "BORRAR TODO",
+                                    "PROBAR",     "PROBAR ACA", "SUBAREA", "MUNDO"};
+
+// Nombre del tipo de mundo para el boton MUNDO.
+const char* worldLabel(const std::string& world) {
+    if (world == "overworld") return "SUPERFICIE";
+    if (world == "underground") return "SUBTERRANEO";
+    if (world == "underwater") return "AGUA";
+    if (world == "castle") return "CASTILLO";
+    return "AUTOMATICO";
+}
 
 // Listas del JSON que guardan objetos con "col"/"row" (los que se copian,
 // agarran y borran junto con una seleccion).
@@ -128,6 +138,7 @@ bool LevelEditor::init() {
               pipeSprite_.loadFromFile(renderer_, dir + "pipe.png", 32, 16) &&
               lavaSprite_.loadFromFile(renderer_, dir + "lava.png", 16, 16) &&
               bridgeSprite_.loadFromFile(renderer_, dir + "bridge.png", 16, 16) &&
+              sceneryTilesSprite_.loadFromFile(renderer_, dir + "scenery_tiles.png", 16, 16) &&
               flagpoleSprite_.loadFromFile(renderer_, dir + "flagpole.png", 16, 16) &&
               liftSprite_.loadFromFile(renderer_, dir + "lift.png", 8, 8) &&
               goombaSprite_.loadFromFile(renderer_, dir + "goomba.png", 16, 16) &&
@@ -148,7 +159,9 @@ bool LevelEditor::init() {
         {"#", "PISO"},           {"S", "BLOQUE DURO"},       {"B", "LADRILLO"},         {"?", "BLOQUE ?"},
         {"D", "LADRILLO ESPECIAL"}, {"H", "BLOQUE INVISIBLE"}, {"C", "LADRILLO + MONEDA"}, {"o", "MONEDA SUELTA"},
         {"T", "TUBERIA"},        {"=", "PLATAFORMA FIJA"},   {"L", "LAVA"},             {"b", "PUENTE BOWSER"},
-        {"X", "SOLIDO INVISIBLE"},
+        {"X", "SOLIDO INVISIBLE"}, {"t", "COPA DE ARBOL"},  {"r", "TRONCO"},             {"m", "HONGO"},
+        {"n", "TALLO DE HONGO"}, {"R", "PUENTE DE SOGA"},    {"K", "CANON BILL BALA"},  {"c", "CORAL"},
+        {"W", "AGUA"},           {"w", "SUPERFICIE (AGUA)"},
     };
     for (const auto& entry : tileLabels) {
         tools_.push_back({ToolKind::Tile, Tab::Terrain, entry[0][0], "", "", 1, entry[1]});
@@ -166,6 +179,19 @@ bool LevelEditor::init() {
     tools_.push_back({ToolKind::Entity, Tab::Enemies, 0, "goomba", "", 1, "GOOMBA"});
     tools_.push_back({ToolKind::Entity, Tab::Enemies, 0, "koopa", "green", 1, "KOOPA VERDE"});
     tools_.push_back({ToolKind::Entity, Tab::Enemies, 0, "koopa", "red", 1, "KOOPA ROJO"});
+    // El resto del elenco: en el editor se ven como un rotulo (ver
+    // entityShortName). Piranha: la fila es el tope de la tuberia.
+    const char* const entityLabels[][3] = {
+        {"buzzy", "", "BUZZY BEETLE"},   {"piranha", "", "PIRANHA (TOPE DE TUBERIA)"},
+        {"hammer_bro", "", "HAMMER BRO"}, {"lakitu", "", "LAKITU"},
+        {"blooper", "", "BLOOPER"},       {"cheep", "gray", "CHEEP CHEEP"},
+        {"cheep", "red", "CHEEP CHEEP ONDULANTE"}, {"cheep_jump", "", "ZONA CHEEP SALTARINES"},
+        {"podoboo", "", "PODOBOO (EN LA LAVA)"}, {"firebar", "", "BARRA DE FUEGO"},
+        {"bowser", "", "BOWSER"},         {"axe", "", "HACHA"},
+    };
+    for (const auto& entry : entityLabels) {
+        tools_.push_back({ToolKind::Entity, Tab::Enemies, 0, entry[0], entry[1], 1, entry[2]});
+    }
 
     for (const DecorationInfo& info : kDecorations) {
         tools_.push_back({ToolKind::Decoration, Tab::Objects, 0, info.type, "", 1, info.label});
@@ -279,6 +305,11 @@ bool LevelEditor::saveLevel() {
 
 nlohmann::json LevelEditor::buildJson() const {
     nlohmann::json json = meta_;
+    // Claves que quedaron en null (meta_[clave] las crea al consultarlas):
+    // fuera, ni el juego ni el archivo guardado las quieren.
+    for (auto it = json.begin(); it != json.end();) {
+        it = it->is_null() ? json.erase(it) : std::next(it);
+    }
     json["rows"] = rows_;
     return json;
 }
@@ -374,7 +405,10 @@ void LevelEditor::placeAt(int col, int row) {
                 if (entity.value("col", -1) == col && entity.value("row", -1) == row) return;
             }
             nlohmann::json entity{{"type", tool.type}, {"col", col}, {"row", row}};
-            if (tool.type == "koopa" && tool.variant == "red") entity["color"] = "red";
+            if ((tool.type == "koopa" || tool.type == "cheep") && tool.variant == "red") entity["color"] = "red";
+            // Zona de Cheep Cheep saltarines: 40 columnas por defecto (se
+            // ajusta en el JSON, campo end_col).
+            if (tool.type == "cheep_jump") entity["end_col"] = col + 40;
             list.push_back(entity);
             break;
         }
@@ -504,8 +538,10 @@ void LevelEditor::eraseAt(int col, int row) {
         return;
     }
     auto removeAtCell = [&](const char* key) {
-        auto& list = meta_[key];
-        if (!list.is_array()) return false;
+        // find en vez de meta_[key]: [] crea la clave en null si no existe.
+        auto found = meta_.find(key);
+        if (found == meta_.end() || !found->is_array()) return false;
+        auto& list = *found;
         for (auto it = list.begin(); it != list.end(); ++it) {
             if (it->value("col", -1) == col && it->value("row", -1) == row) {
                 list.erase(it);
@@ -536,8 +572,9 @@ void LevelEditor::eraseAt(int col, int row) {
         markDirty();
         return;
     }
-    auto& checkpoints = meta_["checkpoints"];
-    if (checkpoints.is_array()) {
+    auto found = meta_.find("checkpoints");
+    if (found != meta_.end() && found->is_array()) {
+        auto& checkpoints = *found;
         for (auto it = checkpoints.begin(); it != checkpoints.end(); ++it) {
             if (it->get<int>() == col) {
                 checkpoints.erase(it);
@@ -823,6 +860,7 @@ bool LevelEditor::mouseToCell(int x, int y, int& col, int& row) const {
 
 SDL_Rect LevelEditor::buttonRect(Button button) const {
     const int i = static_cast<int>(button);
+    if (button == Button::World) return SDL_Rect{kPaletteX + 2, kButtonsY + 4 * 16, 124, 14};
     return SDL_Rect{kPaletteX + 2 + (i % 2) * 63, kButtonsY + (i / 2) * 16, 61, 14};
 }
 
@@ -872,6 +910,10 @@ void LevelEditor::pressButton(Button button) {
             break;
         case Button::SubArea:
             addSubArea();
+            break;
+        case Button::World:
+            cycleWorld();
+            showMessage(std::string("TIPO DE MUNDO: ") + worldLabel(meta_.value("world", std::string())));
             break;
         case Button::Count:
             break;
@@ -1045,8 +1087,17 @@ void LevelEditor::handleEvent(const SDL_Event& event) {
         // Arrastrar pinta/borra tiles (los objetos van de a uno por clic).
         if ((col != lastPaintCol_ || row != lastPaintRow_) && (painting_ || erasing_)) {
             const ToolKind kind = tools_[selectedTool_].kind;
-            if (painting_ && kind == ToolKind::Tile) placeAt(col, row);
-            if (erasing_) eraseAt(col, row);
+            // Todas las celdas entre la posicion anterior y la actual: con el
+            // mouse rapido el evento de movimiento salta varias de una.
+            const int steps = std::max(std::abs(col - lastPaintCol_), std::abs(row - lastPaintRow_));
+            for (int i = 1; i <= steps; ++i) {
+                const int c = lastPaintCol_ + static_cast<int>(std::lround(
+                    static_cast<float>((col - lastPaintCol_) * i) / static_cast<float>(steps)));
+                const int r = lastPaintRow_ + static_cast<int>(std::lround(
+                    static_cast<float>((row - lastPaintRow_) * i) / static_cast<float>(steps)));
+                if (painting_ && kind == ToolKind::Tile) placeAt(c, r);
+                if (erasing_) eraseAt(c, r);
+            }
             lastPaintCol_ = col;
             lastPaintRow_ = row;
         }
@@ -1239,13 +1290,17 @@ void LevelEditor::renderLevel() {
     const WorldType world = worldTypeFromName(meta_.value("world", std::string()));
     const int cam = static_cast<int>(std::lround(cameraX_));
     // Mismo orden de dibujo que Game::render.
-    tilemap_.renderTerrain(renderer_, backgroundColorFor(world), terrainSprite_, row, kViewWidth, cameraX_);
+    const SDL_Color bg = backgroundColorFor(world);
+    SDL_SetRenderDrawColor(renderer_, bg.r, bg.g, bg.b, 255);
+    SDL_RenderFillRect(renderer_, nullptr);
     for (const auto& decoration : meta_.value("decorations", nlohmann::json::array())) {
         const int index = decorationIndex(decoration.value("type", std::string()));
         if (index < 0) continue;
         decorationSprites_[index].draw(renderer_, 0, 0, decoration.value("col", 0) * kTile - cam,
                                        decoration.value("row", 0) * kTile, false);
     }
+    tilemap_.renderTerrain(renderer_, bg, terrainSprite_, row, kViewWidth, cameraX_, false);
+    tilemap_.renderScenery(renderer_, sceneryTilesSprite_, row, kViewWidth, cameraX_);
     tilemap_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, kViewWidth, cameraX_);
     tilemap_.renderPipes(renderer_, pipeSprite_, row, cameraX_);
     tilemap_.renderBlocks(renderer_, brickSprite_, row, cameraX_, {}, &questionSprite_, 0, &coinSprite_, 0);
@@ -1255,6 +1310,27 @@ void LevelEditor::renderLevel() {
     SDL_RenderSetClipRect(renderer_, nullptr);
     SDL_RenderSetViewport(renderer_, nullptr);
 }
+
+namespace {
+
+// Rotulo corto (cabe en un tile) de los enemigos que el editor no dibuja con
+// su sprite.
+std::string entityShortName(const std::string& type) {
+    if (type == "buzzy") return "BZ";
+    if (type == "piranha") return "PP";
+    if (type == "hammer_bro") return "HB";
+    if (type == "lakitu") return "LK";
+    if (type == "blooper") return "BL";
+    if (type == "cheep") return "CC";
+    if (type == "cheep_jump") return "CJ";
+    if (type == "podoboo") return "PO";
+    if (type == "firebar") return "FB";
+    if (type == "bowser") return "BW";
+    if (type == "axe") return "AX";
+    return "??";
+}
+
+}  // namespace
 
 void LevelEditor::renderOverlays() {
     const int cam = static_cast<int>(std::lround(cameraX_));
@@ -1301,6 +1377,14 @@ void LevelEditor::renderOverlays() {
             const bool red = entity.value("color", std::string("green")) == "red";
             (red ? koopaRedSprite_ : koopaSprite_).draw(renderer_, red ? 0 : levelRow, 0, x, feet - 24, false);
             if (entity.contains("state")) drawText(x - 2, feet - 31, "ALAS", kWhite);
+        } else {
+            const std::string label = entityShortName(type);
+            fillRect({x, feet - 16, kTile, kTile}, SDL_Color{120, 0, 120, 200});
+            drawText(x + 1, feet - 11, label, kWhite);
+            if (entity.contains("end_col")) {
+                const int endX = entity.value("end_col", 0) * kTile - cam;
+                drawRect({x, feet - 18, endX - x, 2}, kYellow);
+            }
         }
     }
 
@@ -1430,6 +1514,15 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
                     drawRect(icon, kGray);
                     drawText(icon.x + 6, icon.y + 5, "X", kGray);
                     break;
+                case 't': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 1, icon); break;
+                case 'r': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 3, icon); break;
+                case 'm': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 5, icon); break;
+                case 'n': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 8, icon); break;
+                case 'R': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 10, icon); break;
+                case 'K': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 11, icon); break;
+                case 'c': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 14, icon); break;
+                case 'W': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 16, icon); break;
+                case 'w': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 18, icon); break;
                 default: break;
             }
             break;
@@ -1452,6 +1545,9 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
         case ToolKind::Entity:
             if (tool.type == "goomba") {
                 goombaSprite_.drawScaled(renderer_, levelRow, 0, icon);
+            } else if (tool.type != "koopa") {
+                fillRect(icon, SDL_Color{120, 0, 120, 255});
+                drawText(icon.x + 1, icon.y + 5, entityShortName(tool.type), kWhite);
             } else {
                 const bool red = tool.variant == "red";
                 (red ? koopaRedSprite_ : koopaSprite_).drawScaled(renderer_, red ? 0 : levelRow, 0,
@@ -1539,7 +1635,10 @@ void LevelEditor::renderPalette() {
         if (button == Button::Reset && confirmReset_) color = SDL_Color{130, 40, 40, 255};
         fillRect(rect, color);
         drawRect(rect, active ? kYellow : kGray);
-        drawText(rect.x + 3, rect.y + 5, kButtonNames[i], active ? kYellow : kWhite);
+        const std::string label = button == Button::World
+            ? std::string("MUNDO: ") + worldLabel(meta_.value("world", std::string()))
+            : std::string(kButtonNames[i]);
+        drawText(rect.x + 3, rect.y + 5, label, active ? kYellow : kWhite);
     }
 }
 

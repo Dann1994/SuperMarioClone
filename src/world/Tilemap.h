@@ -71,6 +71,14 @@ struct LevelEntity {         // "entities": enemigos del nivel
     bool movingRight = false;
     std::string color;       // koopa: green (defecto) / red
     std::string state;       // koopa: walking (defecto) / jumping / flying
+    // Otros tipos: buzzy, piranha (col/row = tope izquierdo de la tuberia),
+    // hammer_bro, lakitu (end_col: donde se va), blooper, cheep (color red =
+    // nada ondulando), cheep_jump (zona de col a end_col), podoboo (row = la
+    // lava), firebar (col/row = bloque del centro, length bolas, speed
+    // grados/s, negativo = antihorario), bowser, axe.
+    int length = 6;
+    float speed = 100.0f;
+    int endCol = -1;
 };
 
 class Tilemap {
@@ -127,6 +135,19 @@ public:
     void restoreBridges();
     bool hasAnyBridge() const;
     // viewWidth: ancho de la pantalla en px (solo se dibujan las columnas visibles).
+    // Escenografia con sprite propio (scenery_tiles.png, ver
+    // gen_scenery_tiles.py): copas de arbol 't' y troncos 'r', hongos 'm'
+    // con tallo 'n', puente de soga 'R', canon de Bill Bala 'K', coral 'c',
+    // agua 'W' (olas arriba) y la superficie vista desde abajo del agua 'w'.
+    // Solidos: t, m, R, K, c.
+    void renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, int viewWidth,
+                       float cameraX) const;
+    // Caracter de escenografia de la celda (0 si no es ninguno).
+    char sceneryAt(int col, int row) const;
+    // Boca de un canon ('K' sin otro 'K' arriba): de ahi salen los Bill Bala.
+    bool isCannonTopTile(int col, int row) const;
+    static bool isSceneryChar(char c);
+    static bool isSolidSceneryChar(char c);
     void renderHazards(SDL_Renderer* renderer, const SpriteSheet& lavaSprite, const SpriteSheet& bridgeSprite,
                        int viewWidth, float cameraX = 0.0f) const;
 
@@ -256,8 +277,10 @@ public:
     // (assets/sprites/terrain.png, ver gen_terrain.py): '#' como piso y 'S'
     // como bloque duro, una fila por WorldType.
     // viewWidth: ancho de la pantalla en px (solo se dibujan las columnas visibles).
+    // fillBackground = false: no pinta el fondo (el que llama ya lo pinto y
+    // dibujo encima la escenografia, que va detras de los bloques).
     void renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, const SpriteSheet& terrainSprite,
-                       int worldRow, int viewWidth, float cameraX = 0.0f) const;
+                       int worldRow, int viewWidth, float cameraX = 0.0f, bool fillBackground = true) const;
     // Bloque duro ('S', el biselado de las escaleras y de la base de la
     // bandera): solido igual que '#', solo cambia el dibujo.
     bool isHardBlockTile(int col, int row) const;
@@ -311,6 +334,7 @@ private:
     std::vector<uint8_t> hard_;          // row-major, 1 = bloque duro ('S')
     std::vector<uint8_t> invisible_;     // row-major, 1 = solido invisible ('X')
     int introArea_ = -1;
+    std::vector<uint8_t> scenery_;       // row-major, el caracter ('t', 'K'...) o 0
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')
     std::vector<uint8_t> everBridge_;    // row-major, 1 = fue 'b' al cargar (para restoreBridges)

@@ -40,8 +40,6 @@ constexpr int kCtrlCount = kCtrlBack + 1;
 constexpr int kDecoHillBig = 1;
 constexpr int kDecoHillSmall = 2;
 constexpr int kDecoBushBig = 3;
-constexpr int kDecoCloudBig = 5;
-constexpr int kDecoCloudSmall = 6;
 
 std::string upper(std::string text) {
     for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -67,7 +65,14 @@ bool Game::isMenuState() const {
            appState_ == AppState::Controls || appState_ == AppState::Credits || appState_ == AppState::DemoEnd;
 }
 
+void Game::saveTopScore() {
+    if (score_ <= settings_.topScore) return;
+    settings_.topScore = score_;
+    settings_.save();
+}
+
 void Game::openTitle() {
+    saveTopScore();
     audio_.stopMusic();
     cutscene_ = false;
     pipeTransitionTimer_ = 0.0f;
@@ -221,6 +226,15 @@ std::vector<bool> titleDisabled() {
 void Game::handleTitleInput(MenuInput input) {
     if (input == MenuInput::Up || input == MenuInput::Down) {
         titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled());
+        audio_.play(Sfx::TimeTally);
+        return;
+    }
+    if (input == MenuInput::Left || input == MenuInput::Right) {
+        // Cambia de columna (misma fila); si esa opcion esta deshabilitada,
+        // la proxima habilitada.
+        const std::vector<bool> disabled = titleDisabled();
+        const int target = (titleSelection_ + 4) % kTitleCount;
+        titleSelection_ = disabled[target] ? stepSelection(target, 1, kTitleCount, disabled) : target;
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -490,7 +504,9 @@ void Game::renderFpsCorner() {
 }
 
 void Game::renderTitle() {
-    // Fondo: un pedazo de 1-1 (cielo, piso, colinas, arbustos, nubes).
+    // Como la pantalla de titulo original (ver gen_title.py): el HUD
+    // arriba, el cartel, el (c), las opciones con el hongo de cursor y el
+    // record (TOP-), sobre el principio del 1-1.
     const int worldRow = static_cast<int>(WorldType::Overworld);
     const SDL_Color sky = backgroundColorFor(WorldType::Overworld);
     SDL_SetRenderDrawColor(renderer_, sky.r, sky.g, sky.b, 255);
@@ -500,31 +516,28 @@ void Game::renderTitle() {
         terrainSprite_.draw(renderer_, worldRow, 0, x, 224, false);
     }
     decorationSprites_[kDecoHillBig].draw(renderer_, 0, 0, 0, 160, false);
-    decorationSprites_[kDecoHillSmall].draw(renderer_, 0, 0, gLogicalWidth - 96, 176, false);
-    decorationSprites_[kDecoBushBig].draw(renderer_, 0, 0, gLogicalWidth / 2 - 24, 192, false);
-    decorationSprites_[kDecoCloudBig].draw(renderer_, 0, 0, 24, 18, false);
-    decorationSprites_[kDecoCloudSmall].draw(renderer_, 0, 0, gLogicalWidth - 72, 30, false);
+    decorationSprites_[kDecoBushBig].draw(renderer_, 0, 0, gLogicalWidth - 96, 192, false);
+    renderHud();
 
-    // Cartel del titulo.
-    const int boxW = 200;
-    const SDL_Rect box{(gLogicalWidth - boxW) / 2, 22, boxW, 48};
-    SDL_SetRenderDrawColor(renderer_, 156, 74, 0, 255);
-    SDL_RenderFillRect(renderer_, &box);
-    SDL_SetRenderDrawColor(renderer_, 252, 188, 176, 255);
-    SDL_RenderDrawRect(renderer_, &box);
-    drawCentered(28, "SUPER MARIO", 4, SDL_Color{252, 188, 176, 255});
-    drawCentered(52, "CLONE", 3, kMenuWhite);
+    const int logoX = (gLogicalWidth - 176) / 2;
+    titleLogoSprite_.draw(renderer_, 0, 0, logoX, 32, false);
+    const SDL_Color pink{252, 188, 176, 255};
+    DebugFont::drawText(renderer_, logoX + 176 - 14 * 8, 122, "@1985 NINTENDO", 2, pink);
 
-    std::vector<std::string> items;
-    for (Txt id : {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::WorldSelect, Txt::Options, Txt::TestMode,
-                   Txt::Credits, Txt::Quit}) {
-        items.push_back(tr(id));
-    }
+    // Ocho opciones en dos columnas de cuatro (el original tiene dos).
     std::vector<bool> disabled = titleDisabled();
-    drawMenuList((gLogicalWidth - 17 * 8) / 2 + 8, 82, 13, items, titleSelection_, disabled);
-    if (titleSelection_ == kTitleContinue || titleSelection_ == kTitleWorldSelect) {
-        drawCentered(186, tr(Txt::ComingSoon), 1, kMenuWhite);
+    const Txt ids[kTitleCount] = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::WorldSelect,
+                                  Txt::Options,   Txt::TestMode,   Txt::Credits,  Txt::Quit};
+    for (int i = 0; i < kTitleCount; ++i) {
+        const int x = gLogicalWidth / 2 + (i < 4 ? -108 : 20);
+        const int y = 138 + (i % 4) * 14;
+        if (i == titleSelection_) titleCursorSprite_.draw(renderer_, 0, 0, x - 12, y, false);
+        DebugFont::drawText(renderer_, x, y, tr(ids[i]), 2, disabled[i] ? kMenuGray : kMenuWhite);
     }
+
+    char top[24];
+    std::snprintf(top, sizeof(top), "TOP- %06d", std::min(std::max(settings_.topScore, score_), 999999));
+    drawCentered(196, top, 2, kMenuWhite);
 }
 
 void Game::renderPauseMenu() {
@@ -639,7 +652,7 @@ void Game::renderControls() {
 void Game::renderCredits() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderFillRect(renderer_, nullptr);
-    drawCentered(20, "SUPER MARIO CLONE", 3, kMenuWhite);
+    drawCentered(20, "SUPER MARIO CLONE", 2, kMenuWhite);
     const char* const lines[] = {
         "CLON EXPERIMENTAL DE SUPER MARIO BROS.",
         "(NINTENDO, 1985), SIN FINES DE LUCRO",
@@ -664,6 +677,14 @@ void Game::renderDemoEnd() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderFillRect(renderer_, nullptr);
     renderHud();
+    // Despues del 8-4 es el final de verdad, no el de la demo.
+    if (campaignWorld_ == 8 && campaignLevel_ == 4) {
+        drawCentered(70, tr(Txt::QuestOver1), 2, kMenuWhite);
+        drawCentered(95, tr(Txt::QuestOver2), 2, kMenuWhite);
+        drawCentered(140, tr(Txt::TheEnd), 3, kMenuYellow);
+        drawCentered(220, tr(Txt::MenuHint), 1, kMenuDim);
+        return;
+    }
     drawCentered(90, tr(Txt::EndOfDemo), 3, kMenuWhite);
     drawCentered(130, tr(Txt::ThanksForPlaying), 2, kMenuYellow);
     drawCentered(220, tr(Txt::MenuHint), 1, kMenuDim);

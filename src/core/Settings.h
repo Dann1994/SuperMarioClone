@@ -17,6 +17,8 @@ struct Settings {
     int sfxVolume = 10;       // 0..10
     bool english = false;     // idioma: espanol (false) o ingles (true)
     bool vibration = true;
+    // Mejor puntaje (el "TOP-" de la pantalla de titulo).
+    int topScore = 0;
 
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);
     // -1 = la de fabrica. Botones del mando para saltar y correr (los dos

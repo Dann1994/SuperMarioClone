@@ -397,8 +397,8 @@ private:
     bool isSafeForPiranhaPlant(const PiranhaPlant& plant) const;
     // Cualquier forma de morir lo mata igual (ver HammerBro.h): pisoton,
     // estrella o fuego todos disparan la misma parabola de caida.
-    void checkHammerBroCollision(Mario& character, float prevY);
-    void checkFireballHammerBroCollision(Fireball& fireball);
+    void checkHammerBroCollision(Mario& character, HammerBro& bro, float prevY);
+    void checkFireballHammerBroCollision(Fireball& fireball, HammerBro& bro);
     // El martillo en vuelo hace dano a cualquier personaje que toque (sin
     // pisoton, como la Pirana Plant); con estrella no lo mata -- no es un
     // enemigo, solo desaparece sin hacer dano (ver Hammer::reset).
@@ -520,6 +520,14 @@ private:
     void checkSideWarp(Mario& character);
     // Mueve al personaje (y al companero en 2P) al destino del warp.
     void performWarp(Mario& character, const PipeWarp& warp);
+    // Animacion de tuberia (como el original): el personaje se hunde en
+    // la vertical o entra caminando en la lateral, con su sonido; despues
+    // del viaje, si el destino esta sobre una tuberia, sale de ella. Todo
+    // lo demas queda quieto mientras tanto.
+    void startPipeEnter(Mario& character, const PipeWarp& warp);
+    void updatePipeAnim(float dt);
+    // Los bordes del area actual son paredes (no se puede salir del nivel).
+    void keepCharacterInsideArea(Mario& character);
     void finishIntroPipe();
     // Ladrillo rompible (seccion 5.3): si Mario/Luigi saltando chocan de
     // cabeza contra un tile 'B' (ver Mario::headBumpedThisFrame), grande o
@@ -587,12 +595,34 @@ private:
     // en un pozo antes de que el jugador llegue). Las que ya quedaron atras
     // de la camara al cargar (reaparecer en un checkpoint) no aparecen.
     void spawnLevelEntities();
+    // Llama a spawnFn con el primer lugar libre del pool (false si esta lleno).
+    template <typename T, size_t N, typename Fn>
+    static bool spawnInPool(std::array<T, N>& pool, Fn spawnFn) {
+        for (T& entity : pool) {
+            if (entity.isAlive()) continue;
+            spawnFn(entity);
+            return true;
+        }
+        return false;
+    }
     // Goomba/Koopa en el primer lugar libre de su pool (false si esta lleno).
     bool spawnGoomba(float x, float y, bool movingRight);
     bool spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state);
     // Los 5 Koopa de prueba + los del pool del nivel, para los chequeos que
     // recorren todos.
     std::vector<Koopa*> allKoopas();
+    // Canones de Bill Bala (tiles 'K', ver Tilemap::isCannonTopTile):
+    // disparan hacia el personaje cada tanto mientras estan en pantalla y
+    // nadie esta pegado a ellos.
+    void updateCannons(float dt);
+    // Barras de fuego de los castillos (entidad "firebar"): giran alrededor
+    // de su bloque; cualquier bola que toque hace dano.
+    void updateFirebars(float dt);
+    void renderFirebars();
+    // El personaje esta dentro de alguna zona "cheep_jump" del nivel.
+    bool inCheepJumpZone() const;
+    // El Lakitu del nivel se va al pasar su end_col.
+    void updateLakituZone();
     // Area del nivel (Tilemap::areas) que contiene ese X en px.
     int areaIndexAt(float x) const;
     // front: las que van delante de los personajes (LevelDecoration::front).
@@ -644,6 +674,8 @@ private:
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
     void updateRumble();
+    // Guarda el puntaje como record (TOP-) si lo supera.
+    void saveTopScore();
 
     // --- Musica (GameMusic.cpp) ---
     void loadMusic();
@@ -735,6 +767,16 @@ private:
     bool cutscene_ = false;
     float pipeTransitionTimer_ = 0.0f;
     PipeWarp pendingWarp_{};
+    struct PipeAnim {
+        bool active = false;
+        bool exiting = false;  // false: entrando; true: saliendo en el destino
+        Mario* character = nullptr;
+        float velX = 0.0f;     // px/s
+        float velY = 0.0f;
+        float timer = 0.0f;
+        PipeWarp warp{};
+    };
+    PipeAnim pipeAnim_;
     bool hurryMusic_ = false;
     float hurryJingleTimer_ = 0.0f;
     // El tema de fin de nivel (bandera o castillo) ya sono.
@@ -924,7 +966,10 @@ private:
     // de KoopaColor/KoopaState porque esas dos diferencias (sin Alado, sin
     // rojo) no encajan como una opcion mas de Koopa. Tecla B lo repone.
     SpriteSheet buzzyBeetleSprite_;
-    BuzzyBeetle buzzyBeetle_;
+    static constexpr int kMaxBuzzies = 8;
+    std::array<BuzzyBeetle, kMaxBuzzies> buzzyBeetles_;
+    // El de prueba es el primero del pool (los del nivel usan el resto tambien).
+    BuzzyBeetle& buzzyBeetle_ = buzzyBeetles_[0];
 
     // Pirana Plant de prueba (seccion 5.2, cuarto enemigo): sale de un tile
     // solido angosto en test_enemies.json (no existe el objeto "tuberia"
@@ -934,7 +979,9 @@ private:
     // solo estrella o fuego la matan (sin parabola, ver PiranhaPlant::kill).
     // Tecla P la repone.
     SpriteSheet piranhaPlantSprite_;
-    PiranhaPlant piranhaPlant_;
+    static constexpr int kMaxPiranhas = 12;
+    std::array<PiranhaPlant, kMaxPiranhas> piranhaPlants_;
+    PiranhaPlant& piranhaPlant_ = piranhaPlants_[0];
 
     // Hammer Bro de prueba (seccion 5.2, quinto enemigo): escenario de
     // prueba propio (TestScenario::HammerBro, test_hammerbro.json) en vez
@@ -944,7 +991,9 @@ private:
     // poder animar el giro independiente del estado del Bro, ver
     // HammerBro::consumeThrowRequest(). Tecla H lo repone.
     SpriteSheet hammerBroSprite_;
-    HammerBro hammerBro_;
+    static constexpr int kMaxHammerBros = 6;
+    std::array<HammerBro, kMaxHammerBros> hammerBros_;
+    HammerBro& hammerBro_ = hammerBros_[0];
     SpriteSheet hammerSprite_;
     std::array<Hammer, kMaxHammers> hammers_;
 
@@ -967,7 +1016,9 @@ private:
     // entre chorros hacia el personaje mas cercano (ver Blooper.h). Tecla O
     // lo repone (B ya la usa Buzzy Beetle).
     SpriteSheet blooperSprite_;
-    Blooper blooper_;
+    static constexpr int kMaxBloopers = 6;
+    std::array<Blooper, kMaxBloopers> bloopers_;
+    Blooper& blooper_ = bloopers_[0];
 
     // Cheep Cheep de prueba (seccion 5.2, noveno enemigo): escenario propio
     // (TestScenario::CheepCheep, test_cheepcheep.json) con dos instancias
@@ -977,6 +1028,9 @@ private:
     SpriteSheet cheepCheepSprite_;
     CheepCheep cheepCheepSwim_;     // SwimPattern::Straight
     CheepCheep cheepCheepSwimOsc_;  // SwimPattern::Oscillating
+    // Las que nadan en los niveles de agua (campo "entities", tipo "cheep").
+    static constexpr int kMaxLevelCheeps = 10;
+    std::array<CheepCheep, kMaxLevelCheeps> levelCheeps_;
 
     // Cheep Cheep Jumping de prueba: escenario propio
     // (TestScenario::CheepCheepJump, test_cheepcheep_jump.json, largo con
@@ -1003,8 +1057,10 @@ private:
     // disparadas en direcciones opuestas para probar el cruce. Tecla I lo
     // repone (B/N/J ya estan tomadas).
     SpriteSheet bulletBillSprite_;
-    BulletBill bulletBillA_;
-    BulletBill bulletBillB_;
+    static constexpr int kMaxBulletBills = 8;
+    std::array<BulletBill, kMaxBulletBills> bulletBills_;
+    BulletBill& bulletBillA_ = bulletBills_[0];
+    BulletBill& bulletBillB_ = bulletBills_[1];
 
     // Podoboo de prueba (seccion 5.2, decimo enemigo): escenario propio
     // (TestScenario::Podoboo, test_podoboo.json) con worldType_ arrancando
@@ -1012,7 +1068,9 @@ private:
     // Una sola instancia fija (no un pool: el pozo de lava no se mueve ni se
     // agota, siempre el mismo). Tecla P lo repone.
     SpriteSheet podobooSprite_;
-    Podoboo podoboo_;
+    static constexpr int kMaxPodoboos = 6;
+    std::array<Podoboo, kMaxPodoboos> podoboos_;
+    Podoboo& podoboo_ = podoboos_[0];
 
     // Bowser de prueba (seccion 5.2, jefe final): escenario propio
     // (TestScenario::Bowser, test_bowser.json) con worldType_ arrancando en
@@ -1054,6 +1112,35 @@ private:
     float bridgeCollapseTimer_ = 0.0f;
     std::vector<SDL_Point> bridgeTilesToCollapse_;
     float castleClearTimer_ = 0.0f;
+
+    struct Cannon {
+        int col;
+        int row;
+        float timer;
+    };
+    std::vector<Cannon> cannons_;
+    struct Firebar {
+        float centerX;  // centro de giro en px
+        float centerY;
+        int length;     // cantidad de bolas
+        float angle;    // grados
+        float speed;    // grados/s
+    };
+    std::vector<Firebar> firebars_;
+    // Zonas de Cheep Cheep saltarinas, en px (inicio, fin).
+    std::vector<std::pair<float, float>> cheepJumpZones_;
+    // X donde el Lakitu del nivel se retira (-1: nunca).
+    float lakituEndX_ = -1.0f;
+    // Castillo terminado: cartel del Toad (o el de la princesa en el 8-4).
+    bool castleMessage_ = false;
+    SpriteSheet sceneryTilesSprite_;
+    // Pantalla de titulo y HUD (gen_title.py): el cartel "SUPER MARIO
+    // BROS.", el hongo que marca la opcion, la moneda del HUD (3 frames
+    // por WorldType) y Mario chico parado (pantalla "WORLD x-y").
+    SpriteSheet titleLogoSprite_;
+    SpriteSheet titleCursorSprite_;
+    SpriteSheet hudCoinSprite_;
+    SpriteSheet introMarioSprite_;
 
     // Plataformas moviles del nivel (campo "platforms").
     static constexpr int kMaxPlatforms = 12;
