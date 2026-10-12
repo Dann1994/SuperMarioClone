@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <SDL.h>
 
 #include <string>
@@ -156,7 +158,14 @@ public:
     // Tipo de mundo actual (seccion 5.5): por ahora solo Underwater cambia
     // la fisica (nado en vez de salto, velocidad reducida). Lo setea Game
     // por tecla de debug hasta que los niveles tengan esto en su JSON.
-    void setWorldType(WorldType type) { worldType_ = type; }
+    // Tambien cambia la paleta del personaje si hay una para ese mundo (ver
+    // loadPaletteSprites); si no, usa la normal.
+    void setWorldType(WorldType type);
+    // Paleta alternativa para un tipo de mundo (los tres tamanos), ver
+    // tools/asset_scripts/gen_player_palettes.py. Si algun archivo no existe
+    // devuelve false y ese mundo usa la paleta normal.
+    bool loadPaletteSprites(SDL_Renderer* renderer, WorldType type, const std::string& smallPath,
+                            const std::string& bigPath, const std::string& firePath);
     WorldType worldType() const { return worldType_; }
 
     // Danio: si esta grande/fuego, arranca la secuencia clasica (se congela
@@ -349,6 +358,11 @@ private:
     SpriteSheet spriteSmall_;
     SpriteSheet spriteBig_;
     SpriteSheet spriteFire_;
+    // Paletas por tipo de mundo: la activa vive en spriteSmall_/Big_/Fire_ y
+    // su lugar aca queda vacio; cambiar de paleta es intercambiar texturas.
+    std::array<std::array<SpriteSheet, 3>, 4> paletteSprites_;
+    std::array<bool, 4> paletteLoaded_{true, false, false, false};  // Overworld = la normal
+    int activePalette_ = 0;
     SpriteSheet spriteSmallStar_;
     SpriteSheet spriteBigStar_;
     SpriteSheet spriteFireStar_;

@@ -452,6 +452,17 @@ bool Game::init() {
                             "assets/sprites/luigi_big.png", "assets/sprites/luigi_fire.png")) {
         return false;
     }
+    // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
+    // el mundo que no tenga usa la normal.
+    for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},
+                                       {WorldType::Underground, "underground"},
+                                       {WorldType::Castle, "castle"}}) {
+        for (auto& [character, name] : {std::pair<Mario*, const char*>{&mario_, "mario"}, {&luigi_, "luigi"}}) {
+            const std::string base = std::string("assets/sprites/") + name + "_";
+            character->loadPaletteSprites(renderer_, type, base + "small_" + suffix + ".png",
+                                          base + "big_" + suffix + ".png", base + "fire_" + suffix + ".png");
+        }
+    }
     // Paleta de estrella: por ahora solo la variante "overworld" (falta el
     // concepto de tipo de mundo para elegir entre overworld/castle/
     // underground/underwater).
@@ -3585,6 +3596,8 @@ void Game::updateLevelTimer(float dt) {
 
 
 void Game::renderHud() {
+    // Letras con borde negro: el HUD va encima del nivel y sin borde no se
+    // lee sobre nubes ni sobre techos claros (castillo).
     // Mismo layout que el original (grilla de 8px, la fuente a escala 2 es
     // la del juego, 8x8): titulos arriba, valores en el renglon de abajo.
     // Las cuatro columnas del original (pensadas para 256px) se reparten en
@@ -3599,30 +3612,30 @@ void Game::renderHud() {
     const int timeX = column(200);
     const bool onTitle = appState_ == AppState::Title;
 
-    DebugFont::drawText(renderer_, marioX, kTitleY, "MARIO", 2, white);
+    DebugFont::drawTextOutlined(renderer_, marioX, kTitleY, "MARIO", 2, white);
     char text[16];
     std::snprintf(text, sizeof(text), "%06d", std::min(score_, 999999));
-    DebugFont::drawText(renderer_, marioX, kValueY, text, 2, white);
+    DebugFont::drawTextOutlined(renderer_, marioX, kValueY, text, 2, white);
 
     // La moneda cicla de brillo junto con los bloques ?, como el original.
     hudCoinSprite_.draw(renderer_, static_cast<int>(onTitle ? WorldType::Overworld : worldType_),
                         questionBlockAnimFrame_, coinX, kValueY, false);
     std::snprintf(text, sizeof(text), "x%02d", coinCount_);
-    DebugFont::drawText(renderer_, coinX + 8, kValueY, text, 2, white);
+    DebugFont::drawTextOutlined(renderer_, coinX + 8, kValueY, text, 2, white);
 
-    DebugFont::drawText(renderer_, worldX, kTitleY, "WORLD", 2, white);
+    DebugFont::drawTextOutlined(renderer_, worldX, kTitleY, "WORLD", 2, white);
     if (onTitle) {
         std::snprintf(text, sizeof(text), "%d-%d", campaignWorld_, campaignLevel_);
-        DebugFont::drawText(renderer_, worldX + 8, kValueY, text, 2, white);
+        DebugFont::drawTextOutlined(renderer_, worldX + 8, kValueY, text, 2, white);
     } else {
-        DebugFont::drawText(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
+        DebugFont::drawTextOutlined(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
     }
 
-    DebugFont::drawText(renderer_, timeX, kTitleY, "TIME", 2, white);
+    DebugFont::drawTextOutlined(renderer_, timeX, kTitleY, "TIME", 2, white);
     // En el titulo y las pantallas negras el tiempo no se muestra (como el original).
     if (appState_ == AppState::Playing || appState_ == AppState::Paused) {
         std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
-        DebugFont::drawText(renderer_, timeX + 8, kValueY, text, 2, white);
+        DebugFont::drawTextOutlined(renderer_, timeX + 8, kValueY, text, 2, white);
     }
 }
 

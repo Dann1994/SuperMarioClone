@@ -48,6 +48,36 @@ int Mario::currentSpriteFrameHeight() const {
     return size_ == MarioSize::Small ? kSmallHeight : kBigHeight;
 }
 
+bool Mario::loadPaletteSprites(SDL_Renderer* renderer, WorldType type, const std::string& smallPath,
+                               const std::string& bigPath, const std::string& firePath) {
+    const int index = static_cast<int>(type);
+    if (index == activePalette_) return false;
+    std::array<SpriteSheet, 3>& slot = paletteSprites_[static_cast<size_t>(index)];
+    if (!slot[0].loadFromFile(renderer, smallPath, kSpriteFrameWidth, kSmallHeight) ||
+        !slot[1].loadFromFile(renderer, bigPath, kSpriteFrameWidth, kBigHeight) ||
+        !slot[2].loadFromFile(renderer, firePath, kSpriteFrameWidth, kBigHeight)) {
+        return false;
+    }
+    paletteLoaded_[static_cast<size_t>(index)] = true;
+    return true;
+}
+
+void Mario::setWorldType(WorldType type) {
+    worldType_ = type;
+    const int wanted = paletteLoaded_[static_cast<size_t>(type)] ? static_cast<int>(type) : 0;
+    if (wanted == activePalette_) return;
+    // Devuelve la activa a su lugar y trae la nueva.
+    std::array<SpriteSheet, 3>& current = paletteSprites_[static_cast<size_t>(activePalette_)];
+    spriteSmall_.swap(current[0]);
+    spriteBig_.swap(current[1]);
+    spriteFire_.swap(current[2]);
+    std::array<SpriteSheet, 3>& next = paletteSprites_[static_cast<size_t>(wanted)];
+    spriteSmall_.swap(next[0]);
+    spriteBig_.swap(next[1]);
+    spriteFire_.swap(next[2]);
+    activePalette_ = wanted;
+}
+
 const SpriteSheet& Mario::currentSprite() const {
     switch (size_) {
         case MarioSize::Big: return spriteBig_;

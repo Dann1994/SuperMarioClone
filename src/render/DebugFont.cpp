@@ -1,5 +1,6 @@
 #include "DebugFont.h"
 
+#include <algorithm>
 #include <array>
 #include <unordered_map>
 
@@ -141,4 +142,18 @@ void DebugFont::drawText(SDL_Renderer* renderer, int x, int y, const std::string
         }
         cursorX += advance;
     }
+}
+
+void DebugFont::drawTextOutlined(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale,
+                                 SDL_Color color) {
+    // Un punto de la fuente: medio pixel logico por escala desde la 2 (ver
+    // drawText), uno entero en la mini.
+    const int dot = scale >= 2 ? std::max(1, scale / 2) : 1;
+    const SDL_Color black{0, 0, 0, color.a};
+    for (int dy = -dot; dy <= dot; dy += dot) {
+        for (int dx = -dot; dx <= dot; dx += dot) {
+            if (dx != 0 || dy != 0) drawText(renderer, x + dx, y + dy, text, scale, black);
+        }
+    }
+    drawText(renderer, x, y, text, scale, color);
 }

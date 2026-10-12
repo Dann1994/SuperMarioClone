@@ -2,6 +2,7 @@
 
 #include <SDL.h>
 #include <string>
+#include <utility>
 
 // Spritesheet en grilla de frames de tamano fijo (seccion 8.1 de la
 // especificacion): una fila por animacion, sin frames duplicados por
@@ -30,6 +31,13 @@ public:
     // Cantidad de filas del sheet (alto de la textura / alto de frame). Sirve
     // para calcular offsets de bloque, como en las variantes de paleta de estrella.
     int rowCount() const;
+    // Intercambia la textura (y el tamano de frame) con otra hoja, sin copiar
+    // nada: lo usa Mario para cambiar de paleta segun el tipo de mundo.
+    void swap(SpriteSheet& other) noexcept {
+        std::swap(texture_, other.texture_);
+        std::swap(frameWidth_, other.frameWidth_);
+        std::swap(frameHeight_, other.frameHeight_);
+    }
 
 private:
     SDL_Texture* texture_ = nullptr;
