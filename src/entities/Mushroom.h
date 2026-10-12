@@ -23,15 +23,24 @@ public:
     bool isAlive() const { return alive_; }
     void collect() { alive_ = false; }
     bool isOneUp() const { return oneUp_; }
+    // Golpe desde abajo al bloque donde esta apoyado (original:
+    // ChkToStunEnemies/SetStun2): saltito de -3 px/cuadro y se aleja del
+    // jugador a 1 px/cuadro.
+    void bumpFromBelow(bool moveRight) {
+        if (!alive_) return;
+        y_ -= 2.0f;
+        velY_ = -180.0f;
+        velX_ = moveRight ? kSpeed : -kSpeed;
+    }
 
     float x() const { return x_; }
     float y() const { return y_; }
     static constexpr int kSize = 16;
 
 private:
-    static constexpr float kSpeed = 40.0f;         // px/s horizontal, constante
-    static constexpr float kGravity = 1000.0f;     // px/s^2
-    static constexpr float kMaxFallSpeed = 300.0f; // px/s
+    static constexpr float kSpeed = 60.0f;  // px/s: 0x10/16 px/cuadro, como el original
+    static constexpr float kGravity = 858.0f;  // px/s^2: la de los enemigos del original (0x3d)
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s: 3 px/cuadro
     static constexpr float kEdgeEpsilon = 0.01f;
 
     float x_ = 0.0f;

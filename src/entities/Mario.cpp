@@ -78,6 +78,27 @@ void Mario::setWorldType(WorldType type) {
     activePalette_ = wanted;
 }
 
+void Mario::swapAppearance(Mario& other) {
+    // Las paletas por mundo tienen que estar en el mismo estado (la activa
+    // en los sprites principales): se vuelve las dos a la normal primero.
+    const WorldType mine = worldType_;
+    const WorldType theirs = other.worldType_;
+    setWorldType(WorldType::Overworld);
+    other.setWorldType(WorldType::Overworld);
+    spriteSmall_.swap(other.spriteSmall_);
+    spriteBig_.swap(other.spriteBig_);
+    spriteFire_.swap(other.spriteFire_);
+    spriteSmallStar_.swap(other.spriteSmallStar_);
+    spriteBigStar_.swap(other.spriteBigStar_);
+    spriteFireStar_.swap(other.spriteFireStar_);
+    for (size_t w = 0; w < paletteSprites_.size(); ++w) {
+        for (size_t i = 0; i < paletteSprites_[w].size(); ++i) paletteSprites_[w][i].swap(other.paletteSprites_[w][i]);
+    }
+    std::swap(paletteLoaded_, other.paletteLoaded_);
+    setWorldType(mine);
+    other.setWorldType(theirs);
+}
+
 const SpriteSheet& Mario::currentSprite() const {
     switch (size_) {
         case MarioSize::Big: return spriteBig_;

@@ -113,6 +113,9 @@ public:
     bool facingRight() const { return facingRight_; }
     void setFacingRight(bool right) { facingRight_ = right; }
     bool isGrounded() const { return grounded_; }
+    // Mueve al personaje en X sin tocar velocidad ni estado (laberintos de
+    // castillo: el original corre al jugador 4 paginas para atras).
+    void shiftX(float dx) { x_ += dx; }
     float velocityX() const { return velX_; }
     float velocityY() const { return velY_; }
 
@@ -161,6 +164,9 @@ public:
     // Tambien cambia la paleta del personaje si hay una para ese mundo (ver
     // loadPaletteSprites); si no, usa la normal.
     void setWorldType(WorldType type);
+    // Intercambia todos los sprites (y paletas) con otro personaje: para
+    // jugar con Luigi en 1 jugador usando el objeto de Mario.
+    void swapAppearance(Mario& other);
     // Paleta alternativa para un tipo de mundo (los tres tamanos), ver
     // tools/asset_scripts/gen_player_palettes.py. Si algun archivo no existe
     // devuelve false y ese mundo usa la paleta normal.

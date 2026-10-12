@@ -72,6 +72,9 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"TU AVENTURA TERMINO.", "YOUR QUEST IS OVER."},
     {"TE DAMOS UNA NUEVA AVENTURA!", "WE PRESENT YOU A NEW QUEST."},
     {"FIN", "THE END"},
+
+    {"CON QUIEN JUGAS?", "CHOOSE PLAYER"},
+    {"GRACIAS LUIGI!", "THANK YOU LUIGI!"},
 }};
 
 }  // namespace

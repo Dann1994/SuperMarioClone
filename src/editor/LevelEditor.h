@@ -229,6 +229,6 @@ private:
     SpriteSheet oneUpSprite_;
     SpriteSheet fireFlowerSprite_;
     SpriteSheet starSprite_;
-    static constexpr int kDecorationCount = 8;
+    static constexpr int kDecorationCount = 9;
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
 };

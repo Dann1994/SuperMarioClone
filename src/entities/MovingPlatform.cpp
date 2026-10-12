@@ -23,6 +23,7 @@ void MovingPlatform::spawn(float x, float y, int widthPx, PlatformMode mode, flo
     phase_ = 0.0f;
     fallVelocity_ = 0.0f;
     falling_ = false;
+    pendingDy_ = 0.0f;
     dx_ = 0.0f;
     dy_ = 0.0f;
     active_ = true;
@@ -65,6 +66,11 @@ void MovingPlatform::update(float dt, int levelHeight) {
             if (!falling_) break;
             fallVelocity_ = std::min(fallVelocity_ + kFallGravity * dt, kMaxFallSpeed);
             y_ += fallVelocity_ * dt;
+            if (y_ > static_cast<float>(levelHeight)) active_ = false;
+            break;
+        case PlatformMode::Balance:
+            y_ += pendingDy_;
+            pendingDy_ = 0.0f;
             if (y_ > static_cast<float>(levelHeight)) active_ = false;
             break;
     }

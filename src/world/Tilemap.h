@@ -43,6 +43,9 @@ struct LevelWarp {           // "warps": tuberia que se entra apretando abajo
     // "right": boca horizontal (tuberia en L) de 2x2 tiles con esquina
     // superior izquierda en col/row; se entra caminando hacia la derecha.
     std::string dir;
+    // Warp zone: si no esta vacio, la tuberia lleva al principio de ese
+    // nivel ("4-1") en vez de a dest_col/dest_row.
+    std::string level;
 };
 struct LevelArea {           // "areas": tramos de columnas con camara propia
     int startCol = 0;
@@ -63,6 +66,7 @@ struct LevelPlatform {       // "platforms": plataformas moviles (ver MovingPlat
     float range = 0.0f;      // recorrido en tiles (vertical/horizontal)
     float period = 4.0f;     // s de una ida y vuelta (vertical/horizontal)
     float speed = 50.0f;     // px/s (lift_up/lift_down)
+    int ropeRow = 3;         // balance: fila de la polea
 };
 struct LevelEntity {         // "entities": enemigos del nivel
     std::string type;        // goomba, koopa
@@ -79,6 +83,11 @@ struct LevelEntity {         // "entities": enemigos del nivel
     int length = 6;
     float speed = 100.0f;
     int endCol = -1;
+    // Corrimiento horizontal en px (grupos de enemigos del original, que
+    // van cada 24 px).
+    float xOffset = 0.0f;
+    // loop (laberinto de castillo): columnas que vuelve si se falla.
+    int back = 64;
 };
 
 class Tilemap {
@@ -113,6 +122,9 @@ public:
     const std::vector<LevelArea>& areas() const { return areas_; }
     const std::vector<LevelDecoration>& decorations() const { return decorations_; }
     const std::vector<LevelPlatform>& platforms() const { return platforms_; }
+    // Copia count columnas enteras (todos los tiles y su estado) de src a
+    // dst; laberintos de castillo, ver Game::execLoopback.
+    void copyColumns(int src, int dst, int count);
     // Area de la escena de introduccion (campo "intro": {"area": N}, como
     // la del 1-2: Mario camina solo hasta meterse en una tuberia), -1 si no
     // tiene. Ver Game::cutscene_.

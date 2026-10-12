@@ -168,6 +168,11 @@ public:
     // puntos suben con cada uno, como el original).
     int takeShellChain() { return shellChain_++; }
     // Se da vuelta (al lastimar a un personaje, si iba alejandose de el).
+    // Golpe desde abajo al bloque donde esta apoyado (original:
+    // ChkToStunEnemies/SetStun2): queda boca arriba como caparazon, saltito de -3 px/cuadro y se aleja del
+    // jugador a 1 px/cuadro.
+    void stunFromBelow(bool moveRight);
+    bool isUpsideDown() const { return upsideDown_; }
     void turnAround() {
         velX_ = -velX_;
         if (velX_ != 0.0f) lastFacingRight_ = velX_ > 0.0f;
@@ -256,6 +261,7 @@ private:
     const void* kicker_ = nullptr;
     std::array<const void*, 2> touching_{};
     int shellChain_ = 0;
+    bool upsideDown_ = false;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
 };

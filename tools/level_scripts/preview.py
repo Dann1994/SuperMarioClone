@@ -2,7 +2,7 @@
 el armado sin abrir el juego: un color por tile y un punto por entidad.
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
-  python tools/level_scripts/preview.py <carpeta de salida> [mundo...]
+  python tools/level_scripts/preview.py <carpeta de salida> [mundo...] [--levels carpeta]
 """
 import json
 import os
@@ -16,12 +16,13 @@ COLORS = {
     'D': (210, 100, 60), 'H': (250, 250, 160), 'o': (255, 220, 0), 'T': (40, 180, 40), 'F': (220, 220, 220),
     'L': (230, 40, 20), 'b': (240, 200, 120), '=': (214, 168, 116), 'X': (120, 120, 120), 't': (110, 210, 20),
     'r': (120, 70, 20), 'm': (240, 120, 60), 'n': (250, 210, 180), 'R': (250, 200, 160), 'K': (20, 20, 20),
-    'c': (230, 70, 160), 'W': (100, 170, 250), 'w': (30, 60, 200),
+    'c': (230, 70, 160), 'W': (100, 170, 250), 'w': (30, 60, 200), 'U': (140, 90, 40),
 }
 BG = {"overworld": (92, 148, 252), "underground": (8, 8, 28), "castle": (0, 0, 0), "underwater": (20, 60, 160)}
 ENT = {"goomba": (140, 60, 20), "koopa": (0, 160, 0), "buzzy": (40, 40, 160), "piranha": (0, 255, 0),
        "hammer_bro": (0, 255, 255), "lakitu": (255, 255, 255), "blooper": (255, 255, 255), "cheep": (255, 0, 0),
-       "podoboo": (255, 128, 0), "firebar": (255, 160, 0), "bowser": (0, 120, 0), "axe": (180, 180, 255)}
+       "podoboo": (255, 128, 0), "firebar": (255, 160, 0), "bowser": (0, 120, 0), "axe": (180, 180, 255),
+       "spring": (255, 0, 0)}
 
 
 def render(path):
@@ -48,12 +49,18 @@ def render(path):
 
 
 def main():
-    out = sys.argv[1]
-    worlds = sys.argv[2:] or [str(i) for i in range(1, 9)]
+    args = sys.argv[1:]
+    levels_dir = "levels"
+    if "--levels" in args:
+        i = args.index("--levels")
+        levels_dir = args[i + 1]
+        del args[i:i + 2]
+    out = args[0]
+    worlds = args[1:] or [str(i) for i in range(1, 9)]
     for world in worlds:
         imgs = []
         for level in range(1, 5):
-            p = f"levels/world{world}/{world}-{level}.json"
+            p = f"{levels_dir}/world{world}/{world}-{level}.json"
             if os.path.exists(p):
                 imgs.append(render(p))
         if not imgs:

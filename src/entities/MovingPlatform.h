@@ -16,6 +16,8 @@
 //  - LiftUp / LiftDown: elevador que sube/baja siempre a velocidad fija y al
 //    salir por un borde de la pantalla vuelve a entrar por el otro.
 //  - Fall: quieta hasta que alguien la pisa, ahi se cae acelerando.
+//  - Balance: una de las dos de una balanza; la mueve Game (driveY), ver
+//    Game::updateBalances.
 //
 // Sprite: assets/sprites/lift.png (tramo de 8x8 que se repite a lo ancho,
 // tools/asset_scripts/gen_castle.py).
@@ -25,6 +27,7 @@ enum class PlatformMode {
     LiftUp,
     LiftDown,
     Fall,
+    Balance,
 };
 
 class MovingPlatform {
@@ -39,6 +42,8 @@ public:
 
     // Alguien se paro encima: la que cae arranca a caer.
     void onStoodOn();
+    // Balance: cuanto se mueve en el proximo update() (lo decide Game).
+    void driveY(float dy) { pendingDy_ += dy; }
 
     bool isActive() const { return active_; }
     float x() const { return x_; }
@@ -69,5 +74,6 @@ private:
     bool falling_ = false;
     float dx_ = 0.0f;
     float dy_ = 0.0f;
+    float pendingDy_ = 0.0f;
     bool active_ = false;
 };

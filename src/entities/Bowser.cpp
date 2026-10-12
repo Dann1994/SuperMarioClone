@@ -1,4 +1,5 @@
 #include "Bowser.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -103,7 +104,11 @@ float Bowser::fireOriginX() const {
                              : x_ - static_cast<float>(BowserFire::kWidth) + kOverlap;
 }
 float Bowser::fireOriginY() const { return y_ + kFireOriginYOffset; }
-float Bowser::fireVelocityX() const { return lastFacingRight_ ? kFireSpeedX : -kFireSpeedX; }
+float Bowser::fireVelocityX() const {
+    // Modo dificil del original: 1.375 px/cuadro en vez de 1.25.
+    const float speed = gSecondaryHardMode ? 82.5f : kFireSpeedX;
+    return lastFacingRight_ ? speed : -speed;
+}
 
 bool Bowser::consumeHammerThrowRequest() {
     const bool value = hammerThrowRequested_;
@@ -125,7 +130,7 @@ float Bowser::nextAttackDelay() {
     // Original: una pausa de 0x20 cuadros y despues la espera de la tabla
     // (0xbf o 0x40 cuadros) en un orden fijo que se repite.
     static const float kTable[8] = {3.18f, 1.07f, 3.18f, 3.18f, 3.18f, 1.07f, 1.07f, 3.18f};
-    const float delay = 0.53f + kTable[flameTimerIndex_];
+    const float delay = 0.53f + kTable[flameTimerIndex_] - (gSecondaryHardMode ? 0.27f : 0.0f);
     flameTimerIndex_ = (flameTimerIndex_ + 1) % 8;
     return delay;
 }

@@ -12,6 +12,15 @@
 class StarItem {
 public:
     void spawn(float x, float y, bool movingRight);
+    // Golpe desde abajo al bloque donde esta apoyado (original:
+    // ChkToStunEnemies/SetStun2): saltito de -3 px/cuadro y se aleja del
+    // jugador a 1 px/cuadro.
+    void bumpFromBelow(bool moveRight) {
+        if (!alive_) return;
+        y_ -= 2.0f;
+        velY_ = kBounceVelocity;
+        velX_ = moveRight ? kSpeed : -kSpeed;
+    }
     void update(float dt, const Tilemap& level, int screenWidth);
     // worldRow selecciona la variante de color segun el tipo de mundo (el
     // sheet trae una fila por WorldType, en ese mismo orden).

@@ -3,3 +3,6 @@ build/
 *.obj
 *.o
 .cache/
+
+# ROMs del juego original: solo para uso local, nunca al repositorio
+*.nes

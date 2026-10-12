@@ -4,6 +4,7 @@
 #include <cmath>
 
 void Koopa::spawn(float x, float y, bool movingRight, KoopaState initialState) {
+    upsideDown_ = false;
     touching_ = {};
     shellChain_ = 0;
     kicker_ = nullptr;
@@ -81,6 +82,22 @@ void Koopa::kick(bool kickRight, const void* character) {
     stompCooldownOwner_ = character;
     kicker_ = character;
     shellChain_ = 0;
+    upsideDown_ = false;
+}
+
+void Koopa::stunFromBelow(bool moveRight) {
+    if (!alive_ || falling_) return;
+    if (state_ == KoopaState::Walking || state_ == KoopaState::Flying || state_ == KoopaState::Jumping) {
+        y_ += static_cast<float>(kWalkHeight - kShellHeight);
+    }
+    state_ = KoopaState::ShellIdle;
+    shellIdleTimer_ = kShellIdleDuration;
+    upsideDown_ = true;
+    y_ -= 2.0f;
+    velY_ = -180.0f;
+    velX_ = moveRight ? 60.0f : -60.0f;
+    animTimer_ = 0.0f;
+    animFrame_ = 0;
 }
 
 bool Koopa::killFalling(bool flyRight) {
@@ -261,8 +278,10 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
         } else {
             animFrame_ = 0;
         }
-        applyVerticalPhysics(dt, level, kShellHeight);
+        if (velX_ != 0.0f) applyHorizontalWithWallBounce(dt, level, kShellHeight, false);
+        if (applyVerticalPhysics(dt, level, kShellHeight)) velX_ = 0.0f;  // aturdido: frena al aterrizar
         if (shellIdleTimer_ <= 0.0f) {
+            upsideDown_ = false;
             // Sale solo: retoma la caminata en la direccion que llevaba
             // antes de esconderse, restaurando la altura (pies fijos).
             y_ -= static_cast<float>(kWalkHeight - kShellHeight);
@@ -332,5 +351,5 @@ void Koopa::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldR
     // asi que se flipea al reves que Mario/Goomba: mirando a la derecha SI
     // se flipea, no si no. Boca abajo (flip vertical) solo mientras cae
     // muerto, igual que el Goomba.
-    sprite.draw(renderer, row, col, drawX, drawY, lastFacingRight_, falling_);
+    sprite.draw(renderer, row, col, drawX, drawY, lastFacingRight_, falling_ || upsideDown_);
 }

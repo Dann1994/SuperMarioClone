@@ -44,6 +44,7 @@ constexpr DecorationInfo kDecorations[] = {
     {"hill_small", "COLINA CHICA", 48, 32},   {"bush_big", "ARBUSTO GRANDE", 80, 16},
     {"bush_small", "ARBUSTO CHICO", 48, 16},  {"cloud_big", "NUBE GRANDE", 64, 32},
     {"cloud_small", "NUBE CHICA", 48, 32},    {"pipe_side", "TUBERIA EN L", 64, 64},
+    {"castle_big", "CASTILLO GRANDE", 80, 176},
 };
 
 // Contenidos posibles de un bloque '?'/'D'/'H' (campo "item" de "blocks").
@@ -1362,7 +1363,7 @@ void LevelEditor::renderOverlays() {
         for (int offset = 0; offset < width; offset += 8) liftSprite_.draw(renderer_, 0, 0, x + offset, y, false);
         const std::string mode = platform.value("mode", std::string("vertical"));
         const char* label = mode == "horizontal" ? "<>" : mode == "lift_up" ? "SUBE" : mode == "lift_down" ? "BAJA"
-                          : mode == "fall" ? "CAE" : "V";
+                          : mode == "fall" ? "CAE" : mode == "balance" ? "BAL" : "V";
         drawText(x + 1, y + 10, label, kYellow);
     }
 

@@ -59,6 +59,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         warp.destCol = entry.at("dest_col").get<int>();
         warp.destRow = entry.at("dest_row").get<int>();
         warp.dir = entry.value("dir", std::string("down"));
+        warp.level = entry.value("level", std::string());
         warps_.push_back(warp);
     }
     areas_.clear();
@@ -89,6 +90,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         platform.range = entry.value("range", 0.0f);
         platform.period = entry.value("period", 4.0f);
         platform.speed = entry.value("speed", 50.0f);
+        platform.ropeRow = entry.value("rope_row", 3);
         platforms_.push_back(platform);
     }
     entities_.clear();
@@ -103,6 +105,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         entity.length = entry.value("length", 6);
         entity.speed = entry.value("speed", 100.0f);
         entity.endCol = entry.value("end_col", -1);
+        entity.xOffset = entry.value("x_offset", 0.0f);
+        entity.back = entry.value("back", 64);
         entities_.push_back(entity);
     }
     const auto rows = json.at("rows").get<std::vector<std::string>>();
@@ -140,7 +144,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'D' || c == 'T' || c == 'b' ||
+            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'U' || c == 'D' || c == 'T' || c == 'b' ||
                          c == 'X' || isSolidSceneryChar(c)) ? 1 : 0;
             scenery_[i] = isSceneryChar(c) ? static_cast<uint8_t>(c) : 0;
             hard_[i] = (c == 'S') ? 1 : 0;
@@ -149,7 +153,9 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
             brick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             everBrick_[i] = (c == 'B' || c == 'C') ? 1 : 0;
             topCoin_[i] = (c == 'C') ? 1 : 0;
-            question_[i] = (c == '?') ? 1 : 0;
+            // 'U': bloque ya usado (vacio) desde el principio.
+            question_[i] = (c == '?' || c == 'U') ? 1 : 0;
+            if (c == 'U') questionUsed_[i] = 1;
             dispenser_[i] = (c == 'D') ? 1 : 0;
             pipe_[i] = (c == 'T') ? 1 : 0;
             flagpole_[i] = (c == 'F') ? 1 : 0;
@@ -278,6 +284,39 @@ bool Tilemap::wasBrickTile(int col, int row) const {
         return false;
     }
     return everBrick_[row * width_ + col] != 0;
+}
+
+void Tilemap::copyColumns(int src, int dst, int count) {
+    for (int i = 0; i < count; ++i) {
+        const int s = src + i;
+        const int d = dst + i;
+        if (s < 0 || d < 0 || s >= width_ || d >= width_) continue;
+        for (int row = 0; row < height_; ++row) {
+            const size_t from = static_cast<size_t>(row) * width_ + s;
+            const size_t to = static_cast<size_t>(row) * width_ + d;
+                hidden_[to] = hidden_[from];
+                coinTile_[to] = coinTile_[from];
+                hard_[to] = hard_[from];
+                invisible_[to] = invisible_[from];
+                scenery_[to] = scenery_[from];
+                lava_[to] = lava_[from];
+                bridge_[to] = bridge_[from];
+                everBridge_[to] = everBridge_[from];
+                solid_[to] = solid_[from];
+                platform_[to] = platform_[from];
+                brick_[to] = brick_[from];
+                everBrick_[to] = everBrick_[from];
+                topCoin_[to] = topCoin_[from];
+                question_[to] = question_[from];
+                questionUsed_[to] = questionUsed_[from];
+                questionHits_[to] = questionHits_[from];
+                dispenser_[to] = dispenser_[from];
+                dispenserUsed_[to] = dispenserUsed_[from];
+                dispenserHits_[to] = dispenserHits_[from];
+                pipe_[to] = pipe_[from];
+                flagpole_[to] = flagpole_[from];
+        }
+    }
 }
 
 bool Tilemap::hasCoinOnTop(int col, int row) const {

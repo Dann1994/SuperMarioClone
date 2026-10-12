@@ -73,6 +73,7 @@ void Game::saveTopScore() {
 
 void Game::openTitle() {
     saveTopScore();
+    choosingCharacter_ = false;
     audio_.stopMusic();
     cutscene_ = false;
     pipeTransitionTimer_ = 0.0f;
@@ -84,6 +85,7 @@ void Game::openTitle() {
 }
 
 void Game::openScenarioSelect() {
+    setPlayAsLuigi(false);
     appState_ = AppState::ScenarioSelect;
     campaign_ = false;
 }
@@ -224,6 +226,21 @@ std::vector<bool> titleDisabled() {
 }  // namespace
 
 void Game::handleTitleInput(MenuInput input) {
+    if (choosingCharacter_) {
+        // 1 jugador: elegir Mario o Luigi.
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            characterChoice_ = 1 - characterChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm) {
+            choosingCharacter_ = false;
+            audio_.play(Sfx::Coin);
+            startCampaign(false, characterChoice_ == 1);
+        } else if (input == MenuInput::Back) {
+            choosingCharacter_ = false;
+        }
+        return;
+    }
     if (input == MenuInput::Up || input == MenuInput::Down) {
         titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled());
         audio_.play(Sfx::TimeTally);
@@ -241,7 +258,10 @@ void Game::handleTitleInput(MenuInput input) {
     if (input != MenuInput::Confirm) return;
     audio_.play(Sfx::Coin);
     switch (titleSelection_) {
-        case kTitleOnePlayer: startCampaign(false); break;
+        case kTitleOnePlayer:
+            choosingCharacter_ = true;
+            characterChoice_ = playAsLuigi_ ? 1 : 0;
+            break;
         case kTitleTwoPlayers: startCampaign(true); break;
         case kTitleOptions: openSettings(AppState::Title); break;
         case kTitleTestMode: openScenarioSelect(); break;
@@ -435,7 +455,16 @@ std::string Game::campaignLevelPath(int world, int level) {
     return path;
 }
 
-void Game::startCampaign(bool twoPlayers) {
+void Game::setPlayAsLuigi(bool luigi) {
+    playAsLuigi_ = luigi;
+    if (luigi != appearanceSwapped_) {
+        mario_.swapAppearance(luigi_);
+        appearanceSwapped_ = luigi;
+    }
+}
+
+void Game::startCampaign(bool twoPlayers, bool asLuigi) {
+    setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
     campaignWorld_ = 1;
     campaignLevel_ = 1;
@@ -538,6 +567,36 @@ void Game::renderTitle() {
     char top[24];
     std::snprintf(top, sizeof(top), "TOP- %06d", std::min(std::max(settings_.topScore, score_), 999999));
     drawCentered(196, top, 2, kMenuWhite);
+
+    // Los personajes parados en el piso, como el original: Mario siempre,
+    // Luigi tambien si esta marcada la opcion de 2 jugadores. Eligiendo
+    // personaje para 1 jugador, solo el elegido.
+    const int heroX = 40;
+    const int heroY = 208 - 16;
+    if (choosingCharacter_) {
+        (characterChoice_ == 1 ? introLuigiSprite_ : introMarioSprite_).draw(renderer_, 0, 0, heroX, heroY, false);
+    } else {
+        introMarioSprite_.draw(renderer_, 0, 0, heroX, heroY, false);
+        if (titleSelection_ == kTitleTwoPlayers) introLuigiSprite_.draw(renderer_, 0, 0, heroX + 20, heroY, false);
+    }
+
+    if (choosingCharacter_) {
+        // Cartel para elegir con quien jugar 1 jugador.
+        const int boxW = 168;
+        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 132, boxW, 60};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 230);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(140, tr(Txt::ChooseCharacter), 2, kMenuWhite);
+        const int marioX = gLogicalWidth / 2 - 60;
+        const int luigiX = gLogicalWidth / 2 + 12;
+        introMarioSprite_.draw(renderer_, 0, 0, marioX + 16, 158, false);
+        introLuigiSprite_.draw(renderer_, 0, 0, luigiX + 16, 158, false);
+        DebugFont::drawText(renderer_, marioX, 178, "MARIO", 2, SDL_Color{248, 56, 0, 255});
+        DebugFont::drawText(renderer_, luigiX, 178, "LUIGI", 2, SDL_Color{0, 200, 0, 255});
+        titleCursorSprite_.draw(renderer_, 0, 0, (characterChoice_ == 0 ? marioX : luigiX) - 12, 178, false);
+    }
 }
 
 void Game::renderPauseMenu() {

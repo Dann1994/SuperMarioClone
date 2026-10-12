@@ -4,6 +4,7 @@
 #include <cmath>
 
 void BuzzyBeetle::spawn(float x, float y, bool movingRight) {
+    upsideDown_ = false;
     touching_ = {};
     shellChain_ = 0;
     kicker_ = nullptr;
@@ -60,6 +61,21 @@ void BuzzyBeetle::kick(bool kickRight, const void* character) {
     stompCooldownOwner_ = character;
     kicker_ = character;
     shellChain_ = 0;
+    upsideDown_ = false;
+}
+
+void BuzzyBeetle::stunFromBelow(bool moveRight) {
+    if (!alive_ || falling_) return;
+    if (state_ == BuzzyBeetleState::Walking) {
+    }
+    state_ = BuzzyBeetleState::ShellIdle;
+    shellIdleTimer_ = kShellIdleDuration;
+    upsideDown_ = true;
+    y_ -= 2.0f;
+    velY_ = -180.0f;
+    velX_ = moveRight ? 60.0f : -60.0f;
+    animTimer_ = 0.0f;
+    animFrame_ = 0;
 }
 
 bool BuzzyBeetle::killFalling(bool flyRight) {
@@ -91,7 +107,10 @@ void BuzzyBeetle::update(float dt, const Tilemap& level, int screenHeight) {
 
     if (state_ == BuzzyBeetleState::ShellIdle) {
         shellIdleTimer_ -= dt;
+        // Aturdido por un golpe desde abajo: se desliza hasta aterrizar.
+        if (velX_ != 0.0f) x_ += velX_ * dt;
         if (shellIdleTimer_ <= 0.0f) {
+            upsideDown_ = false;
             // Sale solo: retoma la caminata en la direccion que llevaba
             // antes de esconderse. Un solo frame de caparazon en la hoja de
             // referencia, asi que a diferencia del Koopa no hay parpadeo de
@@ -117,6 +136,7 @@ void BuzzyBeetle::update(float dt, const Tilemap& level, int screenHeight) {
             if (blocked) {
                 newY = static_cast<float>(row * ts - kSize);
                 velY_ = 0.0f;
+                if (state_ == BuzzyBeetleState::ShellIdle) velX_ = 0.0f;
             }
         }
         y_ = newY;
@@ -199,5 +219,5 @@ void BuzzyBeetle::render(SDL_Renderer* renderer, const SpriteSheet& sprite, int 
     // Documentaciones/Enemigos.png, mismo criterio que el Koopa): se
     // flipea al reves que Mario/Goomba, mirando a la derecha SI se flipea,
     // no si no.
-    sprite.draw(renderer, worldRow, col, drawX, drawY, lastFacingRight_, falling_);
+    sprite.draw(renderer, worldRow, col, drawX, drawY, lastFacingRight_, falling_ || upsideDown_);
 }

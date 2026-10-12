@@ -162,6 +162,8 @@ struct PipeWarp {
     // Boca horizontal (tuberia en L): col/row es la esquina superior
     // izquierda de la boca (2x2 tiles) y se entra caminando a la derecha.
     bool side = false;
+    // Warp zone: nivel de destino ("4-1"), vacio si es un warp normal.
+    std::string level;
 };
 
 // Cuanto tarda en "salir" del todo un item que emerge de un bloque (ver
@@ -591,7 +593,8 @@ private:
     // vuelve a bajar, ver blockBumps_/kBumpDuration) sin sacar el tile.
     void bumpBrickBlock(int col, int row);
     // Si el ladrillo (col, row) tiene una moneda parada arriba
-    // (Tilemap::hasCoinOnTop, tile 'C'), la agarra: suma al contador y la
+    // (Tilemap::hasCoinOnTop, tile 'C') o una moneda suelta ('o') justo
+    // encima (tambien de un '?' o bloque con item), la agarra: suma al contador y la
     // hace saltar con la animacion de BlockCoin, igual que una moneda de
     // bloque de interrogacion -- se llama sea que el ladrillo se rompio o
     // solo se sacudio, da igual (pedido del usuario).
@@ -717,7 +720,7 @@ private:
 
     // --- Partida (1 o 2 jugadores): niveles levels/world{W}/{W}-{L}.json en
     // orden; despues del ultimo que exista, "fin de la demo".
-    void startCampaign(bool twoPlayers);
+    void startCampaign(bool twoPlayers, bool asLuigi = false);
     static std::string campaignLevelPath(int world, int level);
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
@@ -1014,7 +1017,7 @@ private:
 
     // Escenografia de fondo (ver gen_scenery.py y el campo "decorations"
     // del nivel): un sheet de un solo frame por pieza.
-    static constexpr int kDecorationCount = 8;
+    static constexpr int kDecorationCount = 9;
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
 
     // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
@@ -1196,6 +1199,65 @@ private:
     // Castillo terminado: cartel del Toad (o el de la princesa en el 8-4).
     bool castleMessage_ = false;
     SpriteSheet sceneryTilesSprite_;
+    // Trampolines (entidad "spring" del nivel, ver updateSprings).
+    struct Spring {
+        float x = 0.0f;       // izquierda
+        float bottom = 0.0f;  // donde apoya (abajo del sprite)
+        int frame = 0;        // 0 estirado, 1 a medias, 2 comprimido
+        float timer = 0.0f;   // compresion en curso (> 0)
+        bool boost = false;
+        Mario* rider = nullptr;
+    };
+    std::vector<Spring> springs_;
+    SpriteSheet springSprite_;
+    void updateSprings(float dt);
+    void renderSprings();
+    // Frenesis del original: Bill Balas o Cheep Cheeps nadadoras desde el
+    // borde derecho, o llamas de Bowser, mientras el jugador esta en la zona.
+    struct Frenzy {
+        enum class Kind { BulletBill, CheepCheep, Flame } kind = Kind::BulletBill;
+        float startX = 0.0f;
+        float endX = 0.0f;
+        float timer = 1.0f;
+    };
+    // Balanzas (BalancePlatform del original): dos plataformas colgadas de
+    // la misma soga; la que se pisa baja y la otra sube lo mismo. Si la que
+    // sube llega arriba con alguien parado en la otra, se corta la soga y
+    // caen las dos (1000 puntos).
+    struct Balance {
+        int a = -1;            // indices en platforms_
+        int b = -1;
+        float velocity = 0.0f; // px/s de a (positivo = baja)
+        bool falling = false;
+        float fallA = 0.0f;
+        float fallB = 0.0f;
+        int ropeRow = 3;
+    };
+    std::vector<Balance> balances_;
+    SpriteSheet pulleySprite_;
+    void updateBalances(float dt);
+    void renderBalanceRopes();
+    std::vector<Frenzy> frenzies_;
+    int flameTimerIndex_ = 0;
+    void updateFrenzies(float dt);
+    // Laberintos de castillo (ProcLoopCommand del original): al llegar a
+    // triggerX hay que estar parado con los pies en feetY; si no, todo
+    // vuelve 64 columnas (ExecGameLoopback) y se borran los enemigos. Con
+    // group 3 (7-4) cuenta recien al tercer chequeo seguido, y tienen que
+    // salir bien los tres. feetY < 0: no se puede pasar (8-4, ahi se sale
+    // por tuberias).
+    struct LoopCheck {
+        float triggerX = 0.0f;
+        float feetY = -1.0f;
+        int group = 1;
+        int back = 64;   // columnas que vuelve (la seccion que repite el original)
+        bool armed = true;
+    };
+    std::vector<LoopCheck> loopChecks_;
+    int loopPassCount_ = 0;
+    int loopCorrectCount_ = 0;
+    void updateLoopChecks();
+    void execLoopback(int back);
     // Pantalla de titulo y HUD (gen_title.py): el cartel "SUPER MARIO
     // BROS.", el hongo que marca la opcion, la moneda del HUD (3 frames
     // por WorldType) y Mario chico parado (pantalla "WORLD x-y").
@@ -1203,6 +1265,15 @@ private:
     SpriteSheet titleCursorSprite_;
     SpriteSheet hudCoinSprite_;
     SpriteSheet introMarioSprite_;
+    SpriteSheet introLuigiSprite_;
+    // 1 jugador con Luigi: mario_ lleva los sprites de Luigi (ver
+    // Mario::swapAppearance) y el HUD dice LUIGI.
+    bool playAsLuigi_ = false;
+    bool appearanceSwapped_ = false;
+    // Titulo: eligiendo personaje para 1 jugador (0 Mario, 1 Luigi).
+    bool choosingCharacter_ = false;
+    int characterChoice_ = 0;
+    void setPlayAsLuigi(bool luigi);
 
     // Plataformas moviles del nivel (campo "platforms").
     static constexpr int kMaxPlatforms = 12;

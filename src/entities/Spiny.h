@@ -62,6 +62,13 @@ public:
     // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
     // flyRight, igual que el Goomba.
     bool killFalling(bool flyRight);
+    // Golpe desde abajo al bloque donde esta: el original lo da vuelta y se
+    // recupera al aterrizar -- aca, un saltito y sigue caminando.
+    void bumpFromBelow() {
+        if (!alive_ || falling_) return;
+        y_ -= 2.0f;
+        velY_ = -180.0f;
+    }
     // Al cruzarse con otro Spiny caminando (Game::checkSpinyBounce): mismo
     // efecto que chocar una pared, invierte direccion, mas un empuje pushX
     // para separarlos y que no queden rebotando en el mismo lugar.

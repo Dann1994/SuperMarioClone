@@ -1,4 +1,5 @@
 #include "HammerBro.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -207,7 +208,8 @@ void HammerBro::update(float dt, const Tilemap& level, int screenHeight) {
         throwTimer_ -= dt;
         if (throwTimer_ <= 0.0f) {
             throwWindupTimer_ = kThrowWindupDuration;
-            throwTimer_ = kThrowInterval;
+            // Desde el 5-3 (modo dificil del original) tira mas seguido.
+            throwTimer_ = gSecondaryHardMode ? 0.47f : kThrowInterval;
         }
     }
 

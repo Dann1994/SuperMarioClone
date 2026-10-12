@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "../entities/Difficulty.h"
 
 #include <SDL_image.h>
 
@@ -110,6 +111,7 @@ struct DecorationInfo {
 constexpr DecorationInfo kDecorations[] = {
     {"castle_small", 80, 80}, {"hill_big", 80, 48},   {"hill_small", 48, 32}, {"bush_big", 80, 16},
     {"bush_small", 48, 16},   {"cloud_big", 64, 32},  {"cloud_small", 48, 32}, {"pipe_side", 64, 64},
+    {"castle_big", 80, 176},
 };
 
 WorldType parseWorldType(const std::string& name, WorldType fallback) {
@@ -578,11 +580,14 @@ bool Game::init() {
     if (!lavaSprite_.loadFromFile(renderer_, "assets/sprites/lava.png", 16, 16)) return false;
     if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
     if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
+    if (!pulleySprite_.loadFromFile(renderer_, "assets/sprites/pulley.png", 16, 16)) return false;
     if (!sceneryTilesSprite_.loadFromFile(renderer_, "assets/sprites/scenery_tiles.png", 16, 16)) return false;
+    if (!springSprite_.loadFromFile(renderer_, "assets/sprites/spring.png", 16, 24)) return false;
     if (!titleLogoSprite_.loadFromFile(renderer_, "assets/sprites/title_logo.png", 176, 88)) return false;
     if (!titleCursorSprite_.loadFromFile(renderer_, "assets/sprites/title_cursor.png", 8, 8)) return false;
     if (!hudCoinSprite_.loadFromFile(renderer_, "assets/sprites/hud_coin.png", 8, 8)) return false;
     if (!introMarioSprite_.loadFromFile(renderer_, "assets/sprites/mario_small.png", 16, 16)) return false;
+    if (!introLuigiSprite_.loadFromFile(renderer_, "assets/sprites/luigi_small.png", 16, 16)) return false;
     for (int i = 0; i < kDecorationCount; ++i) {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
@@ -658,6 +663,14 @@ void Game::loadScenario(TestScenario scenario) {
     level_.loadFromFile(path);
 
     loadLevelData();
+    {
+        // Modo dificil del original (SecondaryHardMode): del 5-3 en adelante.
+        const std::string& name = level_.name();
+        const bool numbered = name.size() >= 3 && name[0] >= '1' && name[0] <= '8' && name[1] == '-';
+        const int world = numbered ? name[0] - '0' : 1;
+        const int stage = numbered ? name[2] - '0' : 1;
+        gSecondaryHardMode = world >= 6 || (world == 5 && stage >= 3);
+    }
 
     // Bandera de meta: la pone el propio nivel (tiles 'F'), no el escenario.
     int poleCol = 0, poleTopRow = 0, poleBottomRow = 0;
@@ -680,13 +693,26 @@ void Game::loadScenario(TestScenario scenario) {
         const float ts = static_cast<float>(level_.tileSize());
         size_t next = 0;
         for (MovingPlatform& platform : platforms_) platform.reset();
+        balances_.clear();
         for (const LevelPlatform& data : level_.platforms()) {
             if (next >= platforms_.size()) break;
             const PlatformMode mode = data.mode == "horizontal" ? PlatformMode::Horizontal
                                       : data.mode == "lift_up"  ? PlatformMode::LiftUp
                                       : data.mode == "lift_down" ? PlatformMode::LiftDown
                                       : data.mode == "fall"      ? PlatformMode::Fall
+                                      : data.mode == "balance"   ? PlatformMode::Balance
                                                                  : PlatformMode::Vertical;
+            // Las balanzas vienen de a dos seguidas en la lista.
+            if (mode == PlatformMode::Balance) {
+                if (balances_.empty() || balances_.back().b >= 0) {
+                    Balance balance;
+                    balance.a = static_cast<int>(next);
+                    balance.ropeRow = data.ropeRow;
+                    balances_.push_back(balance);
+                } else {
+                    balances_.back().b = static_cast<int>(next);
+                }
+            }
             platforms_[next++].spawn(static_cast<float>(data.col) * ts, static_cast<float>(data.row) * ts,
                                      static_cast<int>(static_cast<float>(data.width) * ts), mode, data.range * ts,
                                      data.period, data.speed);
@@ -2059,6 +2085,19 @@ void Game::updatePipeAnim(float dt) {
         pipeAnim_ = PipeAnim{};
         return;
     }
+    if (!pipeAnim_.warp.level.empty()) {
+        // Warp zone: al principio de otro nivel ("4-1").
+        const std::string target = pipeAnim_.warp.level;
+        pipeAnim_ = PipeAnim{};
+        const int world = target[0] - '0';
+        const int stage = target.size() >= 3 ? target[2] - '0' : 1;
+        campaignWorld_ = world;
+        campaignLevel_ = stage;
+        customLevelPath_ = campaignLevelPath(world, stage);
+        checkpointCol_ = -1;
+        loadScenario(TestScenario::CustomLevel);
+        return;
+    }
     performWarp(character, pipeAnim_.warp);
     // Si el destino esta sobre una tuberia, sale de ella (arranca adentro
     // y sube su propio alto); si no, aparece normal (por ejemplo cayendo en
@@ -2158,8 +2197,16 @@ void Game::checkBrickBlockHit(Mario& character) {
 }
 
 void Game::collectTopCoinIfAny(int col, int row) {
-    if (!level_.hasCoinOnTop(col, row)) return;
-    level_.collectTopCoin(col, row);
+    // La moneda puede ser la "de arriba del ladrillo" ('C') o una moneda
+    // suelta ('o') en el tile de encima: como el original (BlockBumpedChk /
+    // CoinBlock arriba de un bloque golpeado), se agarra y salta.
+    if (level_.hasCoinOnTop(col, row)) {
+        level_.collectTopCoin(col, row);
+    } else if (level_.isCoinTile(col, row - 1)) {
+        level_.collectCoinTile(col, row - 1);
+    } else {
+        return;
+    }
     collectCoin();
     const int ts = level_.tileSize();
     const float x = static_cast<float>(col * ts) +
@@ -2210,14 +2257,23 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
             killEnemyFalling(goomba, true);
         }
     }
+    // Como el original (ChkToStunEnemies): Koopa y Buzzy Beetle quedan boca
+    // arriba como caparazon (100 puntos), el Spiny pega un saltito; Goomba y
+    // Hammer Bro mueren. Todo se aleja del que golpeo el bloque, igual que
+    // los items (hongo, 1-UP, estrella), que pegan un saltito.
+    const Mario& hitter = scorer_ == 1 ? luigi_ : mario_;
+    const float hitterCenter = hitter.x() + static_cast<float>(hitter.width()) / 2.0f;
+    auto awayFromHitter = [&](float x, int width) { return x + static_cast<float>(width) / 2.0f >= hitterCenter; };
     for (Koopa* koopa : allKoopas()) {
         if (koopa->isDangerous() && onTop(koopa->x(), koopa->y(), koopa->width(), koopa->height())) {
-            koopa->killFalling(true);
+            koopa->stunFromBelow(awayFromHitter(koopa->x(), koopa->width()));
+            awardIndexedPoints(koopa->x(), koopa->y(), 1);
         }
     }
     for (BuzzyBeetle& buzzy : buzzyBeetles_) {
         if (buzzy.isDangerous() && onTop(buzzy.x(), buzzy.y(), BuzzyBeetle::kSize, BuzzyBeetle::kSize)) {
-            killEnemyFalling(buzzy, true);
+            buzzy.stunFromBelow(awayFromHitter(buzzy.x(), BuzzyBeetle::kSize));
+            awardIndexedPoints(buzzy.x(), buzzy.y(), 1);
         }
     }
     for (HammerBro& bro : hammerBros_) {
@@ -2227,8 +2283,14 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     }
     for (Spiny& spiny : spinies_) {
         if (spiny.isDangerous() && onTop(spiny.x(), spiny.y(), Spiny::kSize, Spiny::kSize)) {
-            killEnemyFalling(spiny, true);
+            spiny.bumpFromBelow();
         }
+    }
+    if (mushroom_.isAlive() && onTop(mushroom_.x(), mushroom_.y(), Mushroom::kSize, Mushroom::kSize)) {
+        mushroom_.bumpFromBelow(awayFromHitter(mushroom_.x(), Mushroom::kSize));
+    }
+    if (star_.isAlive() && onTop(star_.x(), star_.y(), StarItem::kSize, StarItem::kSize)) {
+        star_.bumpFromBelow(awayFromHitter(star_.x(), StarItem::kSize));
     }
 }
 
@@ -2303,6 +2365,7 @@ void Game::checkQuestionBlockHit(Mario& character) {
             if (hitsSoFar + 1 >= maxHits) level_.markDispenserUsed(col, row);
         }
         killEnemyOnTopOfTile(col, row);
+        collectTopCoinIfAny(col, row);
         // Estilo Super Mario Bros. 3: el item sale hacia el lado OPUESTO
         // de donde vino el golpe (si el personaje esta a la izquierda
         // del centro del bloque, el item sale hacia la derecha, y
@@ -2653,6 +2716,7 @@ void Game::update(float dt) {
     }
 
     updateLevelTimer(dt);
+    updateBalances(dt);
     updatePlatforms(dt);
 
     // Guardados de antes de mover: para saber si un enemigo lo pisa "de
@@ -2700,6 +2764,7 @@ void Game::update(float dt) {
 
     if (mario_.isGrounded()) stompChain_[0] = 0;
     if (twoPlayerMode_ && luigi_.isGrounded()) stompChain_[1] = 0;
+    updateSprings(dt);
     updatePlatformRiders(mario_, marioPlatform_);
     if (twoPlayerMode_) updatePlatformRiders(luigi_, luigiPlatform_);
     checkPitDeath(mario_);
@@ -2921,6 +2986,8 @@ void Game::update(float dt) {
     }
     updateFirebars(dt);
     updateLakituZone();
+    updateFrenzies(dt);
+    updateLoopChecks();
 
     // Mismo criterio que HammerBro::faceTowards: apunta al personaje mas
     // cercano, esta clase tampoco conoce a Mario/Luigi -- independiente de
@@ -3134,6 +3201,7 @@ void Game::render() {
                          cameraX_, false);
     level_.renderScenery(renderer_, sceneryTilesSprite_, worldRow, gLogicalWidth, cameraX_);
     level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, gLogicalWidth, cameraX_);
+    renderBalanceRopes();
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
     // Las Piranha Plant van ANTES que las tuberias: asi la tuberia las tapa
     // mientras asoman o se esconden.
@@ -3220,6 +3288,7 @@ void Game::render() {
     // Una sola paleta (ver el comentario de Podoboo.h): sin worldRow.
     for (const Podoboo& podoboo : podoboos_) podoboo.render(renderer_, podobooSprite_, cameraX_);
     renderFirebars();
+    renderSprings();
     // El hacha primero, Bowser encima -- si llegaran a superponerse (no
     // deberia pasar con las posiciones de prueba) que se vea el jefe, no el
     // objeto quieto de fondo.
@@ -3260,7 +3329,7 @@ void Game::render() {
         // Castillo: el Toad (o la princesa, en el ultimo) mientras se cuenta
         // el tiempo que sobro.
         const SDL_Color white{255, 255, 255, 255};
-        drawCentered(70, tr(Txt::ThankYouMario), 2, white);
+        drawCentered(70, tr(playAsLuigi_ ? Txt::ThankYouLuigi : Txt::ThankYouMario), 2, white);
         if (campaign_ && campaignWorld_ == 8) {
             drawCentered(100, tr(Txt::QuestOver1), 2, white);
             drawCentered(120, tr(Txt::QuestOver2), 2, white);
@@ -3545,7 +3614,11 @@ void Game::renderHud() {
         drawPlayer(luigiX, "LUIGI", luigiGreen, playerScore_[1]);
         drawCoins(luigiX, kCoinsY, playerCoins_[1]);
     } else {
-        drawPlayer(marioX, "MARIO", marioRed, score_);
+        if (playAsLuigi_ && !onTitle) {
+            drawPlayer(marioX, "LUIGI", luigiGreen, score_);
+        } else {
+            drawPlayer(marioX, "MARIO", marioRed, score_);
+        }
         drawCoins(coinX, kValueY, playerCoins_[0]);
     }
 
@@ -3604,7 +3677,7 @@ void Game::renderLevelIntro() {
     DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
     // Mario chico parado, una "x" y las vidas (como el original).
     const int x = gLogicalWidth / 2 - 28;
-    introMarioSprite_.draw(renderer_, 0, 0, x, 108, false);
+    (playAsLuigi_ ? introLuigiSprite_ : introMarioSprite_).draw(renderer_, 0, 0, x, 108, false);
     char text[16];
     std::snprintf(text, sizeof(text), "x  %d", livesCount_);
     DebugFont::drawText(renderer_, x + 24, 112, text, 2, white);
@@ -3675,7 +3748,8 @@ void Game::loadLevelData() {
     const float ts = static_cast<float>(level_.tileSize());
     pipeWarps_.clear();
     for (const LevelWarp& warp : level_.warps()) {
-        pipeWarps_.push_back(PipeWarp{warp.col, warp.row, warp.destCol * ts, warp.destRow * ts, warp.dir == "right"});
+        pipeWarps_.push_back(PipeWarp{warp.col, warp.row, warp.destCol * ts, warp.destRow * ts, warp.dir == "right",
+                                      warp.level});
     }
     entitySpawned_.assign(level_.entities().size(), false);
 
@@ -3686,6 +3760,11 @@ void Game::loadLevelData() {
         }
     }
     firebars_.clear();
+    springs_.clear();
+    frenzies_.clear();
+    loopChecks_.clear();
+    loopPassCount_ = 0;
+    loopCorrectCount_ = 0;
     cheepJumpZones_.clear();
     lakituEndX_ = -1.0f;
     lakituZoneActive_ = false;
@@ -3695,6 +3774,26 @@ void Game::loadLevelData() {
             firebars_.push_back(Firebar{(static_cast<float>(entity.col) + 0.5f) * ts,
                                         (static_cast<float>(entity.row) + 0.5f) * ts, entity.length, 0.0f,
                                         entity.speed});
+        } else if (entity.type == "spring") {
+            Spring spring;
+            spring.x = static_cast<float>(entity.col) * ts;
+            spring.bottom = static_cast<float>(entity.row + 1) * ts;
+            springs_.push_back(spring);
+        } else if (entity.type == "bullet_frenzy" || entity.type == "cheep_frenzy" || entity.type == "flame_frenzy") {
+            Frenzy frenzy;
+            frenzy.kind = entity.type == "bullet_frenzy" ? Frenzy::Kind::BulletBill
+                          : entity.type == "cheep_frenzy" ? Frenzy::Kind::CheepCheep
+                                                           : Frenzy::Kind::Flame;
+            frenzy.startX = static_cast<float>(entity.col) * ts;
+            frenzy.endX = static_cast<float>(entity.endCol >= 0 ? entity.endCol : level_.widthTiles()) * ts;
+            frenzies_.push_back(frenzy);
+        } else if (entity.type == "loop") {
+            LoopCheck check;
+            check.triggerX = static_cast<float>(entity.col) * ts;
+            check.feetY = entity.row >= 0 ? static_cast<float>(entity.row) * ts : -1.0f;
+            check.group = entity.length > 1 ? entity.length : 1;
+            check.back = entity.back;
+            loopChecks_.push_back(check);
         } else if (entity.type == "cheep_jump") {
             const int endCol = entity.endCol >= 0 ? entity.endCol : level_.widthTiles();
             cheepJumpZones_.emplace_back(static_cast<float>(entity.col) * ts, static_cast<float>(endCol) * ts);
@@ -3710,7 +3809,7 @@ void Game::spawnLevelEntities() {
     for (size_t i = 0; i < entities.size(); ++i) {
         if (entitySpawned_[i]) continue;
         const LevelEntity& entity = entities[i];
-        const float x = static_cast<float>(entity.col) * ts;
+        const float x = static_cast<float>(entity.col) * ts + entity.xOffset;
         if (x + ts < cameraX_) {
             entitySpawned_[i] = true;  // quedo atras de la camara: no aparece
             continue;
@@ -3777,7 +3876,12 @@ void Game::spawnLevelEntities() {
         } else if (entity.type == "axe") {
             axe_.spawn(x, static_cast<float>(entity.row) * ts);
             spawned = true;
-        } else if (entity.type == "firebar" || entity.type == "cheep_jump") {
+        } else if (entity.type == "bullet_bill") {
+            spawned = spawnInPool(bulletBills_, [&](BulletBill& bill) {
+                bill.spawn(x, static_cast<float>(entity.row) * ts, false);
+            });
+        } else if (entity.type == "firebar" || entity.type == "cheep_jump" || entity.type == "spring" ||
+                   entity.type == "bullet_frenzy" || entity.type == "cheep_frenzy" || entity.type == "flame_frenzy") {
             spawned = true;  // ya armados en loadLevelData
         } else {
             SDL_Log("Entidad de nivel desconocida '%s' (columna %d)", entity.type.c_str(), entity.col);
@@ -3820,6 +3924,181 @@ int Game::areaIndexAt(float x) const {
         if (col >= areas[i].startCol && col <= areas[i].endCol) return static_cast<int>(i);
     }
     return 0;
+}
+
+void Game::updateSprings(float dt) {
+    // Trampolin del original (JumpspringHandler): al caerle encima se
+    // comprime en 4 pasos de 4 cuadros con el personaje encima y lo larga a
+    // -7 px/cuadro, o a -12 si aprieta saltar mientras se comprime.
+    for (Spring& spring : springs_) {
+        static const int kFrames[4] = {1, 2, 1, 0};
+        static const float kHeights[3] = {24.0f, 16.0f, 8.0f};
+        if (spring.rider != nullptr) {
+            Mario& rider = *spring.rider;
+            spring.timer += dt;
+            const int step = std::min(3, static_cast<int>(spring.timer / (4.0f / 60.0f)));
+            spring.frame = kFrames[step];
+            const Input& input = &rider == &luigi_ ? input2_ : input1_;
+            if (step >= 1 && input.down(Action::Jump)) spring.boost = true;
+            // Pegado arriba del trampolin mientras se comprime.
+            rider.nudgeY(spring.bottom - kHeights[spring.frame] - (rider.y() + static_cast<float>(rider.height())));
+            rider.setVelocityY(0.0f);
+            if (spring.timer >= 16.0f / 60.0f) {
+                rider.setVelocityY(spring.boost ? -720.0f : -420.0f);
+                spring.rider = nullptr;
+                spring.frame = 0;
+            }
+            continue;
+        }
+        for (Mario* character : {&mario_, &luigi_}) {
+            if (character == &luigi_ && !twoPlayerMode_) continue;
+            if (character->isInDeathSequence() || character->velocityY() <= 0.0f) continue;
+            const float top = spring.bottom - kHeights[0];
+            const float feet = character->y() + static_cast<float>(character->height());
+            const bool overlapX = character->x() + static_cast<float>(character->width()) > spring.x + 2.0f &&
+                                  character->x() < spring.x + 14.0f;
+            if (overlapX && feet >= top && feet <= top + 10.0f) {
+                spring.rider = character;
+                spring.timer = 0.0f;
+                spring.boost = false;
+                break;
+            }
+        }
+    }
+}
+
+void Game::renderSprings() {
+    for (const Spring& spring : springs_) {
+        springSprite_.draw(renderer_, 0, spring.frame, static_cast<int>(std::lround(spring.x - cameraX_)),
+                           static_cast<int>(std::lround(spring.bottom)) - 24, false);
+    }
+}
+
+void Game::updateLoopChecks() {
+    if (loopChecks_.empty()) return;
+    // El original chequea cuando la columna que esta dibujando (justo
+    // pasando el borde derecho de la pantalla) llega a la pagina: con el
+    // jugador en x=112 de una pantalla de 256, unos 144 px antes.
+    constexpr float kLookAhead = 144.0f;
+    Mario* leader = &mario_;
+    if (twoPlayerMode_ && !luigi_.isInDeathSequence() &&
+        (mario_.isInDeathSequence() || luigi_.x() > mario_.x())) {
+        leader = &luigi_;
+    }
+    if (leader->isInDeathSequence()) return;
+    const float reach = leader->x() + kLookAhead;
+    for (LoopCheck& check : loopChecks_) {
+        // Se rearma al volver a quedar atras (despues de un loopback).
+        if (reach < check.triggerX - 8.0f) {
+            check.armed = true;
+            continue;
+        }
+        if (!check.armed) continue;
+        check.armed = false;
+        // Solo al cruzarlo (no si se aparece mas adelante, en un checkpoint).
+        if (reach > check.triggerX + 32.0f) continue;
+        const float feet = leader->y() + static_cast<float>(leader->height());
+        const bool correct = check.feetY >= 0.0f && leader->isGrounded() && std::abs(feet - check.feetY) < 2.0f;
+        if (check.group <= 1) {
+            loopPassCount_ = 0;
+            loopCorrectCount_ = 0;
+            if (!correct) execLoopback(check.back);
+            return;
+        }
+        ++loopPassCount_;
+        if (correct) ++loopCorrectCount_;
+        if (loopPassCount_ >= check.group) {
+            const bool failed = loopCorrectCount_ < check.group;
+            loopPassCount_ = 0;
+            loopCorrectCount_ = 0;
+            if (failed) execLoopback(check.back);
+        }
+        return;
+    }
+}
+
+void Game::execLoopback(int backCols) {
+    // El original no mueve nada en pantalla: corre todo 4 paginas para atras
+    // y vuelve a leer el area desde el principio de la seccion, asi que lo
+    // que sigue a la derecha es esa seccion otra vez. Aca: se vuelve backCols
+    // columnas (la seccion que repite) y se copia ahi lo que se esta viendo
+    // ahora, para que el salto no se note.
+    const int ts = level_.tileSize();
+    const int cameraCol = static_cast<int>(std::floor(cameraX_ / static_cast<float>(ts)));
+    const int screenCols = gLogicalWidth / ts + 1;
+    const int triggerCol = cameraCol + screenCols;
+    level_.copyColumns(cameraCol, cameraCol - backCols, triggerCol - cameraCol);
+    const float back = static_cast<float>(backCols) * static_cast<float>(ts);
+    mario_.shiftX(-back);
+    if (twoPlayerMode_) luigi_.shiftX(-back);
+    cameraX_ -= back;
+    for (LoopCheck& check : loopChecks_) check.armed = true;
+    // KillAllEnemies + releer los enemigos desde el principio: los que
+    // quedan adelante de la camara vuelven a aparecer.
+    for (Goomba& goomba : goombas_) goomba.reset();
+    for (Koopa& koopa : levelKoopas_) koopa.reset();
+    for (BuzzyBeetle& buzzy : buzzyBeetles_) buzzy.reset();
+    for (HammerBro& bro : hammerBros_) bro.reset();
+    for (Hammer& hammer : hammers_) hammer.reset();
+    for (Podoboo& podoboo : podoboos_) podoboo.reset();
+    for (BulletBill& bill : bulletBills_) bill.reset();
+    for (BowserFire& fire : bowserFires_) fire.reset();
+    const float tsf = static_cast<float>(ts);
+    const std::vector<LevelEntity>& entities = level_.entities();
+    for (size_t i = 0; i < entities.size(); ++i) {
+        const std::string& type = entities[i].type;
+        if (type == "goomba" || type == "koopa" || type == "buzzy" || type == "hammer_bro" || type == "podoboo") {
+            if (static_cast<float>(entities[i].col) * tsf >= cameraX_) entitySpawned_[i] = false;
+        }
+    }
+}
+
+void Game::updateFrenzies(float dt) {
+    const float px = mario_.x();
+    for (Frenzy& frenzy : frenzies_) {
+        if (px < frenzy.startX || px > frenzy.endX) continue;
+        frenzy.timer -= dt;
+        if (frenzy.timer > 0.0f) continue;
+        const float right = cameraX_ + static_cast<float>(gLogicalWidth) + 8.0f;
+        switch (frenzy.kind) {
+            case Frenzy::Kind::BulletBill: {
+                // Desde el borde derecho a la altura del jugador (+- un poco).
+                frenzy.timer = randomRange(1.2f, 2.6f);
+                const float y = std::clamp(mario_.y() + randomRange(-24.0f, 8.0f), 48.0f, 208.0f);
+                spawnInPool(bulletBills_, [&](BulletBill& bill) { bill.spawn(right, y, false); });
+                break;
+            }
+            case Frenzy::Kind::CheepCheep: {
+                frenzy.timer = randomRange(0.8f, 2.0f);
+                const float y = randomRange(64.0f, 200.0f);
+                spawnInPool(levelCheeps_, [&](CheepCheep& fish) {
+                    fish.setVariant(CheepCheepVariant::Swimming);
+                    fish.setSwimPattern(randomRange(0.0f, 1.0f) < 0.5f ? SwimPattern::Straight : SwimPattern::Oscillating);
+                    fish.spawn(right, y, false);
+                });
+                break;
+            }
+            case Frenzy::Kind::Flame: {
+                // Llamas de Bowser antes de llegar al puente (original:
+                // SetFlameTimer + 0x20 cuadros entre una y otra).
+                if (bowser_.isAlive()) {
+                    frenzy.timer = 1.0f;
+                    break;
+                }
+                static const float kTable[8] = {3.18f, 1.07f, 3.18f, 3.18f, 3.18f, 1.07f, 1.07f, 3.18f};
+                frenzy.timer = kTable[flameTimerIndex_] + 0.53f;
+                flameTimerIndex_ = (flameTimerIndex_ + 1) % 8;
+                for (BowserFire& fire : bowserFires_) {
+                    if (fire.isAlive()) continue;
+                    // El fuego se acomoda a 32/48/64 px por encima de maxY.
+                    fire.spawn(right, 144.0f, -75.0f, 192.0f);
+                    audio_.play(Sfx::BowserFire);
+                    break;
+                }
+                break;
+            }
+        }
+    }
 }
 
 void Game::updateCannons(float dt) {
@@ -4023,6 +4302,94 @@ void Game::updatePlatforms(float dt) {
     }
     mario_.setPlatforms(&platformRects_);
     luigi_.setPlatforms(&platformRects_);
+}
+
+void Game::updateBalances(float dt) {
+    // Unidades del original (1/256 px por cuadro, 60 cuadros/s): acelera 5
+    // por cuadro hasta 3 px/cuadro; al cortarse la soga caen con 0x20.
+    constexpr float kAccel = 5.0f / 256.0f * 3600.0f;        // ~70 px/s^2
+    constexpr float kMaxSpeed = 180.0f;                       // 3 px/cuadro
+    constexpr float kFallAccel = 32.0f / 256.0f * 3600.0f;   // 450 px/s^2
+    constexpr float kStopSpeed = 10.0f / 256.0f * 60.0f;     // ~2.3 px/s
+    // Tope de arriba: Y 0x2e del original (+16 de nuestra fila de mas).
+    constexpr float kTopY = 0x2e + 16.0f;
+    for (Balance& balance : balances_) {
+        if (balance.a < 0 || balance.b < 0) continue;
+        MovingPlatform& a = platforms_[static_cast<size_t>(balance.a)];
+        MovingPlatform& b = platforms_[static_cast<size_t>(balance.b)];
+        if (!a.isActive() && !b.isActive()) continue;
+        if (balance.falling) {
+            balance.fallA = std::min(balance.fallA + kFallAccel * dt, kMaxSpeed);
+            balance.fallB = std::min(balance.fallB + kFallAccel * dt, kMaxSpeed);
+            a.driveY(balance.fallA * dt);
+            b.driveY(balance.fallB * dt);
+            continue;
+        }
+        auto ridden = [&](int index) {
+            return (marioPlatform_ == index && !mario_.isInDeathSequence()) ||
+                   (twoPlayerMode_ && luigiPlatform_ == index && !luigi_.isInDeathSequence());
+        };
+        const bool onA = ridden(balance.a);
+        const bool onB = ridden(balance.b);
+        float& v = balance.velocity;
+        if (onA && !onB) {
+            v = std::min(v + kAccel * dt, kMaxSpeed);
+        } else if (onB && !onA) {
+            v = std::max(v - kAccel * dt, -kMaxSpeed);
+        } else if (std::abs(v) <= kStopSpeed + kAccel * dt) {
+            v = 0.0f;   // nadie (o los dos): frena de a poco hasta quedar quieta
+        } else {
+            v -= (v > 0.0f ? kAccel : -kAccel) * dt;
+        }
+        float dy = v * dt;
+        // La que sube llega a la polea: si hay alguien en la otra se corta
+        // la soga; si no, se queda ahi.
+        const bool aTop = a.y() + dy < kTopY;
+        const bool bTop = b.y() - dy < kTopY;
+        if ((aTop && onB) || (bTop && onA)) {
+            balance.falling = true;
+            const int riddenIndex = aTop ? balance.b : balance.a;
+            Mario& rider = marioPlatform_ == riddenIndex ? mario_ : luigi_;
+            setScorer(rider);
+            awardEnemyPoints(rider.x(), rider.y() - 8.0f, 1000);
+            continue;
+        }
+        if (aTop) dy = kTopY - a.y();
+        if (bTop) dy = b.y() - kTopY;
+        if (aTop || bTop) v = 0.0f;
+        a.driveY(dy);
+        b.driveY(-dy);
+    }
+}
+
+void Game::renderBalanceRopes() {
+    const int ts = level_.tileSize();
+    const int cam = static_cast<int>(std::lround(cameraX_));
+    for (const Balance& balance : balances_) {
+        if (balance.a < 0 || balance.b < 0) continue;
+        const MovingPlatform& a = platforms_[static_cast<size_t>(balance.a)];
+        const MovingPlatform& b = platforms_[static_cast<size_t>(balance.b)];
+        // Columna de cada soga: la del medio de su plataforma.
+        const int colA = static_cast<int>(std::floor((a.x() + a.width() / 2.0f) / static_cast<float>(ts)));
+        const int colB = static_cast<int>(std::floor((b.x() + b.width() / 2.0f) / static_cast<float>(ts)));
+        const int left = std::min(colA, colB);
+        const int right = std::max(colA, colB);
+        const int ropeY = balance.ropeRow * ts;
+        if ((right + 1) * ts - cam < 0 || left * ts - cam > gLogicalWidth) continue;
+        pulleySprite_.draw(renderer_, 0, 1, left * ts - cam, ropeY, false);
+        pulleySprite_.draw(renderer_, 0, 2, right * ts - cam, ropeY, false);
+        for (int col = left + 1; col < right; ++col) pulleySprite_.draw(renderer_, 0, 0, col * ts - cam, ropeY, false);
+        if (balance.falling) continue;   // soga cortada: solo queda la de arriba
+        for (const MovingPlatform* platform : {&a, &b}) {
+            if (!platform->isActive()) continue;
+            const int col = platform == &a ? colA : colB;
+            const int bottom = static_cast<int>(std::lround(platform->y()));
+            for (int y = ropeY + ts; y < bottom; y += ts) {
+                const int height = std::min(ts, bottom - y);
+                pulleySprite_.drawSlice(renderer_, 0, 3, 0, height, col * ts - cam, y, false);
+            }
+        }
+    }
 }
 
 void Game::updatePlatformRiders(Mario& character, int& riding) {

@@ -1,4 +1,5 @@
 #include "CheepCheep.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,7 +46,7 @@ void CheepCheep::updateSwimming(float dt, int screenWidth) {
     // Ver el comentario de la clase: Straight no tiene vaiven vertical
     // (queda a la altura de spawn), Oscillating tiene uno corto y lento.
     if (swimPattern_ == SwimPattern::Oscillating) {
-        wavePhase_ += kOscillateFrequency * dt;
+        wavePhase_ += kOscillateFrequency * (gSecondaryHardMode ? 2.0f : 1.0f) * dt;
         y_ = baseY_ + std::sin(wavePhase_) * kOscillateAmplitude;
     }
 
