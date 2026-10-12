@@ -83,6 +83,9 @@ public:
     void stomp(const void* character = nullptr);
     // Patada: solo tiene efecto en ShellIdle -> ShellMoving hacia kickRight.
     void kick(bool kickRight, const void* character = nullptr);
+    // Quien lo pateo por ultima vez (el personaje, o nullptr): Game le
+    // anota los enemigos que mata el caparazon.
+    const void* kicker() const { return kicker_; }
     // Estrella: se da vuelta y sale disparado en parabola hacia flyRight,
     // sin colision, hasta salir de pantalla (igual que Goomba/Koopa). El
     // fuego NO llega a llamar esto (ver el comentario de la clase).
@@ -125,6 +128,7 @@ private:
     float shellIdleTimer_ = 0.0f;
     float postStompCooldown_ = 0.0f;
     const void* stompCooldownOwner_ = nullptr;
+    const void* kicker_ = nullptr;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
 };

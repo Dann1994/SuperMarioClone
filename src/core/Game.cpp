@@ -609,6 +609,9 @@ void Game::startScenario(TestScenario scenario) {
     // hay partida que se arrastre de un nivel al otro (seccion 6).
     score_ = 0;
     coinCount_ = 0;
+    playerScore_ = {};
+    playerCoins_ = {};
+    scorer_ = 0;
     livesCount_ = kStartingLives;
     checkpointCol_ = -1;
     // "Probar desde aca" del editor: la columna pedida cuenta como checkpoint.
@@ -1101,6 +1104,7 @@ void Game::resolveCharacterCollision() {
 }
 
 void Game::checkMushroomPickup(Mario& character) {
+    setScorer(character);
     // Sin colision mientras esta en su secuencia de muerte (ver el mismo
     // criterio en checkGoombaCollision/checkKoopaCollision): no tiene
     // sentido seguir interactuando con nada hasta que reaparezca.
@@ -1129,6 +1133,7 @@ void Game::checkMushroomPickup(Mario& character) {
 }
 
 void Game::checkFireFlowerPickup(Mario& character) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!fireFlower_.isAlive()) return;
 
@@ -1153,6 +1158,7 @@ void Game::checkFireFlowerPickup(Mario& character) {
 }
 
 void Game::checkStarPickup(Mario& character) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!star_.isAlive()) return;
 
@@ -1168,6 +1174,7 @@ void Game::checkStarPickup(Mario& character) {
 }
 
 void Game::checkCoinPickup(Mario& character) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!coin_.isAlive()) return;
 
@@ -1197,6 +1204,7 @@ bool Game::handleUnderwaterContactDamage(Mario& character) {
 }
 
 void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float prevY) {
+    setScorer(character);
     // Sin colision mientras esta en su secuencia de muerte: ya esta cayendo
     // con la pose de "muerto" fija, no tiene sentido que un enemigo lo
     // pisotee/dane/mate de nuevo hasta que reaparezca (relevante en 2P: el
@@ -1254,6 +1262,7 @@ void Game::checkFireballGoombaCollision(Fireball& fireball, Goomba& goomba) {
 }
 
 void Game::checkKoopaCollision(Mario& character, Koopa& koopa, float prevY) {
+    setScorer(character);
     // Ver el comentario en checkGoombaCollision.
     if (character.isInDeathSequence()) return;
     if (!koopa.isDangerous()) return;
@@ -1360,6 +1369,7 @@ void Game::checkShellVsGoomba(Koopa& koopa, Goomba& goomba) {
     if (!overlap) return;
 
     const bool flyRight = goomba.x() >= koopa.x();
+    setScorerFromKicker(koopa.kicker());
     killEnemyFalling(goomba, flyRight);
     // El caparazon sigue de largo (no se frena al matar a otro enemigo).
 }
@@ -1376,6 +1386,7 @@ void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
     const bool bMoving = b.isMovingShell();
     if (!aMoving && !bMoving) return;
     audio_.play(Sfx::Kick);
+    setScorerFromKicker(aMoving ? a.kicker() : b.kicker());
 
     if (aMoving && bMoving) {
         // Chocan de frente: mueren los dos, cada uno hacia el lado contrario del otro.
@@ -1437,6 +1448,7 @@ void Game::checkKoopaKoopaBounce(Koopa& a, Koopa& b) {
 }
 
 void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float prevY) {
+    setScorer(character);
     // Identico a checkKoopaCollision salvo que no hay caso de fuego (ver el
     // comentario de BuzzyBeetle.h) -- esa funcion ni se llama para este
     // enemigo.
@@ -1518,6 +1530,7 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
     const bool buzzyMoving = buzzy.isMovingShell();
     if (!koopaMoving && !buzzyMoving) return;
     audio_.play(Sfx::Kick);
+    setScorerFromKicker(koopaMoving ? koopa.kicker() : buzzy.kicker());
 
     if (koopaMoving && buzzyMoving) {
         const bool koopaFliesRight = koopa.x() >= buzzy.x();
@@ -1542,6 +1555,7 @@ void Game::checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy, Goomba& goomba) {
     if (!overlap) return;
 
     const bool flyRight = goomba.x() >= buzzy.x();
+    setScorerFromKicker(buzzy.kicker());
     killEnemyFalling(goomba, flyRight);
 }
 
@@ -1588,6 +1602,7 @@ void Game::checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy) {
 }
 
 void Game::checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!plant.isDangerous()) return;
 
@@ -1633,6 +1648,7 @@ bool Game::isSafeForPiranhaPlant(const PiranhaPlant& plant) const {
 }
 
 void Game::checkHammerBroCollision(Mario& character, HammerBro& bro, float prevY) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!bro.isDangerous()) return;
 
@@ -1697,6 +1713,7 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
 }
 
 void Game::checkLakituCollision(Mario& character, float prevY) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!lakitu_.isDangerous()) return;
 
@@ -1744,6 +1761,7 @@ void Game::checkFireballLakituCollision(Fireball& fireball) {
 }
 
 void Game::checkSpinyCollision(Mario& character, Spiny& spiny) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!spiny.isDangerous()) return;
 
@@ -1804,6 +1822,7 @@ void Game::checkSpinyBounce(Spiny& a, Spiny& b) {
 }
 
 void Game::checkBlooperCollision(Mario& character, Blooper& blooper) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!blooper.isDangerous()) return;
 
@@ -1840,6 +1859,7 @@ void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
 }
 
 void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, float prevY) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!cheepCheep.isDangerous()) return;
 
@@ -1916,6 +1936,7 @@ void Game::spawnNextCheepCheepJump() {
 }
 
 void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, float prevY) {
+    setScorer(character);
     // Ver el comentario en checkGoombaCollision.
     if (character.isInDeathSequence()) return;
     if (!bulletBill.isDangerous()) return;
@@ -2002,6 +2023,7 @@ void Game::checkFireballPodobooCollision(Fireball& fireball, Podoboo& podoboo) {
 }
 
 void Game::checkBowserCollision(Mario& character) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!bowser_.isDangerous()) return;
 
@@ -2056,6 +2078,7 @@ void Game::checkBowserFireCollision(Mario& character, BowserFire& fire) {
 }
 
 void Game::checkAxeCollision(Mario& character, Axe& axe) {
+    setScorer(character);
     if (character.isInDeathSequence()) return;
     if (!axe.isAlive()) return;
 
@@ -2070,6 +2093,7 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     // killByAxe() sobre un Bowser que ya no es "dangerous".
     axe.collect();
     levelEnding_ = true;
+    levelFinisher_ = scorer_;
     castleMessage_ = true;
     if (level_.hasAnyBridge()) {
         startBridgeCollapse();
@@ -2245,6 +2269,7 @@ void Game::performWarp(Mario& character, const PipeWarp& warp) {
 }
 
 void Game::checkBrickBlockHit(Mario& character) {
+    setScorer(character);
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
 
@@ -2372,6 +2397,7 @@ void Game::bumpBrickBlock(int col, int row) {
 }
 
 void Game::checkQuestionBlockHit(Mario& character) {
+    setScorer(character);
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
 
@@ -2429,6 +2455,7 @@ void Game::checkQuestionBlockHit(Mario& character) {
             bump->hasPendingItem = true;
             bump->pendingMovingRight = movingRight;
             bump->pendingHitterBig = character.size() != MarioSize::Small;
+            bump->hitter = scorer_;
         } else {
             spawnItemFromQuestionBlock(col, row, movingRight, character.size() != MarioSize::Small);
         }
@@ -3112,6 +3139,7 @@ void Game::update(float dt) {
             // ahora, no al momento del golpe.
             if (bump.hasPendingItem) {
                 bump.hasPendingItem = false;
+                scorer_ = bump.hitter;
                 spawnItemFromQuestionBlock(bump.col, bump.row, bump.pendingMovingRight, bump.pendingHitterBig);
             }
         }
@@ -3136,6 +3164,7 @@ void Game::update(float dt) {
         brickCoinAnimFrame_ = (brickCoinAnimFrame_ + 1) % 3;
     }
 
+    scorer_ = 0;
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
@@ -3158,6 +3187,7 @@ void Game::update(float dt) {
     }
 
     if (twoPlayerMode_) {
+        scorer_ = 1;
         trySpawnFireball(luigi_, luigiFireballs_);
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, level_.widthPixels());
@@ -3497,6 +3527,7 @@ void Game::shutdown() {
 }
 
 void Game::checkFlagpoleGrab(Mario& character) {
+    setScorer(character);
     if (!flagpole_.isActive() || character.isOnFlagpole() || character.isInDeathSequence()) return;
     if (!flagpole_.touches(character.x(), character.y(), character.width(), character.height())) return;
 
@@ -3516,6 +3547,7 @@ void Game::checkFlagpoleGrab(Mario& character) {
     const float exitX = std::min(flagpole_.poleCenterX() + 5.0f * ts,
                                  static_cast<float>(level_.widthPixels()) - ts);
     character.startFlagpoleGrab(flagpole_.poleCenterX(), flagpole_.bottomY(), exitX);
+    if (!levelEnding_) levelFinisher_ = scorer_;  // el primero que la agarra
     levelEnding_ = true;
     if (!flagpole_.isLowering()) {
         flagpole_.startLowering();
@@ -3548,6 +3580,7 @@ void Game::updateLevelClear(float dt) {
         // El tiempo que sobro pasa a puntos de a una unidad, rapido.
         const float before = std::ceil(timeRemaining_);
         timeRemaining_ = std::max(0.0f, timeRemaining_ - kTallyUnitsPerSecond * dt);
+        scorer_ = levelFinisher_;
         addScore(static_cast<int>(before - std::ceil(timeRemaining_)) * kTallyPointsPerUnit);
         tallySoundTimer_ -= dt;
         if (tallySoundTimer_ <= 0.0f && timeRemaining_ > 0.0f) {
@@ -3567,8 +3600,10 @@ void Game::updateLevelClear(float dt) {
 void Game::collectCoin() {
     ++coinCount_;
     addScore(200);
-    if (coinCount_ >= 100) {
-        coinCount_ -= 100;
+    int& coins = playerCoins_[static_cast<size_t>(scorer_)];
+    ++coins;
+    if (coins >= 100) {
+        coins -= 100;
         ++livesCount_;
         audio_.play(Sfx::OneUp);
     }
@@ -3601,27 +3636,47 @@ void Game::renderHud() {
     // Mismo layout que el original (grilla de 8px, la fuente a escala 2 es
     // la del juego, 8x8): titulos arriba, valores en el renglon de abajo.
     // Las cuatro columnas del original (pensadas para 256px) se reparten en
-    // el ancho real con la misma proporcion.
+    // el ancho real con la misma proporcion. En 2P la columna de las monedas
+    // pasa a ser la de LUIGI, y las monedas de cada uno van debajo de su
+    // puntaje.
     const SDL_Color white{255, 255, 255, 255};
+    const SDL_Color marioRed{248, 56, 0, 255};
+    const SDL_Color luigiGreen{0, 200, 0, 255};
     constexpr int kTitleY = 8;
     constexpr int kValueY = 16;
+    constexpr int kCoinsY = 24;
     auto column = [](int classicX) { return classicX * gLogicalWidth / kClassicWidth; };
     const int marioX = column(24);
     const int coinX = column(96);
+    const int luigiX = column(88);
     const int worldX = column(144);
     const int timeX = column(200);
     const bool onTitle = appState_ == AppState::Title;
-
-    DebugFont::drawTextOutlined(renderer_, marioX, kTitleY, "MARIO", 2, white);
+    const int coinRow = static_cast<int>(onTitle ? WorldType::Overworld : worldType_);
     char text[16];
-    std::snprintf(text, sizeof(text), "%06d", std::min(score_, 999999));
-    DebugFont::drawTextOutlined(renderer_, marioX, kValueY, text, 2, white);
 
-    // La moneda cicla de brillo junto con los bloques ?, como el original.
-    hudCoinSprite_.draw(renderer_, static_cast<int>(onTitle ? WorldType::Overworld : worldType_),
-                        questionBlockAnimFrame_, coinX, kValueY, false);
-    std::snprintf(text, sizeof(text), "x%02d", coinCount_);
-    DebugFont::drawTextOutlined(renderer_, coinX + 8, kValueY, text, 2, white);
+    // Moneda + "x00" (la moneda cicla de brillo junto con los bloques ?,
+    // como el original).
+    auto drawCoins = [&](int x, int y, int coins) {
+        hudCoinSprite_.draw(renderer_, coinRow, questionBlockAnimFrame_, x, y, false);
+        std::snprintf(text, sizeof(text), "x%02d", coins);
+        DebugFont::drawTextOutlined(renderer_, x + 8, y, text, 2, white);
+    };
+    auto drawPlayer = [&](int x, const char* name, SDL_Color color, int score) {
+        DebugFont::drawTextOutlined(renderer_, x, kTitleY, name, 2, color);
+        std::snprintf(text, sizeof(text), "%06d", std::min(score, 999999));
+        DebugFont::drawTextOutlined(renderer_, x, kValueY, text, 2, white);
+    };
+
+    if (twoPlayerMode_ && !onTitle) {
+        drawPlayer(marioX, "MARIO", marioRed, playerScore_[0]);
+        drawCoins(marioX, kCoinsY, playerCoins_[0]);
+        drawPlayer(luigiX, "LUIGI", luigiGreen, playerScore_[1]);
+        drawCoins(luigiX, kCoinsY, playerCoins_[1]);
+    } else {
+        drawPlayer(marioX, "MARIO", marioRed, score_);
+        drawCoins(coinX, kValueY, playerCoins_[0]);
+    }
 
     DebugFont::drawTextOutlined(renderer_, worldX, kTitleY, "WORLD", 2, white);
     if (onTitle) {
@@ -3944,6 +3999,7 @@ void Game::renderDecorations(bool front) {
 }
 
 void Game::checkCoinTiles(Mario& character) {
+    setScorer(character);
     if (character.isInDeathSequence() || character.hasFinishedLevel()) return;
     const float ts = static_cast<float>(level_.tileSize());
     const int col0 = static_cast<int>(std::floor(character.x() / ts));

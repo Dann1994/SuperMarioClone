@@ -55,6 +55,7 @@ void BuzzyBeetle::kick(bool kickRight, const void* character) {
     lastFacingRight_ = kickRight;
     postStompCooldown_ = kPostStompCooldown;
     stompCooldownOwner_ = character;
+    kicker_ = character;
 }
 
 bool BuzzyBeetle::killFalling(bool flyRight) {

@@ -114,6 +114,8 @@ struct BlockBump {
     // Si el que lo golpeo ya era grande: decide hongo o flor en un bloque
     // BlockItem::PowerUp (como el original).
     bool pendingHitterBig = false;
+    // Quien lo golpeo (0 Mario, 1 Luigi): a el van la moneda o los puntos.
+    int hitter = 0;
 };
 
 // Que item le toca a cada bloque de interrogacion (seccion 5.3) en el
@@ -493,7 +495,17 @@ private:
 
     // Puntaje/monedas/timer (seccion 6) y el HUD clasico que los muestra
     // (renderHud: MARIO + puntaje, monedas, WORLD + nombre del nivel, TIME).
-    void addScore(int points) { score_ += points; }
+    // Suma al total (record, 1P) y a la cuenta del jugador que los gano
+    // (scorer_, ver setScorer): en 2P el HUD muestra la de cada uno.
+    void addScore(int points) {
+        score_ += points;
+        playerScore_[static_cast<size_t>(scorer_)] += points;
+    }
+    // A quien se le anotan los puntos y monedas que siguen: lo llaman las
+    // funciones que actuan sobre un personaje (agarrar, pisar, golpear).
+    void setScorer(const Mario& character) { scorer_ = &character == &luigi_ ? 1 : 0; }
+    // Lo que mata un caparazon va para el que lo pateo (ver Koopa::kicker).
+    void setScorerFromKicker(const void* kicker) { scorer_ = kicker == &luigi_ ? 1 : 0; }
     // Suma una moneda (+200 puntos, como el original) y cada 100 da una
     // vida extra -- unico lugar donde se cuentan, sea cual sea la moneda
     // (la del piso, la que salta de un bloque o la parada arriba de un
@@ -878,6 +890,12 @@ private:
     SpriteSheet blockCoinSprite_;
     BlockCoin blockCoin_;
     int coinCount_ = 0;
+    // Puntaje y monedas de cada jugador (0 Mario, 1 Luigi) y quien esta
+    // sumando ahora; el que termino el nivel se lleva la cuenta del tiempo.
+    std::array<int, 2> playerScore_{};
+    std::array<int, 2> playerCoins_{};
+    int scorer_ = 0;
+    int levelFinisher_ = 0;
     int livesCount_ = 0;
     int score_ = 0;
     // Columna del checkpoint mas adelantado alcanzado en este nivel (-1 =

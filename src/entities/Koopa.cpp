@@ -76,6 +76,7 @@ void Koopa::kick(bool kickRight, const void* character) {
     // lo terminaria danando o matando.
     postStompCooldown_ = kPostStompCooldown;
     stompCooldownOwner_ = character;
+    kicker_ = character;
 }
 
 bool Koopa::killFalling(bool flyRight) {
