@@ -77,6 +77,9 @@ public:
     // a diferencia de KoopaState). Verde por defecto -- solo hace falta
     // llamar esto para instancias rojas.
     void setColor(KoopaColor color) { color_ = color; }
+    // Paratroopa verde que vuela de un lado a otro (despues de spawn(),
+    // con estado Flying; la del 7-3).
+    void setHorizontalFly(bool on) { horizontalFly_ = on; }
     KoopaColor color() const { return color_; }
 
     // initialState: Walking (por defecto) para un Koopa de piso normal, o
@@ -256,6 +259,15 @@ private:
     float shellIdleTimer_ = 0.0f;
     float flyBaseY_ = 0.0f;
     float flyPhase_ = 0.0f;
+    float redFlyVelY_ = 0.0f;   // Paratroopa roja (ProcMoveRedPTroopa)
+    // Paratroopa verde horizontal (MoveFlyGreenPTroopa): contadores del
+    // original (XMovePrimaryCounter / XMoveSecondaryCounter = la velocidad
+    // en 1/16 px por cuadro) y su propio contador de cuadros.
+    bool horizontalFly_ = false;
+    int hFlyPrimary_ = 0;
+    int hFlySecondary_ = 0;
+    unsigned hFlyFrames_ = 0;
+    float hFlyAccum_ = 0.0f;
     float postStompCooldown_ = 0.0f;
     const void* stompCooldownOwner_ = nullptr;
     const void* kicker_ = nullptr;

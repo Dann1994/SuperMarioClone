@@ -77,6 +77,13 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"GRACIAS LUIGI!", "THANK YOU LUIGI!"},
     {"ELEGI EL NIVEL", "SELECT LEVEL"},
     {"ARRIBA", "UP"},
+    {"BIENVENIDO A ZONA WARP!", "WELCOME TO WARP ZONE!"},
+    {"SEGUNDA VUELTA", "SECOND QUEST"},
+    {"COMO JUGAR?", "HOW TO PLAY?"},
+    {"A LA VEZ", "TOGETHER"},
+    {"POR TURNOS", "TAKE TURNS"},
+    {"MUNDO", "WORLD"},
+    {"TIEMPO", "TIME"},
 }};
 
 }  // namespace

@@ -7,7 +7,7 @@
     96
   ],
   "areas": [
-    {"start": 0, "end": 191, "world": "overworld"}
+    {"start": 0, "end": 191, "world": "overworld", "palette": "gray"}
   ],
   "blocks": [
     {"col": 55, "row": 4, "item": "powerup"}
@@ -19,26 +19,48 @@
     {"type": "spring", "col": 116, "row": 13}
   ],
   "platforms": [
-    {"col": 28, "row": 14, "width": 3, "mode": "vertical", "range": 4, "period": 4},
-    {"col": 43, "row": 6, "width": 3, "mode": "horizontal", "range": 4, "period": 4},
-    {"col": 48, "row": 8, "width": 3, "mode": "horizontal", "range": 4, "period": 4},
-    {"col": 55, "row": 7, "width": 3, "mode": "horizontal", "range": 4, "period": 4},
-    {"col": 60, "row": 13, "width": 3, "mode": "vertical", "range": 4, "period": 4},
+    {"col": 28, "row": 14, "width": 2, "mode": "vertical", "range": 4, "period": 4},
+    {"col": 43, "row": 6, "width": 2, "mode": "horizontal", "range": 4, "period": 4},
+    {"col": 48, "row": 8, "width": 2, "mode": "horizontal", "range": 4, "period": 4},
+    {"col": 55, "row": 7, "width": 2, "mode": "horizontal", "range": 4, "period": 4},
+    {"col": 60, "row": 13, "width": 2, "mode": "vertical", "range": 4, "period": 4},
     {"col": 70, "row": 6, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
     {"col": 74, "row": 10, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
     {"col": 78, "row": 6, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
     {"col": 81, "row": 10, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
-    {"col": 121, "row": 6, "width": 3, "mode": "horizontal", "range": 4, "period": 4},
+    {"col": 121, "row": 6, "width": 2, "mode": "horizontal", "range": 4, "period": 4},
     {"col": 126, "row": 7, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
     {"col": 129, "row": 10, "width": 2, "mode": "balance", "rope_row": 3, "range": 4, "period": 4},
-    {"col": 141, "row": 8, "width": 3, "mode": "fall"},
-    {"col": 145, "row": 7, "width": 3, "mode": "fall"},
-    {"col": 149, "row": 9, "width": 3, "mode": "fall"},
-    {"col": 153, "row": 8, "width": 3, "mode": "fall"}
+    {"col": 141, "row": 8, "width": 2, "mode": "fall"},
+    {"col": 145, "row": 7, "width": 2, "mode": "fall"},
+    {"col": 149, "row": 9, "width": 2, "mode": "fall"},
+    {"col": 153, "row": 8, "width": 2, "mode": "fall"}
   ],
   "decorations": [
+    {"type": "castle_wall", "col": 170, "row": 8},
+    {"type": "castle_wall", "col": 171, "row": 8},
+    {"type": "castle_wall", "col": 172, "row": 8},
+    {"type": "castle_wall", "col": 173, "row": 8},
+    {"type": "castle_wall", "col": 174, "row": 8},
+    {"type": "castle_wall", "col": 175, "row": 8},
+    {"type": "castle_wall", "col": 176, "row": 8},
+    {"type": "castle_wall", "col": 177, "row": 8},
+    {"type": "castle_wall", "col": 178, "row": 8},
+    {"type": "castle_wall", "col": 179, "row": 8},
+    {"type": "castle_wall", "col": 180, "row": 8},
+    {"type": "castle_wall", "col": 181, "row": 8},
+    {"type": "castle_wall", "col": 182, "row": 8},
+    {"type": "castle_wall", "col": 183, "row": 8},
+    {"type": "castle_wall", "col": 184, "row": 8},
+    {"type": "castle_wall", "col": 185, "row": 8},
+    {"type": "castle_wall", "col": 186, "row": 8},
+    {"type": "castle_wall", "col": 187, "row": 8},
+    {"type": "castle_wall", "col": 188, "row": 8},
+    {"type": "castle_wall", "col": 189, "row": 8},
+    {"type": "castle_wall", "col": 190, "row": 8},
+    {"type": "castle_wall", "col": 191, "row": 8},
     {"type": "castle_small", "col": 0, "row": 9},
-    {"type": "castle_big", "col": 172, "row": 3},
+    {"type": "castle_big", "col": 170, "row": 3},
     {"type": "cloud_big", "col": 3, "row": 4},
     {"type": "cloud_small", "col": 9, "row": 8},
     {"type": "cloud_big", "col": 18, "row": 3},
@@ -78,7 +100,7 @@
     "......................r.........rr................................rrr................ttttt.r................rrr......................r..rr...................r.........F........................",
     "......................r.........rr...............tttt.............rrr.................rrr..r................rrr......................r..rr...................r.........F........................",
     "......................r.........rr................rr..............rrr.................rrr..r................rrr......................r..rr...................r.........S........................",
-    "###############...ttt.r.ttt.....rr...ttt...ttt....rr..............rrr.................rrr..r.ttt.tttt..ttt..rrr..ttttt.....ttt......ttttrr...................r.#################################",
-    "###############....r..r..r......rr....r.....r.....rr..............rrr.................rrr..r..r...rr....r...rrr...rrr.......r........rr.rr...................r.#################################"
+    "################..ttt.r.ttt.....rr...ttt...ttt....rr..............rrr.................rrr..r.ttt.tttt..ttt..rrr..ttttt.....ttt......ttttrr...................r..################################",
+    "################...r..r..r......rr....r.....r.....rr..............rrr.................rrr..r..r...rr....r...rrr...rrr.......r........rr.rr...................r..################################"
   ]
 }

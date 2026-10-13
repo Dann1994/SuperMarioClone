@@ -17,7 +17,7 @@ enum class Txt {
     CourseClear, EndOfDemo, ThanksForPlaying, MenuHint, ValueHint, BindHint, ComingSoon,
     // Castillos (Toad) y final del juego (princesa, despues del 8-4)
     ThankYouMario, PrincessElsewhere1, PrincessElsewhere2, QuestOver1, QuestOver2, TheEnd,
-    ChooseCharacter, ThankYouLuigi, ChooseLevel, ClimbUp,
+    ChooseCharacter, ThankYouLuigi, ChooseLevel, ClimbUp, WelcomeWarpZone, SecondQuest, TwoPlayerMode, Simultaneous, TakeTurns, HudWorld, HudTime,
     Count
 };
 

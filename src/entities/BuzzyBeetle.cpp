@@ -1,4 +1,5 @@
 #include "BuzzyBeetle.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +11,7 @@ void BuzzyBeetle::spawn(float x, float y, bool movingRight) {
     kicker_ = nullptr;
     x_ = x;
     y_ = y;
-    velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;
+    velX_ = movingRight ? kWalkSpeed * hardWalkFactor() : -kWalkSpeed * hardWalkFactor();
     velY_ = 0.0f;
     alive_ = true;
     falling_ = false;
@@ -36,14 +37,14 @@ void BuzzyBeetle::stomp(const void* character) {
 
     if (state_ == BuzzyBeetleState::Walking) {
         state_ = BuzzyBeetleState::ShellIdle;
-        shellIdleTimer_ = kShellIdleDuration;
+        shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
         velX_ = 0.0f;
         velY_ = 0.0f;
         animTimer_ = 0.0f;
         animFrame_ = 0;
     } else if (state_ == BuzzyBeetleState::ShellMoving) {
         state_ = BuzzyBeetleState::ShellIdle;
-        shellIdleTimer_ = kShellIdleDuration;
+        shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
         velX_ = 0.0f;
         postStompCooldown_ = kPostStompCooldown;
         stompCooldownOwner_ = character;
@@ -69,7 +70,7 @@ void BuzzyBeetle::stunFromBelow(bool moveRight) {
     if (state_ == BuzzyBeetleState::Walking) {
     }
     state_ = BuzzyBeetleState::ShellIdle;
-    shellIdleTimer_ = kShellIdleDuration;
+    shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
     upsideDown_ = true;
     y_ -= 2.0f;
     velY_ = -180.0f;
@@ -116,7 +117,7 @@ void BuzzyBeetle::update(float dt, const Tilemap& level, int screenHeight) {
             // referencia, asi que a diferencia del Koopa no hay parpadeo de
             // aviso previo (ver el comentario de la clase).
             state_ = BuzzyBeetleState::Walking;
-            velX_ = lastFacingRight_ ? kWalkSpeed : -kWalkSpeed;
+            velX_ = lastFacingRight_ ? kWalkSpeed * hardWalkFactor() : -kWalkSpeed * hardWalkFactor();
             animTimer_ = 0.0f;
             animFrame_ = 0;
         }

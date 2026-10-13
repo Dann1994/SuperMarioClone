@@ -28,8 +28,8 @@ inline WorldType nextWorldType(WorldType type) {
 // hay tileset/paleta de fondo propia por nivel.
 inline SDL_Color backgroundColorFor(WorldType type) {
     switch (type) {
-        case WorldType::Underwater: return SDL_Color{20, 60, 160, 255};    // azul oscuro
-        case WorldType::Underground: return SDL_Color{8, 8, 28, 255};     // negro azulado
+        case WorldType::Underwater: return SDL_Color{66, 66, 255, 255};    // el azul de la paleta del agua (el fondo de sus tiles)
+        case WorldType::Underground: return SDL_Color{0, 0, 0, 255};      // negro, como el original
         case WorldType::Castle: return SDL_Color{0, 0, 0, 255};           // negro
         case WorldType::Overworld: default: return SDL_Color{92, 148, 252, 255}; // celeste original
     }

@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Spritesheet en grilla de frames de tamano fijo (seccion 8.1 de la
 // especificacion): una fila por animacion, sin frames duplicados por
@@ -15,6 +16,10 @@ public:
     SpriteSheet& operator=(const SpriteSheet&) = delete;
 
     bool loadFromFile(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight);
+    // Igual, pero cambiando colores exactos (from -> to) al cargar: las
+    // variantes de paleta del original que no tienen hoja propia (nieve).
+    bool loadRecolored(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight,
+                       const std::vector<std::pair<SDL_Color, SDL_Color>>& colors);
     void draw(SDL_Renderer* renderer, int row, int col, int destX, int destY, bool flipHorizontal,
                bool flipVertical = false) const;
     // Dibuja solo una franja horizontal del frame (offsetY..offsetY+height dentro
@@ -25,6 +30,10 @@ public:
     // Dibuja el frame estirado/achicado a dst (los iconos de la paleta del
     // editor de niveles, que tienen que entrar en una celda fija).
     void drawScaled(SDL_Renderer* renderer, int row, int col, const SDL_Rect& dst) const;
+    // Oscurece (o vuelve a la normal con 255) todo lo que se dibuje despues.
+    void setBrightness(Uint8 value) const {
+        if (texture_) SDL_SetTextureColorMod(texture_, value, value, value);
+    }
     int frameWidth() const { return frameWidth_; }
     int frameHeight() const { return frameHeight_; }
     bool isLoaded() const { return texture_ != nullptr; }

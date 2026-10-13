@@ -11,8 +11,13 @@
 // avisa cuanto se movio el ultimo cuadro).
 //
 // Modos (campo "mode" de "platforms" en el JSON del nivel):
-//  - Vertical / Horizontal: va y viene a lo largo de `range` px desde donde
-//    arranca (para abajo / para la derecha), frenando suave en las puntas.
+//  - Vertical (YMovingPlatform del original): se hamaca alrededor de un
+//    centro 64 px mas abajo de donde aparece (64 px mas arriba si aparece
+//    en la mitad de abajo de la pantalla), acelerando 5/256 px por cuadro^2.
+//  - Horizontal (XMovingPlatform): cada 4 cuadros su velocidad sube de a
+//    1/16 px hasta 14/16 y vuelve a 0; arranca hacia la izquierda.
+//  Todas arrancan recien cuando el original las haria aparecer (start(),
+//  lo decide Game): por eso dos plataformas vecinas no van sincronizadas.
 //  - LiftUp / LiftDown: elevador que sube/baja siempre a velocidad fija y al
 //    salir por un borde de la pantalla vuelve a entrar por el otro.
 //  - Fall: quieta hasta que alguien la pisa, ahi se cae acelerando.
@@ -36,6 +41,9 @@ public:
     // ida y vuelta completa (Vertical/Horizontal). speed: px/s (LiftUp/LiftDown).
     void spawn(float x, float y, int widthPx, PlatformMode mode, float range, float period, float speed);
     void reset() { active_ = false; }
+    // Empieza a moverse (el original la hace aparecer recien ahi).
+    void start() { started_ = true; }
+    bool started() const { return started_; }
     // levelHeight: alto del nivel en px, para el ciclo de los elevadores.
     void update(float dt, int levelHeight);
     void render(SDL_Renderer* renderer, const SpriteSheet& sprite, float cameraX = 0.0f) const;
@@ -76,4 +84,12 @@ private:
     float dy_ = 0.0f;
     float pendingDy_ = 0.0f;
     bool active_ = false;
+    bool started_ = false;
+    // Movimiento por cuadro del original (Vertical / Horizontal).
+    float frameAccum_ = 0.0f;
+    unsigned frames_ = 0;
+    float centerY_ = 0.0f;
+    float velY_ = 0.0f;          // px por cuadro
+    int xPrimary_ = 0;           // XMovePrimaryCounter
+    int xSecondary_ = 0;         // XMoveSecondaryCounter (1/16 px por cuadro)
 };

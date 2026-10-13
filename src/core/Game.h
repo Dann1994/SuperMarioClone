@@ -260,6 +260,9 @@ public:
     // startCol >= 0: arranca en esa columna como si fuera un checkpoint
     // ("probar desde aca" del editor).
     void startWithLevelFile(const std::string& path, int startCol, int startRow = -1);
+    // Herramienta de revision: al empezar el nivel guarda el mapa entero
+    // (escenario y bloques, sin personajes) como BMP y cierra el juego.
+    void setDumpMap(const std::string& path) { dumpMapPath_ = path; }
     void run();
     void shutdown();
 
@@ -664,7 +667,8 @@ private:
     }
     // Goomba/Koopa en el primer lugar libre de su pool (false si esta lleno).
     bool spawnGoomba(float x, float y, bool movingRight);
-    bool spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state);
+    bool spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state,
+                         bool horizontalFly = false);
     // Los 5 Koopa de prueba + los del pool del nivel, para los chequeos que
     // recorren todos.
     std::vector<Koopa*> allKoopas();
@@ -727,6 +731,8 @@ private:
     // --- Partida (1 o 2 jugadores): niveles levels/world{W}/{W}-{L}.json en
     // orden; despues del ultimo que exista, "fin de la demo".
     void startCampaign(bool twoPlayers, bool asLuigi = false);
+    // Centrado con la fuente del juego, en dos renglones si no entra.
+    void drawCenteredFit(int y, const std::string& text, SDL_Color color);
     static std::string campaignLevelPath(int world, int level);
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
@@ -968,6 +974,19 @@ private:
     // sola vez, ver Tilemap::isPipeTile). checkPipeWarp es quien decide
     // cuando entra por ella (ver el comentario en Game.cpp).
     SpriteSheet pipeSprite_;
+    // Variantes de nieve (DaySnow/NightSnowPaletteData: la paleta 0 pasa a
+    // blanco y grises): tuberias, escenografia, colinas/arbustos y mastil.
+    SpriteSheet pipeSnowSprite_;
+    SpriteSheet pipeMushroomSprite_;   // areas de hongos (kMushroomColors)
+    SpriteSheet sceneryTilesSnowSprite_;
+    SpriteSheet flagpoleSnowSprite_;
+    // Paleta de castillo en superficie (6-3).
+    SpriteSheet terrainGraySprite_;
+    SpriteSheet sceneryTilesGraySprite_;
+    // Paleta del area actual ("" si es la normal) y lo que implica.
+    const std::string& areaPalette() const;
+    bool areaSnow() const;
+    SDL_Color skyColor() const;
 
     // Efectos de sonido (seccion 8.2): ver SoundManager.h para la API y el
     // comentario en Game::init() (donde se cargan) para el mapeo
@@ -1016,6 +1035,20 @@ private:
     std::vector<PipeWarp> pipeWarps_;
     // Una entrada por Tilemap::entities(): true si ya aparecio (o se salteo).
     std::vector<bool> entitySpawned_;
+    // Orden en que se leen los enemigos (por X, como los datos del original).
+    std::vector<size_t> spawnOrder_;
+    // Pantalla del original (256 px) para la aparicion de enemigos: su borde
+    // izquierdo, solo avanza; spawnArea_ = -1 la reinicia.
+    float spawnScreenLeft_ = 0.0f;
+    // Donde estaba el foco de la camara el paso anterior (ScrollHandler).
+    float cameraFocusPrevX_ = 0.0f;
+    int spawnArea_ = -1;
+    void updateSpawnScreen();
+    int occupiedEnemySlots() const;
+    bool enemySlotFree() const { return occupiedEnemySlots() < kEnemySlots; }
+    // Lugares de enemigos del original (objetos 0-4).
+    static constexpr int kEnemySlots = 5;
+    static constexpr float kNesScreenWidth = 256.0f;
     // Area donde esta la camara (ver Tilemap::areas) y el tipo de mundo del
     // nivel cuando el area no fija uno propio.
     int currentArea_ = 0;
@@ -1023,8 +1056,10 @@ private:
 
     // Escenografia de fondo (ver gen_scenery.py y el campo "decorations"
     // del nivel): un sheet de un solo frame por pieza.
-    static constexpr int kDecorationCount = 9;
+    static constexpr int kDecorationCount = 13;
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
+    std::array<SpriteSheet, kDecorationCount> decorationSnowSprites_;
+    std::array<SpriteSheet, kDecorationCount> decorationGraySprites_;
 
     // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
     // caparazon identicos al Koopa verde caminando (se cae de los bordes,
@@ -1166,6 +1201,9 @@ private:
     SDL_Texture* worldTarget_ = nullptr;
     int customStartCol_ = -1;
     int customStartRow_ = -1;
+    std::string dumpMapPath_;
+    bool dumping_ = false;
+    void dumpLevelMap();
     // El nivel ya se esta terminando (bandera agarrada o hacha tocada): el
     // timer deja de descontar.
     bool levelEnding_ = false;
@@ -1180,6 +1218,110 @@ private:
     float bridgeCollapseTimer_ = 0.0f;
     std::vector<SDL_Point> bridgeTilesToCollapse_;
     float castleClearTimer_ = 0.0f;
+    // Final con bandera (RunStarFlagObj / GameTimerFireworks / RunFireworks
+    // del original): al terminar la cuenta del tiempo sube la bandera con
+    // estrella del castillo y, si el ultimo digito del tiempo al llegar al
+    // mastil era 1, 3 o 6, salen esos fuegos artificiales (500 cada uno).
+    struct EndSequence {
+        bool fromFlagpole = false;  // la cuenta empezo por la bandera (no por el hacha)
+        int fireworks = 0;          // cuantos faltan
+        int lookup = 0;             // indice en la tabla de posiciones
+        bool flagShown = false;
+        bool active = false;
+        float flagX = 0.0f;
+        float flagY = 0.0f;
+        float flagTopY = 0.0f;
+        float spawnTimer = 0.0f;
+        float waitTimer = 0.0f;
+        struct Burst {
+            float x = 0.0f;
+            float y = 0.0f;
+            float t = 0.0f;
+        };
+        std::vector<Burst> bursts;
+    };
+    EndSequence endSequence_;
+    SpriteSheet starFlagSprite_;
+    void startEndSequence();
+    // true mientras siga (la bandera subiendo o fuegos pendientes).
+    bool updateEndSequence(float dt);
+    void renderStarFlag();
+    void renderFireworks();
+    // Warp zone (ScrollLockObject_Warp / WriteWarpZoneMessage): el cartel
+    // arriba de las tuberias y el mundo al que lleva cada una.
+    void renderWarpZoneText();
+    // Warp zone (ScrollLockObject_Warp): la camara no pasa de esa columna
+    // (el borde derecho de la pantalla queda ahi) y al llegar se van las
+    // Piranha Plants de la zona (KillEnemies 0x0D).
+    struct WarpZoneLock {
+        int col = 0;        // columna del objeto
+        int firstPipe = 0;  // primera tuberia de la zona
+        bool reached = false;
+    };
+    std::vector<WarpZoneLock> warpZoneLocks_;
+    void updateWarpZones();
+    // Bowser falso (BowserIdentities del original): en los mundos 1-7, el
+    // que se derrota con fuego cae mostrando el enemigo que era en
+    // realidad. -1 = ninguno (el de verdad, o no lo mato el fuego).
+    int fakeBowser_ = -1;
+    // Ganado el 8-4: la proxima partida es la segunda vuelta (gPrimaryHardMode).
+    bool secondQuestNext_ = false;
+    // 1-UP escondidos (Hidden1UpFlag / Hidden1UpCoinAmts del original): el
+    // bloque solo existe si la marca esta puesta cuando la pantalla llega a
+    // el, y al dibujarse la gasta. Se pone al empezar la partida y al
+    // terminar un x-3 habiendo juntado ahi 21/35/22/27/23/24/35/99 monedas
+    // (segun el mundo).
+    bool hidden1UpFlag_ = true;
+    // Bloque de muchas monedas: el tiempo que corre desde su primer golpe.
+    // Cadena del puente de Bowser: se ve hasta tocar el hacha (ahi se
+    // borra antes de que caiga el puente, como el original).
+    // Toad / princesa al final del castillo: tirado el puente, el personaje
+    // camina solo hasta quedar frente a el y aparece el mensaje (primero
+    // "GRACIAS MARIO!", al rato el resto) antes de la cuenta del tiempo.
+    SDL_Point retainer_{-1, -1};
+    SpriteSheet retainerSprite_;
+    bool castleWalk_ = false;
+    int castleLines_ = 0;         // renglones del mensaje a la vista (0 = ninguno)
+    float castleMessageTimer_ = 0.0f;
+    SDL_Point bridgeChain_{-1, -1};
+    bool bridgeChainGone_ = false;
+    SpriteSheet bridgeChainSprite_;
+    bool brickCoinTimerStarted_ = false;
+    float brickCoinTimer_ = 0.0f;
+    // CONTINUAR: despues de un GAME OVER en la partida, se puede seguir desde
+    // el primer nivel de ese mundo (0 = no hay partida para continuar).
+    int continueWorld_ = 0;
+    // 2 jugadores por turnos (el modo del original): un solo personaje en
+    // pantalla; al morir pasa el turno al otro (si le quedan vidas), cada uno
+    // con sus vidas, puntaje, monedas, nivel, checkpoint, tamano y su 1-UP
+    // escondido (como OffScr_* del original). Luigi juega con los controles
+    // del jugador 2.
+    struct TurnState {
+        int lives = 0;
+        int score = 0;
+        int coins = 0;
+        int world = 1;
+        int level = 1;
+        int checkpointCol = -1;
+        MarioSize size = MarioSize::Small;
+        bool hidden1Up = true;
+    };
+    bool turnMode_ = false;
+    int turnPlayer_ = 0;
+    std::array<TurnState, 2> turnStates_{};
+    bool inputsSwapped_ = false;
+    bool choosingTwoMode_ = false;
+    int twoModeChoice_ = 0;   // 0 a la vez, 1 por turnos
+    void startTurnCampaign();
+    void saveTurnState();
+    void loadTurnState(int player);
+    // Despues de morir: true si le paso el turno al otro.
+    bool passTurn();
+    bool continueTwoPlayers_ = false;
+    bool continueAsLuigi_ = false;
+    int coinTallyForOneUps_ = 0;
+    std::vector<SDL_Point> hidden1Ups_;
+    void updateHidden1Ups();
 
     struct Cannon {
         int col;

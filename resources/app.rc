@@ -1,0 +1,2 @@
+// Icono del ejecutable (la cara de Mario, tools/asset_scripts/gen_icon.py).
+IDI_ICON1 ICON "icon.ico"

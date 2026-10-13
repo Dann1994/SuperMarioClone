@@ -5,7 +5,6 @@
 
 namespace {
 
-constexpr float kTwoPi = 6.28318530718f;
 constexpr int kSegmentWidth = 8;
 
 }  // namespace
@@ -27,6 +26,15 @@ void MovingPlatform::spawn(float x, float y, int widthPx, PlatformMode mode, flo
     dx_ = 0.0f;
     dy_ = 0.0f;
     active_ = true;
+    started_ = false;
+    frameAccum_ = 0.0f;
+    frames_ = 0;
+    velY_ = 0.0f;
+    xPrimary_ = 0;
+    xSecondary_ = 0;
+    // InitVertPlatform: Y del original = la nuestra - 16; en la mitad de
+    // abajo (Y >= 0x80) el centro queda arriba.
+    centerY_ = (y - 16.0f) < 128.0f ? y + 64.0f : y - 64.0f;
 }
 
 void MovingPlatform::onStoodOn() {
@@ -36,21 +44,35 @@ void MovingPlatform::onStoodOn() {
 void MovingPlatform::update(float dt, int levelHeight) {
     dx_ = 0.0f;
     dy_ = 0.0f;
-    if (!active_) return;
+    if (!active_ || !started_) return;
     const float oldX = x_;
     const float oldY = y_;
 
     switch (mode_) {
         case PlatformMode::Vertical:
         case PlatformMode::Horizontal: {
-            // Coseno: arranca quieta en la punta inicial, acelera hacia el
-            // medio y frena llegando a la otra punta (como el original).
-            phase_ = std::fmod(phase_ + dt / period_, 1.0f);
-            const float offset = range_ * (1.0f - std::cos(phase_ * kTwoPi)) / 2.0f;
-            if (mode_ == PlatformMode::Vertical) {
-                y_ = baseY_ + offset;
-            } else {
-                x_ = baseX_ + offset;
+            // Por cuadro, como el original (60 por segundo).
+            frameAccum_ += dt * 60.0f;
+            while (frameAccum_ >= 1.0f) {
+                frameAccum_ -= 1.0f;
+                ++frames_;
+                if (mode_ == PlatformMode::Vertical) {
+                    // MovePlatformDown/Up: ImposeGravity con 5/256, tope 3.
+                    y_ += velY_;
+                    velY_ += (y_ >= centerY_ ? -5.0f : 5.0f) / 256.0f;
+                    velY_ = std::clamp(velY_, -3.0f, 3.0f);
+                } else {
+                    // XMoveCntr_Platform(0x0e) + MoveWithXMCntrs.
+                    if ((frames_ & 3) == 0) {
+                        if (xPrimary_ & 1) {
+                            if (xSecondary_ != 0) --xSecondary_; else ++xPrimary_;
+                        } else {
+                            if (xSecondary_ != 0x0e) ++xSecondary_; else ++xPrimary_;
+                        }
+                    }
+                    const bool right = (xPrimary_ & 2) != 0;
+                    x_ += (right ? 1.0f : -1.0f) * static_cast<float>(xSecondary_) / 16.0f;
+                }
             }
             break;
         }

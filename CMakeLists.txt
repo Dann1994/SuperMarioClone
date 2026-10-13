@@ -20,6 +20,12 @@ list(FILTER MARIO_SOURCES EXCLUDE REGEX ".*/src/editor/.*")
 
 add_executable(mario WIN32 ${MARIO_SOURCES})
 
+# Icono del .exe (la cara de Mario): recurso de Windows.
+if(WIN32)
+    enable_language(RC)
+    target_sources(mario PRIVATE resources/app.rc)
+endif()
+
 target_include_directories(mario PRIVATE src)
 
 target_link_libraries(mario PRIVATE

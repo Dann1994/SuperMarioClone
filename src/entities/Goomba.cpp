@@ -1,4 +1,5 @@
 #include "Goomba.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +7,7 @@
 void Goomba::spawn(float x, float y, bool movingRight) {
     x_ = x;
     y_ = y;
-    velX_ = movingRight ? kSpeed : -kSpeed;
+    velX_ = movingRight ? kSpeed * hardWalkFactor() : -kSpeed * hardWalkFactor();
     velY_ = 0.0f;
     alive_ = true;
     squished_ = false;

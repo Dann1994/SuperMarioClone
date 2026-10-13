@@ -12,6 +12,8 @@
 #include "../render/DebugFont.h"
 #include "Game.h"
 
+#include "../entities/Difficulty.h"
+
 namespace {
 
 const SDL_Color kMenuWhite{255, 255, 255, 255};
@@ -75,6 +77,8 @@ void Game::openTitle() {
     saveTopScore();
     choosingCharacter_ = false;
     choosingLevel_ = false;
+    choosingTwoMode_ = false;
+    gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
     cutscene_ = false;
     pipeTransitionTimer_ = 0.0f;
@@ -215,17 +219,35 @@ int stepSelection(int current, int delta, int count, const std::vector<bool>& di
     return current;
 }
 
-std::vector<bool> titleDisabled() {
-    // Continuar necesita el guardado por mundo (seccion
-    // 6), que todavia no existe.
+std::vector<bool> titleDisabled(bool canContinue) {
+    // CONTINUAR solo despues de un GAME OVER en la partida.
     std::vector<bool> disabled(kTitleCount, false);
-    disabled[kTitleContinue] = true;
+    disabled[kTitleContinue] = !canContinue;
     return disabled;
 }
 
 }  // namespace
 
 void Game::handleTitleInput(MenuInput input) {
+    if (choosingTwoMode_) {
+        // 2 jugadores: a la vez (los dos en pantalla) o por turnos (el original).
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            twoModeChoice_ = 1 - twoModeChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm) {
+            choosingTwoMode_ = false;
+            audio_.play(Sfx::Coin);
+            if (twoModeChoice_ == 0) {
+                startCampaign(true);
+            } else {
+                startTurnCampaign();
+            }
+        } else if (input == MenuInput::Back) {
+            choosingTwoMode_ = false;
+        }
+        return;
+    }
     if (choosingLevel_) {
         // Arriba/abajo cambia de mundo, izquierda/derecha de nivel (pasa al
         // mundo de al lado al dar la vuelta).
@@ -266,14 +288,14 @@ void Game::handleTitleInput(MenuInput input) {
         return;
     }
     if (input == MenuInput::Up || input == MenuInput::Down) {
-        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled());
+        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled(continueWorld_ > 0));
         audio_.play(Sfx::TimeTally);
         return;
     }
     if (input == MenuInput::Left || input == MenuInput::Right) {
         // Cambia de columna (misma fila); si esa opcion esta deshabilitada,
         // la proxima habilitada.
-        const std::vector<bool> disabled = titleDisabled();
+        const std::vector<bool> disabled = titleDisabled(continueWorld_ > 0);
         const int target = (titleSelection_ + 4) % kTitleCount;
         titleSelection_ = disabled[target] ? stepSelection(target, 1, kTitleCount, disabled) : target;
         audio_.play(Sfx::TimeTally);
@@ -291,9 +313,16 @@ void Game::handleTitleInput(MenuInput input) {
         case kTitleTwoPlayers:
             startWorld_ = 1;
             startLevel_ = 1;
-            startCampaign(true);
+            choosingTwoMode_ = true;
+            twoModeChoice_ = 0;
             break;
         case kTitleWorldSelect: choosingLevel_ = true; break;
+        case kTitleContinue:
+            if (continueWorld_ <= 0) break;
+            startWorld_ = continueWorld_;
+            startLevel_ = 1;
+            startCampaign(continueTwoPlayers_, continueAsLuigi_);
+            break;
         case kTitleOptions: openSettings(AppState::Title); break;
         case kTitleTestMode: openScenarioSelect(); break;
         case kTitleCredits: appState_ = AppState::Credits; break;
@@ -494,7 +523,26 @@ void Game::setPlayAsLuigi(bool luigi) {
     }
 }
 
+void Game::startTurnCampaign() {
+    startCampaign(false, false);
+    turnMode_ = true;
+    TurnState fresh;
+    fresh.lives = livesCount_;
+    fresh.world = campaignWorld_;
+    fresh.level = campaignLevel_;
+    turnStates_ = {fresh, fresh};
+    turnPlayer_ = 0;
+}
+
 void Game::startCampaign(bool twoPlayers, bool asLuigi) {
+    turnMode_ = false;
+    if (inputsSwapped_) {
+        std::swap(input1_, input2_);
+        inputsSwapped_ = false;
+    }
+    gPrimaryHardMode = secondQuestNext_;
+    hidden1UpFlag_ = true;
+    continueWorld_ = 0;   // una partida nueva (o la continuada) gasta el CONTINUAR
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
     campaignWorld_ = startWorld_;
@@ -516,6 +564,13 @@ void Game::onLevelCleared() {
         }
         return;
     }
+    // Termino un x-3 con suficientes monedas: el 1-UP escondido del x-1
+    // siguiente va a estar (Hidden1UpCoinAmts).
+    static const int kHidden1UpCoins[8] = {21, 35, 22, 27, 23, 24, 35, 99};
+    if (campaignLevel_ == 3 && campaignWorld_ >= 1 && campaignWorld_ <= 8 &&
+        coinTallyForOneUps_ >= kHidden1UpCoins[campaignWorld_ - 1]) {
+        hidden1UpFlag_ = true;
+    }
     // Siguiente nivel del mundo (4 por mundo, como el original), o el
     // primero del mundo siguiente. Si no existe todavia: fin de la demo.
     int world = campaignWorld_;
@@ -526,6 +581,9 @@ void Game::onLevelCleared() {
     }
     const std::string next = campaignLevelPath(world, level);
     if (!std::filesystem::exists(next)) {
+        // Despues del 8-4 (WorldSelectEnableFlag): la proxima partida es la
+        // segunda vuelta.
+        if (campaignWorld_ >= 8) secondQuestNext_ = true;
         appState_ = AppState::DemoEnd;
         audio_.playMusic(Music::Ending, false);
         return;
@@ -538,6 +596,31 @@ void Game::onLevelCleared() {
 }
 
 // ============================================================ dibujo
+
+void Game::drawCenteredFit(int y, const std::string& text, SDL_Color color) {
+    // Con la fuente del juego; si no entra en un renglon, en dos (cortando
+    // en el espacio mas cercano a la mitad).
+    if (static_cast<int>(text.size()) * 8 <= gLogicalWidth - 8) {
+        drawCentered(y, text, 2, color);
+        return;
+    }
+    size_t cut = std::string::npos;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != ' ') continue;
+        const auto dist = [&](size_t p) { return p > text.size() / 2 ? p - text.size() / 2 : text.size() / 2 - p; };
+        if (cut == std::string::npos || dist(i) < dist(cut)) cut = i;
+    }
+    if (cut == std::string::npos) {
+        drawCentered(y, text, 2, color);
+        return;
+    }
+    std::string first = text.substr(0, cut);
+    std::string second = text.substr(cut + 1);
+    while (!second.empty() && second.front() == ' ') second.erase(second.begin());
+    while (!first.empty() && first.back() == ' ') first.pop_back();
+    drawCentered(y - 5, first, 2, color);
+    drawCentered(y + 5, second, 2, color);
+}
 
 void Game::drawCentered(int y, const std::string& text, int scale, SDL_Color color) {
     const int width = static_cast<int>(text.size()) * 4 * scale;
@@ -585,7 +668,7 @@ void Game::renderTitle() {
     DebugFont::drawText(renderer_, logoX + 176 - 14 * 8, 122, "@1985 NINTENDO", 2, pink);
 
     // Ocho opciones en dos columnas de cuatro (el original tiene dos).
-    std::vector<bool> disabled = titleDisabled();
+    std::vector<bool> disabled = titleDisabled(continueWorld_ > 0);
     const Txt ids[kTitleCount] = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::WorldSelect,
                                   Txt::Options,   Txt::TestMode,   Txt::Credits,  Txt::Quit};
     for (int i = 0; i < kTitleCount; ++i) {
@@ -595,6 +678,9 @@ void Game::renderTitle() {
         DebugFont::drawText(renderer_, x, y, tr(ids[i]), 2, disabled[i] ? kMenuGray : kMenuWhite);
     }
 
+    if (secondQuestNext_) {
+        DebugFont::drawText(renderer_, logoX, 122, tr(Txt::SecondQuest), 2, pink);
+    }
     char top[24];
     std::snprintf(top, sizeof(top), "TOP- %06d", std::min(std::max(settings_.topScore, score_), 999999));
     drawCentered(196, top, 2, kMenuWhite);
@@ -609,6 +695,20 @@ void Game::renderTitle() {
     } else {
         introMarioSprite_.draw(renderer_, 0, 0, heroX, heroY, false);
         if (titleSelection_ == kTitleTwoPlayers) introLuigiSprite_.draw(renderer_, 0, 0, heroX + 20, heroY, false);
+    }
+
+    if (choosingTwoMode_) {
+        const int boxW = 168;
+        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 132, boxW, 60};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 230);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(140, tr(Txt::TwoPlayerMode), 2, kMenuWhite);
+        const int optionX = box.x + 28;
+        DebugFont::drawText(renderer_, optionX, 160, tr(Txt::Simultaneous), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, optionX, 174, tr(Txt::TakeTurns), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, optionX - 12, twoModeChoice_ == 0 ? 160 : 174, false);
     }
 
     if (choosingLevel_) {
@@ -690,65 +790,67 @@ void Game::renderSettings() {
     labels.push_back(tr(Txt::Back));
     values.push_back("");
 
-    // Dos columnas: nombre a la izquierda, valor a la derecha (escala 1 para
-    // que entre en 4:3 tambien).
-    const int left = gLogicalWidth / 2 - 110;
-    const int right = gLogicalWidth / 2 + 30;
+    // Dos columnas con la fuente del juego: nombre a la izquierda, valor
+    // alineado a la derecha.
+    const int left = 22;
+    const int rightEdge = gLogicalWidth - 12;
     for (int i = 0; i < kSetCount; ++i) {
-        const int y = 34 + i * 15;
+        const int y = 32 + i * 15;
         const bool selected = i == settingsSelection_;
         const SDL_Color color = selected ? kMenuWhite : kMenuYellow;
-        if (selected) DebugFont::drawText(renderer_, left - 10, y, ">", 2, kMenuWhite);
-        DebugFont::drawText(renderer_, left, y + 2, labels[i], 1, color);
-        DebugFont::drawText(renderer_, right, y + 2, values[i], 1, color);
+        if (selected) titleCursorSprite_.draw(renderer_, 0, 0, left - 14, y, false);
+        DebugFont::drawText(renderer_, left, y, labels[i], 2, color);
+        const int valueWidth = static_cast<int>(values[i].size()) * 8;
+        DebugFont::drawText(renderer_, rightEdge - valueWidth, y, values[i], 2, color);
     }
-    drawCentered(210, tr(Txt::ValueHint), 1, kMenuDim);
-    drawCentered(220, tr(Txt::MenuHint), 1, kMenuDim);
+    drawCenteredFit(200, tr(Txt::ValueHint), kMenuDim);
+    drawCenteredFit(220, tr(Txt::MenuHint), kMenuDim);
 }
 
 void Game::renderControls() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderFillRect(renderer_, nullptr);
-    drawCentered(8, tr(Txt::Controls), 2, kMenuWhite);
+    drawCentered(6, tr(Txt::Controls), 2, kMenuWhite);
 
-    const int left = gLogicalWidth / 2 - 110;
-    const int right = gLogicalWidth / 2 + 20;
-    int y = 26;
+    // Con la fuente del juego: nombre a la izquierda, tecla a la derecha.
+    const int left = 22;
+    const int rightEdge = gLogicalWidth - 12;
+    int y = 22;
     auto row = [&](int index, const std::string& label, const std::string& value) {
         const bool selected = index == controlsSelection_;
         const SDL_Color color = selected ? kMenuWhite : kMenuYellow;
-        if (selected) DebugFont::drawText(renderer_, left - 10, y - 1, ">", 1, kMenuWhite);
-        DebugFont::drawText(renderer_, left, y, label, 1, color);
+        if (selected) titleCursorSprite_.draw(renderer_, 0, 0, left - 14, y, false);
+        DebugFont::drawText(renderer_, left, y, label, 2, color);
         std::string shown = value;
         if (selected && waitingBinding_) shown = "...";
-        DebugFont::drawText(renderer_, right, y, shown, 1, color);
-        y += 9;
+        DebugFont::drawText(renderer_, rightEdge - static_cast<int>(shown.size()) * 8, y, shown, 2, color);
+        y += 10;
     };
     for (int player = 0; player < 2; ++player) {
-        DebugFont::drawText(renderer_, left, y, tr(player == 0 ? Txt::Player1 : Txt::Player2), 1, kMenuDim);
+        DebugFont::drawText(renderer_, left, y, tr(player == 0 ? Txt::Player1 : Txt::Player2), 2, kMenuDim);
         y += 10;
         const Input& input = player == 0 ? input1_ : input2_;
         for (int action = 0; action < kActionCount; ++action) {
             const SDL_Scancode key = input.keyBinding(static_cast<Action>(action));
             row(player * kActionCount + action, std::string("  ") + tr(actionName(action)), upper(SDL_GetScancodeName(key)));
         }
-        y += 4;
+        y += 2;
     }
-    DebugFont::drawText(renderer_, left, y, tr(Txt::Gamepad), 1, kMenuDim);
+    DebugFont::drawText(renderer_, left, y, tr(Txt::Gamepad), 2, kMenuDim);
     y += 10;
     const char* jump = SDL_GameControllerGetStringForButton(input1_.padJumpButton());
     const char* run = SDL_GameControllerGetStringForButton(input1_.padRunButton());
     row(kCtrlPadJump, std::string("  ") + tr(Txt::Jump), upper(jump ? jump : "?"));
     row(kCtrlPadRun, std::string("  ") + tr(Txt::Run), upper(run ? run : "?"));
-    y += 4;
+    y += 2;
     row(kCtrlReset, tr(Txt::ResetDefaults), "");
     row(kCtrlBack, tr(Txt::Back), "");
 
     const bool padRow = controlsSelection_ == kCtrlPadJump || controlsSelection_ == kCtrlPadRun;
     if (waitingBinding_) {
-        drawCentered(222, tr(padRow ? Txt::PressButton : Txt::PressKey), 1, kMenuWhite);
+        drawCenteredFit(222, tr(padRow ? Txt::PressButton : Txt::PressKey), kMenuWhite);
     } else {
-        drawCentered(222, tr(Txt::BindHint), 1, kMenuDim);
+        drawCenteredFit(222, tr(Txt::BindHint), kMenuDim);
     }
 }
 

@@ -5,7 +5,8 @@ que src/world/WorldType.h: Overworld, Underwater, Underground, Castle) y dos
 frames de 16x16 por fila:
   0 = piso (tile '#'): el bloque de tierra agrietada del suelo, salvo en
       Castle, donde son los bloques cuadrados de piso de castillo (con las
-      juntas transparentes, se ve el fondo negro entre bloque y bloque)
+      juntas transparentes, se ve el fondo negro entre bloque y bloque), y en
+      Underwater, donde es la roca del fondo del mar
   1 = bloque duro (el biselado de las escaleras y la base de la bandera, 'S')
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
@@ -29,6 +30,10 @@ WORLD_ORDER = ["Overworld", "Underwater", "Underground", "Castle"]
 # Piso propio de castillo: los bloques cuadrados con borde (primera pieza de
 # la cuarta fila del bloque Castle).
 CASTLE_FLOOR = (0, 151)
+# Agua: el piso y los bloques solidos son la roca del fondo del mar (el
+# metatile de TerrainMetatiles/SolidBlockMetatiles para AreaType agua),
+# primera pieza de la tercera fila del bloque Underwater.
+SEABED = (147, 134)
 
 
 def is_background(rgba):
@@ -51,8 +56,8 @@ def main():
     out = Image.new("RGBA", (TILE * 2, TILE * len(WORLD_ORDER)), (0, 0, 0, 0))
     for row, world in enumerate(WORLD_ORDER):
         x, y = GROUND[world]
-        floor = CASTLE_FLOOR if world == "Castle" else (x, y)
-        hard = (x, y + PITCH)
+        floor = CASTLE_FLOOR if world == "Castle" else SEABED if world == "Underwater" else (x, y)
+        hard = SEABED if world == "Underwater" else (x, y + PITCH)
         for frame, (tx, ty) in enumerate((floor, hard)):
             out.paste(cut(sheet, tx, ty), (frame * TILE, row * TILE))
     out.save("assets/sprites/terrain.png")

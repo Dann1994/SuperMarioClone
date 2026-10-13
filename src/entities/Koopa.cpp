@@ -1,4 +1,5 @@
 #include "Koopa.h"
+#include "Difficulty.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +11,7 @@ void Koopa::spawn(float x, float y, bool movingRight, KoopaState initialState) {
     kicker_ = nullptr;
     x_ = x;
     y_ = y;
-    velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;
+    velX_ = movingRight ? kWalkSpeed * hardWalkFactor() : -kWalkSpeed * hardWalkFactor();
     velY_ = 0.0f;
     alive_ = true;
     falling_ = false;
@@ -19,6 +20,12 @@ void Koopa::spawn(float x, float y, bool movingRight, KoopaState initialState) {
     shellIdleTimer_ = 0.0f;
     flyBaseY_ = y;
     flyPhase_ = 0.0f;
+    redFlyVelY_ = 0.0f;
+    horizontalFly_ = false;
+    hFlyPrimary_ = 0;
+    hFlySecondary_ = 0;
+    hFlyFrames_ = 0;
+    hFlyAccum_ = 0.0f;
     postStompCooldown_ = 0.0f;
     stompCooldownOwner_ = nullptr;
     animTimer_ = 0.0f;
@@ -50,14 +57,14 @@ void Koopa::stomp(const void* character) {
         // Mario::setSize).
         y_ += static_cast<float>(kWalkHeight - kShellHeight);
         state_ = KoopaState::ShellIdle;
-        shellIdleTimer_ = kShellIdleDuration;
+        shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
         velX_ = 0.0f;
         velY_ = 0.0f;
         animTimer_ = 0.0f;
         animFrame_ = 0;
     } else if (state_ == KoopaState::ShellMoving) {
         state_ = KoopaState::ShellIdle;
-        shellIdleTimer_ = kShellIdleDuration;
+        shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
         velX_ = 0.0f;
         // Inmuniza a "character" un ratito (ver isImmuneTo): que tenga
         // margen para separarse antes de que este Koopa vuelva a
@@ -91,7 +98,7 @@ void Koopa::stunFromBelow(bool moveRight) {
         y_ += static_cast<float>(kWalkHeight - kShellHeight);
     }
     state_ = KoopaState::ShellIdle;
-    shellIdleTimer_ = kShellIdleDuration;
+    shellIdleTimer_ = kShellIdleDuration * hardShellFactor();
     upsideDown_ = true;
     y_ -= 2.0f;
     velY_ = -180.0f;
@@ -217,6 +224,49 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
         // Como el original: arranca quieto en su altura y baja hasta 2
         // amplitudes (o sube, si aparecio en la mitad de abajo de la
         // pantalla) y vuelve, frenando en las puntas.
+        if (horizontalFly_) {
+            // Paratroopa verde horizontal (MoveFlyGreenPTroopa): cada 4
+            // cuadros la velocidad sube de a 1/16 px hasta 0x13 y vuelve a
+            // 0 (XMoveCntr_Platform); el bit 1 del contador principal da el
+            // sentido (arranca hacia la izquierda). En Y sube o baja 1 px
+            // cada 4 cuadros, cambiando cada 64. No choca con el escenario.
+            hFlyAccum_ += dt * 60.0f;
+            while (hFlyAccum_ >= 1.0f) {
+                hFlyAccum_ -= 1.0f;
+                ++hFlyFrames_;
+                const bool step = (hFlyFrames_ & 3) == 0;
+                if (step) {
+                    if (hFlyPrimary_ & 1) {
+                        if (hFlySecondary_ != 0) --hFlySecondary_; else ++hFlyPrimary_;
+                    } else {
+                        if (hFlySecondary_ != 0x13) ++hFlySecondary_; else ++hFlyPrimary_;
+                    }
+                }
+                const bool right = (hFlyPrimary_ & 2) != 0;
+                x_ += (right ? 1.0f : -1.0f) * static_cast<float>(hFlySecondary_) / 16.0f;
+                velX_ = right ? kWalkSpeed * hardWalkFactor() : -kWalkSpeed * hardWalkFactor();
+                lastFacingRight_ = right;
+                if (step) y_ += (hFlyFrames_ & 0x40) ? 1.0f : -1.0f;
+            }
+            return;
+        }
+        if (color_ == KoopaColor::Red) {
+            // Paratroopa roja (ProcMoveRedPTroopa): solo sube y baja,
+            // hamacandose alrededor de un centro 0x30 px mas abajo de donde
+            // aparecio (0x20 mas arriba si aparecio en la mitad de abajo),
+            // acelerando 3/256 px por cuadro^2 hasta 2 px por cuadro. No
+            // choca con el escenario ni se mueve de costado.
+            const float center = flyBaseY_ + (flyBaseY_ < 0x80 + 16.0f ? 48.0f : -32.0f);
+            constexpr float kAccel = 3.0f / 256.0f * 3600.0f;
+            constexpr float kMaxSpeed = 120.0f;
+            if (y_ >= center) {
+                redFlyVelY_ = std::max(redFlyVelY_ - kAccel * dt, -kMaxSpeed);
+            } else {
+                redFlyVelY_ = std::min(redFlyVelY_ + kAccel * dt, kMaxSpeed);
+            }
+            y_ += redFlyVelY_ * dt;
+            return;
+        }
         flyPhase_ += kFlyHoverSpeed * dt;
         const float flyDirection = flyBaseY_ < 144.0f ? 1.0f : -1.0f;
         const float flyAmplitude = flyDirection > 0.0f ? kFlyHoverAmplitude : kFlyHoverAmplitude * 2.0f / 3.0f;
@@ -300,7 +350,7 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
             // antes de esconderse, restaurando la altura (pies fijos).
             y_ -= static_cast<float>(kWalkHeight - kShellHeight);
             state_ = KoopaState::Walking;
-            velX_ = lastFacingRight_ ? kWalkSpeed : -kWalkSpeed;
+            velX_ = lastFacingRight_ ? kWalkSpeed * hardWalkFactor() : -kWalkSpeed * hardWalkFactor();
             animTimer_ = 0.0f;
             animFrame_ = 0;
         }

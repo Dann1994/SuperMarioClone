@@ -124,6 +124,10 @@ public:
     // sin pasar por el input del jugador.
     void setVelocityX(float v) { velX_ = v; }
     void setVelocityY(float v) { velY_ = v; }
+    // Animacion de caminar sin moverse por su cuenta (lo mueve Game: entrar
+    // caminando a una tuberia lateral).
+    void stepWalkAnimation(float dt);
+    void standStill() { animState_ = MarioAnim::Idle; }
     // Trampolin (ChkForLandJumpSpring): sale con la gravedad fuerte
     // (VerticalForce 0x70) aunque se mantenga saltar, hasta empezar a caer.
     void launchFromSpring(float velocityY) {
@@ -156,8 +160,13 @@ public:
     // Estrella: invencibilidad temporal con parpadeo de 4 paletas (la
     // original + 3 variantes). Sin power-up real todavia, se activa por
     // debug (ver Game::processEvents).
-    void setInvincible(bool on, float duration = 10.0f);
+    // Estrella del original: StarInvincibleTimer 0x23 intervalos de 21
+    // cuadros (12,25 s).
+    void setInvincible(bool on, float duration = kStarDuration);
     bool isInvincible() const { return invincible_; }
+    // La musica de la estrella se corta antes del final (StarInvincibleTimer
+    // == 4: quedan 4 intervalos, 1,4 s) y vuelve la del nivel.
+    bool isStarMusicTime() const { return invincible_ && invincibleTimer_ > kStarMusicEndsAt; }
 
     // Ventana de gracia parpadeando (mismo parpadeo simple que queda tras la
     // secuencia de danio), sin pasar por toda esa secuencia. La usa Game al
@@ -327,7 +336,13 @@ private:
     static constexpr float kMaxFallSpeed = 240.0f;        // px/s, velocidad terminal de caida (0x04 = 4px/frame)
     static constexpr float kSkidVelocityThreshold = 41.25f; // px/s, minimo para la animacion de patinada (0x0b)
     static constexpr float kThrowAnimDuration = 0.15f; // segundos que se ve la pose de tirar
-    static constexpr float kStarFlickerInterval = 0.08f; // s entre cada paso del ciclo de 4 paletas
+    // Cambio de colores: cada 2 cuadros, y en el tramo final (menos de 8
+    // intervalos, 2,8 s) cada 8, mas lento, avisando que se termina.
+    static constexpr float kStarFlickerInterval = 2.0f / 60.0f;
+    static constexpr float kStarFlickerSlowInterval = 8.0f / 60.0f;
+    static constexpr float kStarSlowFlickerAt = 8.0f * 21.0f / 60.0f;
+    static constexpr float kStarDuration = 0x23 * 21.0f / 60.0f;
+    static constexpr float kStarMusicEndsAt = 4.0f * 21.0f / 60.0f;
 
     // Velocidad del ciclo de caminar/correr: el original NO interpola
     // continuo, usa 3 escalones fijos segun la velocidad horizontal

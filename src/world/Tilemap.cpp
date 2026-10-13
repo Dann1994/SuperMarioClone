@@ -73,6 +73,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         area.fallCol = entry.value("fall_col", -1);
         area.fallRow = entry.value("fall_row", 2);
         area.cloud = entry.value("cloud", false);
+        area.palette = entry.value("palette", std::string());
         areas_.push_back(area);
     }
     decorations_.clear();
@@ -85,6 +86,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         decorations_.push_back(decoration);
     }
     introArea_ = json.contains("intro") ? json["intro"].value("area", -1) : -1;
+    startCol_ = json.value("start_col", -1);
     platforms_.clear();
     for (const auto& entry : arrayField(json, "platforms")) {
         LevelPlatform platform;
@@ -111,6 +113,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         entity.speed = entry.value("speed", 100.0f);
         entity.endCol = entry.value("end_col", -1);
         entity.xOffset = entry.value("x_offset", 0.0f);
+        entity.yOffset = entry.value("y_offset", 0.0f);
+        entity.hardOnly = entry.value("hard_only", false);
         entity.back = entry.value("back", 64);
         entity.destCol = entry.value("dest_col", -1);
         entity.destRow = entry.value("dest_row", -1);
@@ -196,7 +200,7 @@ bool Tilemap::isCannonTopTile(int col, int row) const {
 }
 
 void Tilemap::renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, int viewWidth,
-                            float cameraX) const {
+                            float cameraX, const SpriteSheet* plainSprite) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     const int firstCol = std::max(0, camOffset / tileSize_);
     const int lastCol = std::min(width_ - 1, (camOffset + viewWidth) / tileSize_ + 1);
@@ -235,7 +239,10 @@ void Tilemap::renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, i
                 case 'N': frame = 19; break;  // bloque de nube
                 default: break;
             }
-            if (frame >= 0) sprite.draw(renderer, worldRow, frame, x, y, false);
+            // El canon y el bloque de nube no usan la paleta de la
+            // escenografia: con nieve quedan como siempre.
+            const SpriteSheet& sheet = (plainSprite && (c == 'K' || c == 'N')) ? *plainSprite : sprite;
+            if (frame >= 0) sheet.draw(renderer, worldRow, frame, x, y, false);
         }
     }
 }
@@ -511,6 +518,11 @@ bool Tilemap::isCoinTile(int col, int row) const {
 void Tilemap::collectCoinTile(int col, int row) {
     if (!isCoinTile(col, row)) return;
     coinTile_[row * width_ + col] = 0;
+}
+
+void Tilemap::clearHiddenBlock(int col, int row) {
+    if (!isHiddenBlockTile(col, row)) return;
+    hidden_[static_cast<size_t>(row) * width_ + col] = 0;
 }
 
 void Tilemap::revealHiddenBlock(int col, int row) {

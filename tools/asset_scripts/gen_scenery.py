@@ -2,7 +2,8 @@
 
 Genera un PNG por pieza en assets/sprites/scenery_<nombre>.png, con fondo
 transparente y paleta Overworld (la de los niveles de superficie, donde
-aparecen): castillo chico, colinas, arbustos, nubes y la tuberia en L. Son decorados puros
+aparecen): castillo chico, colinas, arbustos, nubes, la tuberia en L,
+cercos, arboles y la muralla de castillo. Son decorados puros
 (no colisionan), los ubica el campo "decorations" del JSON del nivel.
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
@@ -23,6 +24,10 @@ PIECES = {
     # Tuberia en L (boca horizontal abajo a la izquierda + tramo vertical):
     # la de la entrada del 1-2 y la salida del subterraneo, se entra caminando.
     "pipe_side": (192, 624, 256, 688),
+    # Escenografia de "arboles y cercos" (el fondo 3 del original).
+    "fence": (112, 600, 128, 616),
+    "tree_short": (264, 656, 280, 688),
+    "tree_tall": (288, 640, 304, 688),
 }
 
 
@@ -56,6 +61,14 @@ def main():
                 if not is_background(rgb):
                     dst[x, y] = snap(rgb) + (255,)
         out.save(f"assets/sprites/scenery_{name}.png")
+    # Muralla de castillo (el "foreground" de pared del original): una
+    # columna con almena y cinco filas de ladrillo, sacadas del castillo chico.
+    castle = Image.open("assets/sprites/scenery_castle_small.png").convert("RGBA")
+    wall = Image.new("RGBA", (16, 96), (0, 0, 0, 0))
+    wall.paste(castle.crop((0, 32, 16, 48)), (0, 0))
+    for k in range(5):
+        wall.paste(castle.crop((0, 48, 16, 64)), (0, 16 + 16 * k))
+    wall.save("assets/sprites/scenery_castle_wall.png")
 
 
 if __name__ == "__main__":

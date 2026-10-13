@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <array>
 #include <initializer_list>
+#include <vector>
 
 enum class Action {
     MoveLeft,

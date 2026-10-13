@@ -20,6 +20,11 @@ public:
     // explosion, no solo mientras vuela.
     bool isAlive() const { return alive_; }
     bool isExploding() const { return exploding_; }
+    // Saca la bola de una (salio de la pantalla).
+    void remove() {
+        alive_ = false;
+        exploding_ = false;
+    }
     // Hace estallar la bola ya (choco contra un enemigo, ver Game::checkFireballGoombaCollision),
     // en vez de esperar a que choque contra un bloque por su cuenta.
     void explode();

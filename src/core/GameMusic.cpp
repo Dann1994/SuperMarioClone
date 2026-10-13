@@ -34,7 +34,7 @@ void Game::loadMusic() {
 
 Music Game::levelMusic() const {
     // Con estrella suena la invencibilidad (cualquiera de los dos jugadores).
-    const bool star = mario_.isInvincible() || (twoPlayerMode_ && luigi_.isInvincible());
+    const bool star = mario_.isStarMusicTime() || (twoPlayerMode_ && luigi_.isStarMusicTime());
     if (star) return hurryMusic_ ? Music::InvincibilityFast : Music::Invincibility;
     // Areas de nubes (monedas en el cielo): MUSIC_AREA_CLOUD, el tema de la
     // estrella.
@@ -42,6 +42,9 @@ Music Game::levelMusic() const {
         level_.areas()[static_cast<size_t>(currentArea_)].cloud) {
         return hurryMusic_ ? Music::InvincibilityFast : Music::Invincibility;
     }
+    // Paleta de castillo en superficie (6-3): se ve gris pero suena la de
+    // superficie (la musica sale del tipo de area, no de la paleta).
+    if (areaPalette() == "gray") return hurryMusic_ ? Music::OverworldFast : Music::Overworld;
     switch (worldType_) {
         case WorldType::Underground: return hurryMusic_ ? Music::UndergroundFast : Music::Underground;
         case WorldType::Underwater: return hurryMusic_ ? Music::UnderwaterFast : Music::Underwater;

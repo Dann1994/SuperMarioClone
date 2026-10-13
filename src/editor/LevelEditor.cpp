@@ -44,7 +44,7 @@ constexpr DecorationInfo kDecorations[] = {
     {"hill_small", "COLINA CHICA", 48, 32},   {"bush_big", "ARBUSTO GRANDE", 80, 16},
     {"bush_small", "ARBUSTO CHICO", 48, 16},  {"cloud_big", "NUBE GRANDE", 64, 32},
     {"cloud_small", "NUBE CHICA", 48, 32},    {"pipe_side", "TUBERIA EN L", 64, 64},
-    {"castle_big", "CASTILLO GRANDE", 80, 176},
+    {"castle_big", "CASTILLO GRANDE", 144, 176},
 };
 
 // Contenidos posibles de un bloque '?'/'D'/'H' (campo "item" de "blocks").

@@ -109,18 +109,26 @@ class AreaBuild:
             by_col.setdefault(o.col, []).append(o)
         active = []
         self.scenery_cols = []
+        self.wall_cols = []       # columnas con muralla de castillo (foreground 2)
         for col in range(self.width):
-            for o in by_col.get(col, []):
-                if o.row == 0x0E:
-                    if (o.data1 & 0x40) == 0:
-                        terrain = o.data1 & 0x0f
-                        background = (o.data1 >> 4) & 3
-                    else:
-                        foreground = (o.data1 & 7) if (o.data1 & 7) < 4 else 0
+            # AreaParserCore: primero el escenario y el terreno de la columna
+            # con los valores vigentes, despues los objetos (ProcessAreaData).
+            # Un cambio de terreno (fila E) recien se ve desde la columna
+            # siguiente.
+            if col > 0:
+                for o in by_col.get(col - 1, []):
+                    if o.row == 0x0E:
+                        if (o.data1 & 0x40) == 0:
+                            terrain = o.data1 & 0x0f
+                            background = (o.data1 >> 4) & 3
+                        else:
+                            foreground = (o.data1 & 7) if (o.data1 & 7) < 4 else 0
             self.scenery_cols.append(background)
             if foreground == 1:          # bajo el agua: superficie arriba
                 self.put(col, 0, 'w', False)
                 self.cols[col][ROW_OFFSET - 1] = 'X'
+            elif foreground == 2:        # muralla de castillo de fondo (filas 5-10)
+                self.wall_cols.append(col)
             elif foreground == 3:        # sobre el agua (lava en los castillos)
                 fill = 'L' if self.type == CASTLE else 'W'
                 self.put(col, 11, fill, False)
@@ -187,7 +195,8 @@ class AreaBuild:
                 else:               # canon de Bill Bala
                     self.under(col, r, 'K', L)
             elif k == 2:
-                self.put(col, r, 'c' if t == WATER else 'B')
+                # RowOfBricks: en las areas de nubes son bloques de nube.
+                self.put(col, r, 'N' if self.header["cloud"] else 'c' if t == WATER else 'B')
             elif k == 3:
                 self.put(col, r, '#' if t in (WATER, CASTLE) else 'S')
             elif k == 4:
@@ -237,6 +246,8 @@ class AreaBuild:
                 self.flag_col = col
             elif sub == 0x02:                # hacha
                 self.entities.append({"type": "axe", "col": col, "row": 6 + ROW_OFFSET})
+            elif sub == 0x03:                # cadena del puente (ChainObj, fila 7)
+                self.entities.append({"type": "bridge_chain", "col": col, "row": 7 + ROW_OFFSET})
             elif sub == 0x04:                # puente de Bowser
                 self.put(col, 8, 'b', False)
             elif sub == 0x08:
@@ -249,7 +260,11 @@ class AreaBuild:
         if r == 0x0F:
             if k == 2 and off == 0:          # castillo
                 kind = "castle_small" if L >= 6 else "castle_big"
-                self.decorations.append({"type": kind, "col": col, "row": L + ROW_OFFSET})
+                # El alto tiene la base de 9 tiles: 2 de cada lado del objeto
+                # (dx: se aplica al final, asi no queda afuera del area el que
+                # esta al principio de los x-1).
+                self.decorations.append({"type": kind, "col": col, "row": L + ROW_OFFSET,
+                                         "dx": -2 if kind == "castle_big" else 0})
             elif k == 3:                     # escalera
                 ctrl = 8 - off
                 if 0 <= ctrl <= 8:
@@ -314,6 +329,13 @@ class AreaBuild:
                 col += 1
                 continue
             group = piece_group(p[1])
+            if group == 'other':
+                # Cerco, arbol alto y arbol bajo: una pieza por columna.
+                name = {10: "fence", 11: "tree_tall", 12: "tree_short"}.get(p[1])
+                if name:
+                    self.decorations.append({"type": name, "col": col, "row": p[0] + ROW_OFFSET})
+                col += 1
+                continue
             end = col
             rows = [p[0]]
             while end + 1 < self.width and pieces[end + 1] is not None:
@@ -338,17 +360,42 @@ class AreaBuild:
             if d["type"].startswith("castle") or d["type"] == "pipe_side":
                 return False
             w = 4 if d["type"].endswith("big") else 2
-            return any(c["col"] - w < d["col"] < c["col"] + 5 and d["row"] + 1 >= c["row"] for c in castles)
+            return any(c["col"] + c["dx"] - w < d["col"] < c["col"] + c["dx"] + (9 if c["type"] == "castle_big" else 5)
+                       and d["row"] + 1 >= c["row"] for c in castles)
         self.decorations = [d for d in self.decorations if not hidden(d)]
+        # La muralla pisa la escenografia de las filas 5-10 (se dibuja despues
+        # en el original) y queda detras de castillos y demas decorados.
+        if self.wall_cols:
+            walls = set(self.wall_cols)
+            widths = {"fence": 1, "tree_short": 1, "tree_tall": 1}
+            def under_wall(d):
+                if d["type"].startswith("castle") or d["type"] == "pipe_side":
+                    return False
+                if d["type"].startswith("cloud") and d["row"] + 1 < 5 + ROW_OFFSET:
+                    return False   # nube alta, por encima de la muralla
+                w = widths.get(d["type"], 5 if d["type"].endswith("big") else 3)
+                return any(c in walls for c in range(d["col"], d["col"] + w))
+            self.decorations = [d for d in self.decorations if not under_wall(d)]
+            self.decorations[:0] = [{"type": "castle_wall", "col": c, "row": 5 + ROW_OFFSET} for c in self.wall_cols]
 
     # -- enemigos
     def place_enemies(self):
         for e in self.enemies_raw:
-            if e.hard_only and not self.hard:
-                continue
             if e.row == 0x0F:   # aparece debajo de la pantalla: no se ve nunca
                 continue
+            first = len(self.entities)
             self.add_enemy(e.ident, e.col, e.row)
+            # Los del modo dificil: en un nivel normal aparecen solo en la
+            # segunda vuelta (PrimaryHardMode activa el modo dificil).
+            if e.hard_only and not self.hard:
+                for ent in self.entities[first:]:
+                    ent["hard_only"] = True
+        # El original pone a los enemigos 8 px mas abajo de su fila
+        # (CheckpointEnemyID); los que se ubican por el borde de arriba lo
+        # llevan aparte (los demas apoyan en el piso igual).
+        for ent in self.entities:
+            if ent["type"] in ("blooper", "cheep", "lakitu", "bullet_bill"):
+                ent["y_offset"] = 8
 
     def add_enemy(self, i, col, r):
         feet = r + 2           # fila donde apoya (nuestra convencion)
@@ -368,8 +415,11 @@ class AreaBuild:
             ent = {"type": "blooper", "col": col, "row": top}
         elif i == 0x08:
             ent = {"type": "bullet_bill", "col": col, "row": top}
-        elif i in (0x09, 0x10):
+        elif i == 0x09:
             ent = {"type": "koopa", "col": col, "row": feet, "state": "flying"}
+        elif i == 0x10:
+            # Paratroopa verde que vuela de un lado a otro (7-3).
+            ent = {"type": "koopa", "col": col, "row": feet, "state": "flying_h"}
         elif i in (0x0A, 0x0B):
             ent = {"type": "cheep", "col": col, "row": top, "color": "red" if i == 0x0B else "gray"}
         elif i == 0x0C:
@@ -396,11 +446,16 @@ class AreaBuild:
                      0x28: ("horizontal", 3), 0x29: ("fall", 3), 0x2A: ("horizontal", 3),
                      0x2B: ("lift_up", 2), 0x2C: ("lift_down", 2)}
             mode, width = modes[i]
+            # Las plataformas grandes (6 sprites) en los castillos y en el modo
+            # dificil secundario (desde el 5-3) son de 4 sprites: 2 bloques
+            # (SPBBox / DrawLargePlatform del original).
+            if width == 3 and (self.hard or self.type == CASTLE):
+                width = 2
             p = {"col": col, "row": top, "width": width, "mode": mode}
             if i == 0x24:
                 # Balanza (van de a dos seguidas): colgada de la polea de la
-                # fila 0 del original; en el modo dificil son mas chicas.
-                p.update({"mode": "balance", "width": 2 if self.hard else 3, "rope_row": ROW_OFFSET})
+                # fila 0 del original.
+                p.update({"mode": "balance", "rope_row": ROW_OFFSET})
             if mode in ("vertical", "horizontal"):
                 p.update({"range": 4, "period": 4})
             elif mode.startswith("lift"):
@@ -408,6 +463,10 @@ class AreaBuild:
             self.platforms.append(p)
         elif i == 0x2D:
             ent = {"type": "bowser", "col": col, "row": feet}
+        elif i == 0x35:
+            # Toad / princesa al final del castillo (Y fija 0xB8: parado en
+            # la fila 14 nuestra).
+            ent = {"type": "retainer", "col": col, "row": 13}
         elif 0x37 <= i <= 0x3E:
             d = i - 0x37
             kind = "koopa" if d & 4 else "goomba"
@@ -453,6 +512,9 @@ def build_level(rom, world, level):
         add(intro_ptr)
     main = add(main_ptr)
     crop = {}
+    # Cuartos bonus de una pagina: que paginas usa este nivel (si son varias
+    # del mismo area, cada una queda como un area aparte).
+    room_pages = {}
     main_key = main_ptr & 0x7f
     intro_key = intro_ptr & 0x7f if intro_ptr is not None else None
 
@@ -462,7 +524,11 @@ def build_level(rom, world, level):
         se entra cayendo desde arriba) solo esa pagina."""
         start = page * 16
         shared = len({ch.world for ch in a.changes}) > 1
-        end = start + 16 if shared and a.header["entrance"] in (0, 1) and not a.header["cloud"] else a.width
+        # (el area de agua que comparten el 5-2 y el 6-2 se usa entera).
+        one_page = shared and a.type == UNDERGROUND and a.header["entrance"] in (0, 1)
+        end = start + 16 if one_page else a.width
+        if one_page:
+            room_pages.setdefault(a.pointer, set()).add(page)
         return start, min(end, a.width)
 
     def pipe_change(a, col):
@@ -477,7 +543,10 @@ def build_level(rom, world, level):
 
     crop[main_key] = (0, main.width)
     if intro_key is not None:
-        crop[intro_key] = (0, 16)     # la escena de entrada es una sola pantalla
+        # La escena de entrada: la pantalla del original (16 columnas), con
+        # piso de relleno a los dos lados (pad) para que quede centrada y
+        # llene tambien la pantalla ancha.
+        crop[intro_key] = (0, 16)
     i = 0
     while i < len(order):
         ptr = order[i]
@@ -509,11 +578,14 @@ def build_level(rom, world, level):
                 crop[dest_key] = (ch.page * 16, dest.width)
         i += 1
     # Disposicion: una al lado de la otra con una columna solida en el medio.
+    # La escena de entrada lleva INTRO_PAD columnas de piso a cada lado.
+    INTRO_PAD = 6
+    pad = {ptr: (INTRO_PAD if ptr == intro_key else 0) for ptr in order}
     offsets = {}
     x = 0
     for ptr in order:
         offsets[ptr] = x
-        x += (crop[ptr][1] - crop[ptr][0]) + 1
+        x += (crop[ptr][1] - crop[ptr][0]) + 2 * pad[ptr] + 1
     width = x - 1
     grid = [['.'] * width for _ in range(ROWS)]
     out = {"blocks": [], "warps": [], "entities": [], "decorations": [], "platforms": [], "areas": []}
@@ -523,18 +595,34 @@ def build_level(rom, world, level):
         start, end = crop[ptr]
         if not start <= col < end:
             return None
-        return offsets[ptr] + col - start
+        return offsets[ptr] + pad[ptr] + col - start
 
     for ptr in order:
         a = areas[ptr]
         start, end = crop[ptr]
+        span = end - start + 2 * pad[ptr]
         for c in range(start, end):
             for r in range(ROWS):
                 grid[r][g(ptr, c)] = a.cols[c][r]
-        if offsets[ptr] + (end - start) < width:
+        # Relleno: el piso de la ultima columna, sin nada arriba.
+        for k in range(pad[ptr]):
+            for side in (offsets[ptr] + k, offsets[ptr] + span - 1 - k):
+                for r in range(ROWS):
+                    grid[r][side] = a.cols[end - 1][r] if a.cols[end - 1][r] == '#' else '.'
+        if offsets[ptr] + span < width:
             for r in range(ROWS):
-                grid[r][offsets[ptr] + end - start] = '#'
-        area_out = {"start": offsets[ptr], "end": offsets[ptr] + end - start - 1, "world": WORLD_NAMES[a.type]}
+                grid[r][offsets[ptr] + span] = '#'
+        area_out = {"start": offsets[ptr], "end": offsets[ptr] + span - 1, "world": WORLD_NAMES[a.type]}
+        # Colores (BackgroundColorCtrl): del encabezado o del primer cambio de
+        # atributos del area (siempre al principio, en la columna 6).
+        bg = a.header["bg_color"]
+        changes = [o.data1 & 7 for o in a.objects if o.row == 0x0E and (o.data1 & 0x40) and (o.data1 & 7) >= 4]
+        if not bg and changes:
+            bg = changes[0]
+        if bg:
+            area_out["palette"] = {4: "night", 5: "snow", 6: "night_snow", 7: "gray"}[bg]
+        elif a.type == GROUND and a.header["style"] == 1:
+            area_out["palette"] = "mushroom"   # paleta 0 de hongos: caños naranjas
         # Nubes: caerse por abajo vuelve adonde dice su cambio de area,
         # cayendo desde arriba de la pantalla.
         if a.header["cloud"]:
@@ -546,7 +634,13 @@ def build_level(rom, world, level):
                 if fc is not None:
                     area_out["fall_col"] = fc
                     area_out["fall_row"] = 2
-        out["areas"].append(area_out)
+        pages = sorted(room_pages.get(ptr, ()))
+        if len(pages) > 1:
+            # Una camara por cuarto: la pagina de cada uno, sin las del medio.
+            for pg in pages:
+                out["areas"].append(dict(area_out, start=g(ptr, pg * 16), end=g(ptr, pg * 16 + 15)))
+        else:
+            out["areas"].append(area_out)
         for col, row, item, hits in a.blocks:
             gc = g(ptr, col)
             if gc is not None:
@@ -576,7 +670,9 @@ def build_level(rom, world, level):
         for d in a.decorations:
             gc = g(ptr, d["col"])
             if gc is not None:
-                out["decorations"].append(dict(d, col=gc))
+                dec = dict(d, col=gc + d.get("dx", 0))
+                dec.pop("dx", None)
+                out["decorations"].append(dec)
         for p in a.platforms:
             gc = g(ptr, p["col"])
             if gc is not None:
@@ -643,10 +739,23 @@ def build_level(rom, world, level):
         zone = [o.col for o in a.objects if o.row == 0x0D and (o.data1 & 0x40) and (o.data1 & 0x3f) == 0x05]
         if not zone:
             continue
-        targets = [4, 3, 2] if world == 0 else ([0, 5, 0] if a.type != GROUND else [8, 7, 6])
-        after = sorted([p for p in a.pipes if p[2] == 'vertical' and p[0] > zone[0]])[:3]
-        for k, p in enumerate(after):
+        # El objeto (ScrollLockObject_Warp) esta despues de las tuberias: se
+        # activa cuando el borde derecho de la pantalla llega ahi, con ellas
+        # en pantalla. Son las de las 24 columnas anteriores.
+        near = sorted([p for p in a.pipes if p[2] == 'vertical' and zone[0] - 24 <= p[0] < zone[0]])[-3:]
+        if world == 0:
+            targets = [4, 3, 2]
+        elif a.type == GROUND:
+            targets = [8, 7, 6]
+        else:
+            targets = [5] if len(near) == 1 else [0, 5, 0]
+        for k, p in enumerate(near):
             warp_pipes[(ptr, p[0])] = targets[k]
+        gz = g(ptr, zone[0])
+        if gz is not None and near:
+            first = g(ptr, near[0][0])
+            out["entities"].append({"type": "warp_zone", "col": gz, "row": 13,
+                                    "end_col": first if first is not None else gz - 24})
     # Tuberias que llevan a otra area.
     for ptr in order:
         a = areas[ptr]
@@ -672,6 +781,10 @@ def build_level(rom, world, level):
             dest = areas[dest_ptr]
             dcol_local = dest_page * 16 + 2
             drow = (ENTRANCE_Y[dest.header["entrance"]] + 32) // 16
+            # En el agua, abajo de la superficie (arriba de ella esta el
+            # techo invisible que no deja salir nadando).
+            if dest.type == WATER:
+                drow = max(drow, ROW_OFFSET + 2)
             # Si se sale por una tuberia (vertical) cerca de la entrada, se
             # aparece arriba de ella (el juego la detecta y lo hace salir).
             pipe_tops = [(c, rr) for c in range(dest_page * 16, dest_page * 16 + 8)
@@ -700,6 +813,7 @@ def build_level(rom, world, level):
     }
     if intro_ptr is not None:
         level_json["intro"] = {"area": 0}
+        level_json["start_col"] = INTRO_PAD + 2
     if checkpoints:
         level_json["checkpoints"] = checkpoints
     level_json.update({

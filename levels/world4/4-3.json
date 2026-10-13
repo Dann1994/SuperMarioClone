@@ -7,7 +7,7 @@
     64
   ],
   "areas": [
-    {"start": 0, "end": 175, "world": "overworld"}
+    {"start": 0, "end": 175, "world": "overworld", "palette": "mushroom"}
   ],
   "blocks": [
     {"col": 43, "row": 3, "item": "powerup"}
@@ -35,8 +35,34 @@
     {"col": 136, "row": 6, "width": 3, "mode": "vertical", "range": 4, "period": 4}
   ],
   "decorations": [
+    {"type": "castle_wall", "col": 150, "row": 8},
+    {"type": "castle_wall", "col": 151, "row": 8},
+    {"type": "castle_wall", "col": 152, "row": 8},
+    {"type": "castle_wall", "col": 153, "row": 8},
+    {"type": "castle_wall", "col": 154, "row": 8},
+    {"type": "castle_wall", "col": 155, "row": 8},
+    {"type": "castle_wall", "col": 156, "row": 8},
+    {"type": "castle_wall", "col": 157, "row": 8},
+    {"type": "castle_wall", "col": 158, "row": 8},
+    {"type": "castle_wall", "col": 159, "row": 8},
+    {"type": "castle_wall", "col": 160, "row": 8},
+    {"type": "castle_wall", "col": 161, "row": 8},
+    {"type": "castle_wall", "col": 162, "row": 8},
+    {"type": "castle_wall", "col": 163, "row": 8},
+    {"type": "castle_wall", "col": 164, "row": 8},
+    {"type": "castle_wall", "col": 165, "row": 8},
+    {"type": "castle_wall", "col": 166, "row": 8},
+    {"type": "castle_wall", "col": 167, "row": 8},
+    {"type": "castle_wall", "col": 168, "row": 8},
+    {"type": "castle_wall", "col": 169, "row": 8},
+    {"type": "castle_wall", "col": 170, "row": 8},
+    {"type": "castle_wall", "col": 171, "row": 8},
+    {"type": "castle_wall", "col": 172, "row": 8},
+    {"type": "castle_wall", "col": 173, "row": 8},
+    {"type": "castle_wall", "col": 174, "row": 8},
+    {"type": "castle_wall", "col": 175, "row": 8},
     {"type": "castle_small", "col": 0, "row": 9},
-    {"type": "castle_big", "col": 152, "row": 3},
+    {"type": "castle_big", "col": 150, "row": 3},
     {"type": "cloud_big", "col": 3, "row": 4},
     {"type": "cloud_small", "col": 9, "row": 8},
     {"type": "cloud_big", "col": 18, "row": 3},
@@ -73,7 +99,7 @@
     ".....................n....n......n.......n...n......n...............n..n.n..n........n...................mmm.......n..n...........mmmmm............F............................",
     ".....................n....n......n....ooon...n......n...............n..n.n..n........n.............mmm....n........n..n.............n..............F............................",
     ".....................n....n......n..mmmmmmm..n......n...............n..n.n..n........n..............n.....n........n..n.............n..............S............................",
-    "##############..mmmmmn....n......n.....n.n...n......n............mmmmm.n.n..n........n..............n.....n........n..n..mmmmmmm....n.......####################################",
-    "##############....n..n....n......n.....n.n...n......n..............nn..n.n..n........n..............n.....n........n..n.....n.......n.......####################################"
+    "###############.mmmmmn....n......n.....n.n...n......n............mmmmm.n.n..n........n..............n.....n........n..n..mmmmmmm....n........###################################",
+    "###############...n..n....n......n.....n.n...n......n..............nn..n.n..n........n..............n.....n........n..n.....n.......n........###################################"
   ]
 }

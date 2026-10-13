@@ -56,6 +56,10 @@ struct LevelArea {           // "areas": tramos de columnas con camara propia
     int fallCol = -1;        // area de nubes: caerse por abajo lleva aca (cayendo desde fallRow)
     int fallRow = -1;
     bool cloud = false;      // area de nubes (monedas en el cielo): suena el tema de la estrella
+    // Variante de colores del original (BackgroundColorCtrl): "" normal,
+    // "night" (cielo negro), "snow" (paleta 0 en blanco y grises),
+    // "night_snow" (las dos), "gray" (paleta de castillo en superficie).
+    std::string palette;
 };
 struct LevelDecoration {     // "decorations": escenografia de fondo
     std::string type;        // castle_small, hill_big, hill_small, bush_big, bush_small, cloud_big, cloud_small, pipe_side
@@ -91,6 +95,11 @@ struct LevelEntity {         // "entities": enemigos del nivel
     // Corrimiento horizontal en px (grupos de enemigos del original, que
     // van cada 24 px).
     float xOffset = 0.0f;
+    // Corrimiento vertical en px (el original pone a los enemigos 8 px mas
+    // abajo de su fila: Blooper, Cheep Cheep, Lakitu, Bill Bala).
+    float yOffset = 0.0f;
+    // Solo en el modo dificil (en un nivel normal: solo en la segunda vuelta).
+    bool hardOnly = false;
     // loop (laberinto de castillo): columnas que vuelve si se falla.
     int back = 64;
     // vine (enredadera ya crecida, row = su base): adonde lleva trepar
@@ -138,6 +147,8 @@ public:
     // la del 1-2: Mario camina solo hasta meterse en una tuberia), -1 si no
     // tiene. Ver Game::cutscene_.
     int introArea() const { return introArea_; }
+    // Columna donde arranca el jugador (-1: la de siempre, kMarioSpawnX).
+    int startCol() const { return startCol_; }
 
     // Solido invisible ('X'): bloquea como '#' pero no se dibuja (la parte
     // de una escenografia que tiene que frenar, como el tramo vertical de la
@@ -161,8 +172,10 @@ public:
     // con tallo 'n', puente de soga 'R', canon de Bill Bala 'K', coral 'c',
     // agua 'W' (olas arriba) y la superficie vista desde abajo del agua 'w'.
     // Solidos: t, m, R, K, c.
+    // plainSprite: si no es nulo, el canon y el bloque de nube se dibujan con
+    // esa hoja (sin el recoloreo de nieve de sprite).
     void renderScenery(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, int viewWidth,
-                       float cameraX) const;
+                       float cameraX, const SpriteSheet* plainSprite = nullptr) const;
     // Caracter de escenografia de la celda (0 si no es ninguno).
     char sceneryAt(int col, int row) const;
     // Boca de un canon ('K' sin otro 'K' arriba): de ahi salen los Bill Bala.
@@ -178,6 +191,9 @@ public:
     // comporta como un '?' (Game::checkQuestionBlockHit).
     bool isHiddenBlockTile(int col, int row) const;
     void revealHiddenBlock(int col, int row);
+    // Saca un bloque invisible sin revelarlo (el 1-UP escondido que no
+    // corresponde, ver Game::hidden1UpFlag_).
+    void clearHiddenBlock(int col, int row);
 
     // Moneda suelta ('o', como las del cuarto bonus del 1-1): no es
     // solida, se agarra al tocarla (Game::checkCoinTiles) y la dibuja
@@ -359,6 +375,7 @@ private:
     std::vector<uint8_t> hard_;          // row-major, 1 = bloque duro ('S')
     std::vector<uint8_t> invisible_;     // row-major, 1 = solido invisible ('X')
     int introArea_ = -1;
+    int startCol_ = -1;
     std::vector<uint8_t> scenery_;       // row-major, el caracter ('t', 'K'...) o 0
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')

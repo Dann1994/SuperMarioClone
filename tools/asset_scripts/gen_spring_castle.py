@@ -3,10 +3,12 @@
   assets/sprites/spring.png              3 frames de 16x24 (estirado, a medias,
                                          comprimido), apoyados abajo; de
                                          Documentaciones/Objetos.png
-  assets/sprites/scenery_castle_big.png  castillo de 5x11 tiles (el del final
-                                         de algunos niveles), armado con las
-                                         piezas del castillo chico siguiendo el
-                                         plano del original (CastleObject)
+  assets/sprites/scenery_castle_big.png  castillo alto de 9x11 tiles (el del
+                                         final de algunos niveles), recortado de
+                                         la version armada de "Assembled
+                                         Structures" en Documentaciones/Tiles.png
+                                         (la base es mas ancha que las 5
+                                         columnas del objeto: 2 de cada lado)
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
   python tools/asset_scripts/gen_spring_castle.py
@@ -30,18 +32,17 @@ def main():
                     dst[frame * 16 + x, 24 - h + y] = c + (255,)
     springs.save("assets/sprites/spring.png")
 
-    small = Image.open("assets/sprites/scenery_castle_small.png").convert("RGBA")
-
-    def tile(col, row):
-        return small.crop((col * 16, row * 16, col * 16 + 16, row * 16 + 16))
-
-    pieces = {'N': tile(1, 2), 'x': tile(0, 3), 'D': tile(2, 3), 'E': tile(2, 4)}
-    big = Image.new("RGBA", (80, 176), (0, 0, 0, 0))
-    big.paste(small, (0, 0))
-    plan = ["NNNNN", "xDxDx", "xExEx", "xxxxx", "DxDxD", "ExExE"]
-    for r, line in enumerate(plan):
-        for c, ch in enumerate(line):
-            big.paste(pieces[ch], (c * 16, (5 + r) * 16))
+    tiles = Image.open("Documentaciones/Tiles.png").convert("RGB")
+    src = tiles.load()
+    big = Image.new("RGBA", (144, 176), (0, 0, 0, 0))
+    dst = big.load()
+    for y in range(176):
+        for x in range(144):
+            c = src[400 + x, 600 + y]
+            # Fuera: cielo, marco y lineas de la grilla (todo azulado; el
+            # castillo no tiene azul).
+            if c[2] < 120 or c[0] > 200:  # ladrillo/negro o el rosado de los bordes
+                dst[x, y] = c + (255,)
     big.save("assets/sprites/scenery_castle_big.png")
 
 

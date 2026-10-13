@@ -12,6 +12,32 @@
 
 #include "../render/DebugFont.h"
 
+// Paleta 0 de superficie -> la de nieve (DaySnowPaletteData del original,
+// colores de la seccion "Snow" de Documentaciones/Tiles.png): verde claro a
+// blanco, verde a gris oscuro, negro a gris claro.
+static const std::vector<std::pair<SDL_Color, SDL_Color>> kSnowColors = {
+    {SDL_Color{140, 214, 0, 255}, SDL_Color{255, 255, 255, 255}},
+    {SDL_Color{16, 148, 0, 255}, SDL_Color{99, 99, 99, 255}},
+    {SDL_Color{0, 0, 0, 255}, SDL_Color{173, 173, 173, 255}},
+};
+// Areas de hongos (estilo 1 del encabezado: 4-2 zona warp, 4-3): la paleta
+// 0 es la de hongos del original (naranja y rojo en vez de los verdes): los
+// caños salen naranjas.
+static const std::vector<std::pair<SDL_Color, SDL_Color>> kMushroomColors = {
+    {SDL_Color{140, 214, 0, 255}, SDL_Color{230, 156, 33, 255}},
+    {SDL_Color{16, 148, 0, 255}, SDL_Color{181, 49, 33, 255}},
+};
+// Superficie -> paleta de castillo (BackgroundColorCtrl 7, el 6-3): las
+// paletas 0 (verdes) y 1 (marron/rosado) del original, comparando tile a
+// tile las secciones Overworld y Castle de Documentaciones/Tiles.png.
+static const std::vector<std::pair<SDL_Color, SDL_Color>> kGrayColors = {
+    {SDL_Color{140, 214, 0, 255}, SDL_Color{255, 255, 255, 255}},
+    {SDL_Color{16, 148, 0, 255}, SDL_Color{173, 173, 173, 255}},
+    {SDL_Color{156, 74, 0, 255}, SDL_Color{173, 173, 173, 255}},
+    {SDL_Color{255, 206, 197, 255}, SDL_Color{255, 255, 255, 255}},
+    {SDL_Color{0, 0, 0, 255}, SDL_Color{99, 99, 99, 255}},
+};
+
 namespace {
 constexpr float kFixedDt = 1.0f / 60.0f;
 constexpr float kMaxFrameTime = 0.25f;  // evita "spiral of death" si hay un frame muy largo
@@ -55,7 +81,9 @@ constexpr float kBrickCoinAnimFrameDuration = 0.12f;  // s por frame del giro, i
 // urgencia real de liberar memoria. Nunca se aplica hacia ADELANTE (solo
 // "atras", osea x_ menor a la camara): lo que todavia no se alcanzo tiene
 // que seguir estando ahi cuando la camara llegue.
-constexpr float kOffscreenBehindMargin = static_cast<float>(kWideLogicalWidth);
+// OffscreenBoundsCheck del original: un enemigo (o item) que queda mas de
+// 0x48 px afuera de la pantalla, de cualquiera de los dos lados, se borra.
+constexpr float kOffscreenBehindMargin = 72.0f;
 
 // Velocidad maxima (px/s) con la que la camara de 2P se acerca a su
 // objetivo (ver Game::updateCamera) -- mas del doble de Mario::kMaxRunSpeed.
@@ -81,11 +109,16 @@ constexpr int kStartingLives = 3;
 constexpr float kLevelIntroDuration = 2.0f;
 constexpr float kGameOverDuration = 4.0f;
 // Lo que dura el jingle de "entrar a la tuberia" de la intro (into_pipe.ogg).
-constexpr float kIntroPipeDuration = 3.6f;
+constexpr float kIntroPipeDuration = 160.0f / 60.0f;  // ChangeAreaTimer 0xA0
 // Animacion de tuberia: cuanto tarda en hundirse/entrar y en salir, y
 // cuanto puede estar corrido del centro del cano para poder bajar.
-constexpr float kPipeEnterDuration = 0.8f;
-constexpr float kPipeExitDuration = 0.8f;
+// Como el original: por las verticales se hunde/sale a 1 px por cuadro
+// (entrando durante 0x30 cuadros); en las laterales camina a 0,5 px por
+// cuadro (Player_X_Speed 8) durante 0x34 cuadros.
+constexpr float kPipeEnterDuration = 48.0f / 60.0f;
+constexpr float kPipeSideEnterDuration = 52.0f / 60.0f;
+constexpr float kPipeVerticalSpeed = 60.0f;
+constexpr float kPipeSideSpeed = 30.0f;
 constexpr float kPipeCenterTolerance = 6.0f;
 
 // Castillo: cada cuanto se cae un tramo del puente y cuanto se espera
@@ -111,7 +144,8 @@ struct DecorationInfo {
 constexpr DecorationInfo kDecorations[] = {
     {"castle_small", 80, 80}, {"hill_big", 80, 48},   {"hill_small", 48, 32}, {"bush_big", 80, 16},
     {"bush_small", 48, 16},   {"cloud_big", 64, 32},  {"cloud_small", 48, 32}, {"pipe_side", 64, 64},
-    {"castle_big", 80, 176},
+    {"castle_big", 144, 176}, {"fence", 16, 16}, {"tree_short", 16, 32}, {"tree_tall", 16, 48},
+    {"castle_wall", 16, 96},
 };
 
 WorldType parseWorldType(const std::string& name, WorldType fallback) {
@@ -126,17 +160,19 @@ WorldType parseWorldType(const std::string& name, WorldType fallback) {
 // segun la clase (ver el comentario de cada una) -- de ahi las dos
 // variantes en vez de una sola con duck typing por nombre de metodo.
 template <typename T>
+bool isOutOfBounds(const T& entity, float width, float cameraX) {
+    return entity.x() + width < cameraX - kOffscreenBehindMargin ||
+           entity.x() > cameraX + static_cast<float>(gLogicalWidth) + kOffscreenBehindMargin;
+}
+
+template <typename T>
 void cullIfLeftBehindReset(T& entity, float width, float cameraX) {
-    if (entity.isAlive() && entity.x() + width < cameraX - kOffscreenBehindMargin) {
-        entity.reset();
-    }
+    if (entity.isAlive() && isOutOfBounds(entity, width, cameraX)) entity.reset();
 }
 
 template <typename T>
 void cullIfLeftBehindCollect(T& entity, float width, float cameraX) {
-    if (entity.isAlive() && entity.x() + width < cameraX - kOffscreenBehindMargin) {
-        entity.collect();
-    }
+    if (entity.isAlive() && isOutOfBounds(entity, width, cameraX)) entity.collect();
 }
 
 // Goomba y Koopas de prueba: el nivel de enemigos tiene paredes en los dos
@@ -433,6 +469,11 @@ bool Game::init() {
         SDL_Log("SDL_CreateWindow fallo: %s", SDL_GetError());
         return false;
     }
+    // Icono de la ventana y la barra de tareas: la cara de Mario.
+    if (SDL_Surface* icon = IMG_Load("assets/icon.png")) {
+        SDL_SetWindowIcon(window_, icon);
+        SDL_FreeSurface(icon);
+    }
 
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
@@ -540,6 +581,8 @@ bool Game::init() {
                                         BlockCoin::kHeight)) {
         return false;
     }
+    if (!pipeSnowSprite_.loadRecolored(renderer_, "assets/sprites/pipe.png", 32, 16, kSnowColors)) return false;
+    if (!pipeMushroomSprite_.loadRecolored(renderer_, "assets/sprites/pipe.png", 32, 16, kMushroomColors)) return false;
     if (!pipeSprite_.loadFromFile(renderer_, "assets/sprites/pipe.png", 32, 16)) {
         return false;
     }
@@ -571,6 +614,9 @@ bool Game::init() {
     if (!axeSprite_.loadFromFile(renderer_, "assets/sprites/axe.png", Axe::kWidth, Axe::kHeight)) {
         return false;
     }
+    if (!flagpoleSnowSprite_.loadRecolored(renderer_, "assets/sprites/flagpole.png", 16, 16, kSnowColors)) {
+        return false;
+    }
     if (!flagpoleSprite_.loadFromFile(renderer_, "assets/sprites/flagpole.png", 16, 16)) {
         return false;
     }
@@ -578,12 +624,22 @@ bool Game::init() {
         return false;
     }
     if (!terrainSprite_.loadFromFile(renderer_, "assets/sprites/terrain.png", 16, 16)) return false;
+    if (!terrainGraySprite_.loadRecolored(renderer_, "assets/sprites/terrain.png", 16, 16, kGrayColors)) return false;
     if (!lavaSprite_.loadFromFile(renderer_, "assets/sprites/lava.png", 16, 16)) return false;
     if (!bridgeSprite_.loadFromFile(renderer_, "assets/sprites/bridge.png", 16, 16)) return false;
     if (!liftSprite_.loadFromFile(renderer_, "assets/sprites/lift.png", 8, 8)) return false;
     if (!pulleySprite_.loadFromFile(renderer_, "assets/sprites/pulley.png", 16, 16)) return false;
     if (!vineSprite_.loadFromFile(renderer_, "assets/sprites/vine.png", 16, 16)) return false;
+    if (!starFlagSprite_.loadFromFile(renderer_, "assets/sprites/star_flag.png", 16, 16)) return false;
+    if (!bridgeChainSprite_.loadFromFile(renderer_, "assets/sprites/bridge_chain.png", 16, 16)) return false;
+    if (!retainerSprite_.loadFromFile(renderer_, "assets/sprites/retainers.png", 16, 24)) return false;
     if (!sceneryTilesSprite_.loadFromFile(renderer_, "assets/sprites/scenery_tiles.png", 16, 16)) return false;
+    if (!sceneryTilesSnowSprite_.loadRecolored(renderer_, "assets/sprites/scenery_tiles.png", 16, 16, kSnowColors)) {
+        return false;
+    }
+    if (!sceneryTilesGraySprite_.loadRecolored(renderer_, "assets/sprites/scenery_tiles.png", 16, 16, kGrayColors)) {
+        return false;
+    }
     if (!springSprite_.loadFromFile(renderer_, "assets/sprites/spring.png", 16, 24)) return false;
     if (!titleLogoSprite_.loadFromFile(renderer_, "assets/sprites/title_logo.png", 176, 88)) return false;
     if (!titleCursorSprite_.loadFromFile(renderer_, "assets/sprites/title_cursor.png", 8, 8)) return false;
@@ -594,6 +650,8 @@ bool Game::init() {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
         if (!decorationSprites_[i].loadFromFile(renderer_, path, info.width, info.height)) return false;
+        if (!decorationSnowSprites_[i].loadRecolored(renderer_, path, info.width, info.height, kSnowColors)) return false;
+        if (!decorationGraySprites_[i].loadRecolored(renderer_, path, info.width, info.height, kGrayColors)) return false;
     }
     // Color fijo para toda la vida de la instancia (ver Koopa::setColor),
     // se llama una sola vez aca en vez de en cada spawn()/reset().
@@ -629,6 +687,7 @@ void Game::startScenario(TestScenario scenario) {
 }
 
 void Game::loadScenario(TestScenario scenario) {
+    coinTallyForOneUps_ = 0;
     scenario_ = scenario;
     if (static_cast<int>(scenario) < kMenuOptionCount) menuSelection_ = static_cast<int>(scenario);
     cameraSnapPending_ = true;
@@ -671,7 +730,7 @@ void Game::loadScenario(TestScenario scenario) {
         const bool numbered = name.size() >= 3 && name[0] >= '1' && name[0] <= '8' && name[1] == '-';
         const int world = numbered ? name[0] - '0' : 1;
         const int stage = numbered ? name[2] - '0' : 1;
-        gSecondaryHardMode = world >= 6 || (world == 5 && stage >= 3);
+        gSecondaryHardMode = gPrimaryHardMode || world >= 6 || (world == 5 && stage >= 3);
     }
 
     // Bandera de meta: la pone el propio nivel (tiles 'F'), no el escenario.
@@ -687,6 +746,8 @@ void Game::loadScenario(TestScenario scenario) {
     bridgeCollapsing_ = false;
     bridgeTilesToCollapse_.clear();
     castleClearTimer_ = 0.0f;
+    endSequence_ = EndSequence{};
+    fakeBowser_ = -1;
     castleMessage_ = false;
     marioPlatform_ = -1;
     luigiPlatform_ = -1;
@@ -715,8 +776,11 @@ void Game::loadScenario(TestScenario scenario) {
                     balances_.back().b = static_cast<int>(next);
                 }
             }
+            // Segunda vuelta: el modo dificil achica las plataformas grandes a
+            // 2 bloques (SPBBox; en los niveles dificiles ya vienen asi).
+            const int width = (gPrimaryHardMode && data.width >= 3) ? 2 : data.width;
             platforms_[next++].spawn(static_cast<float>(data.col) * ts, static_cast<float>(data.row) * ts,
-                                     static_cast<int>(static_cast<float>(data.width) * ts), mode, data.range * ts,
+                                     static_cast<int>(static_cast<float>(width) * ts), mode, data.range * ts,
                                      data.period, data.speed);
         }
     }
@@ -1102,8 +1166,33 @@ void Game::resolveCharacterCollision() {
     const float totalWeight = leftWeight + rightWeight;
 
     // El mas pesado cede menos terreno al separarse de la superposicion.
-    left.nudgeX(-overlapXAmount * (rightWeight / totalWeight));
-    right.nudgeX(overlapXAmount * (leftWeight / totalWeight));
+    // Pero nadie se mete en una pared ni sale de la pantalla: lo que el que
+    // esta contra la pared no puede correrse lo absorbe el otro (antes se
+    // lo empujaba adentro de la pared y al cuadro siguiente la colision lo
+    // sacaba despedido).
+    auto canBeAt = [&](const Mario& c, float x) {
+        return isAreaFree(x, c.y(), c.width(), c.height()) && x >= cameraX_ - 0.01f &&
+               x + static_cast<float>(c.width()) <= cameraX_ + static_cast<float>(gLogicalWidth) + 0.01f;
+    };
+    auto allowedShift = [&](const Mario& c, float from, float shift) {
+        if (canBeAt(c, c.x() + from + shift)) return shift;
+        const float step = shift > 0.0f ? 0.25f : -0.25f;
+        float done = 0.0f;
+        while (std::abs(done + step) <= std::abs(shift) && canBeAt(c, c.x() + from + done + step)) done += step;
+        return done;
+    };
+    float leftShift = allowedShift(left, 0.0f, -overlapXAmount * (rightWeight / totalWeight));
+    float rightShift = allowedShift(right, 0.0f, overlapXAmount * (leftWeight / totalWeight));
+    const float missing = overlapXAmount - (rightShift - leftShift);
+    if (missing > 0.01f) {
+        rightShift += allowedShift(right, rightShift, missing);
+        const float stillMissing = overlapXAmount - (rightShift - leftShift);
+        if (stillMissing > 0.01f) leftShift += allowedShift(left, leftShift, -stillMissing);
+    }
+    left.nudgeX(leftShift);
+    right.nudgeX(rightShift);
+    const bool leftPinned = !canBeAt(left, left.x() - 0.5f);
+    const bool rightPinned = !canBeAt(right, right.x() + 0.5f);
 
     const float leftV = left.velocityX();
     const float rightV = right.velocityX();
@@ -1123,8 +1212,13 @@ void Game::resolveCharacterCollision() {
         // resbalando de a poco en vez de separarse con un rebote que se note.
         const float effectiveClosingSpeed = std::max(closingSpeed, kMinCollisionSpeed);
         const float impulse = -(1.0f + kCollisionRestitution) * effectiveClosingSpeed / (1.0f / leftWeight + 1.0f / rightWeight);
-        left.setVelocityX(leftV + impulse / leftWeight);
-        right.setVelocityX(rightV - impulse / rightWeight);
+        // Contra una pared no se rebota hacia ella (la pared se lo come).
+        float newLeftV = leftV + impulse / leftWeight;
+        float newRightV = rightV - impulse / rightWeight;
+        if (leftPinned && newLeftV < 0.0f) newLeftV = 0.0f;
+        if (rightPinned && newRightV > 0.0f) newRightV = 0.0f;
+        left.setVelocityX(newLeftV);
+        right.setVelocityX(newRightV);
         left.setFacingRight(true);
         right.setFacingRight(false);
         left.playBumpAnimation();
@@ -1401,6 +1495,26 @@ void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
     }
 }
 
+namespace {
+// Dos enemigos que caminan y se tocan se dan vuelta los dos (como el
+// original): mismo criterio que checkGoombaKoopaBounce.
+template <typename A, typename B>
+void bounceWalkers(A& a, B& b) {
+    if (!a.isDangerous() || !b.isDangerous()) return;
+    const float ax = a.x();
+    const float aw = static_cast<float>(a.width());
+    const float bx = b.x();
+    const float bw = static_cast<float>(b.width());
+    const bool overlapX = ax < bx + bw && ax + aw > bx;
+    const bool overlapY = a.y() < b.y() + b.height() && a.y() + a.height() > b.y();
+    if (!overlapX || !overlapY) return;
+    const float pushAmount = std::min((bx + bw) - ax, (ax + aw) - bx) * 0.5f + 0.5f;
+    const bool aOnLeft = ax < bx;
+    a.bounceOffEnemy(aOnLeft ? -pushAmount : pushAmount);
+    b.bounceOffEnemy(aOnLeft ? pushAmount : -pushAmount);
+}
+}  // namespace
+
 void Game::checkGoombaKoopaBounce(Goomba& goomba, Koopa& koopa) {
     if (!goomba.isDangerous() || !koopa.isDangerous()) return;
     if (koopa.isMovingShell()) return;  // eso lo mata, no lo rebota (ver checkShellVsGoomba)
@@ -1614,6 +1728,8 @@ void Game::checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant) {
 
     if (character.isInvincible()) {
         plant.kill();
+        awardEnemyPoints(plant.x(), plant.y(), 200);
+        audio_.play(Sfx::Kick);
         return;
     }
 
@@ -1631,7 +1747,10 @@ void Game::checkFireballPiranhaPlantCollision(Fireball& fireball, PiranhaPlant& 
         fireball.y() < plant.y() + plant.height() && fireball.y() + Fireball::kSize > plant.y();
     if (!overlap) return;
 
+    // 200 puntos y el golpe, como el resto del elenco muerto con fuego.
     plant.kill();
+    awardEnemyPoints(plant.x(), plant.y(), 200);
+    audio_.play(Sfx::Kick);
     fireball.explode();
 }
 
@@ -1876,8 +1995,8 @@ void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bull
                           fireball.y() + Fireball::kSize > bulletBill.y();
     if (!overlap) return;
 
-    const bool flyRight = fireball.x() <= bulletBill.x();
-    killEnemyFalling(bulletBill, flyRight);
+    // Como el original (HandleEnemyFBallCol): la bola explota contra el Bill
+    // Bala pero no le hace nada.
     fireball.explode();
 }
 
@@ -1949,8 +2068,15 @@ void Game::checkFireballBowserCollision(Fireball& fireball) {
     // para las cinco que hacen falta (ver Bowser::killByFireball).
     const bool flyRight = fireball.x() <= bowser_.x();
     bowser_.killByFireball(flyRight);
-    // El quinto fuego es el que lo derrota: ahi da los puntos.
-    if (bowser_.isFalling()) awardEnemyPoints(bowser_.x(), bowser_.y(), 5000);
+    // El quinto fuego es el que lo derrota: ahi da los puntos. En los
+    // mundos 1-7 era un disfraz: cae el enemigo que estaba adentro.
+    if (bowser_.isFalling()) {
+        awardEnemyPoints(bowser_.x(), bowser_.y(), 5000);
+        audio_.play(Sfx::BowserFall);
+        const std::string& name = level_.name();
+        const int world = name.empty() ? 0 : name[0] - '0';
+        fakeBowser_ = (world >= 1 && world <= 7) ? world - 1 : -1;
+    }
     fireball.explode();
 }
 
@@ -2039,11 +2165,12 @@ void Game::checkSideWarp(Mario& character) {
                             character.y() >= top - 1.0f && character.y() + character.height() <= top + 2.0f * ts + 1.0f;
         if (!inside) continue;
         if (cutscene_) {
-            // Intro: se queda adentro (tapado por la tuberia) mientras suena
-            // el jingle, y despues aparece en el nivel.
+            // Intro: se queda adentro (tapado por la tuberia) con el sonido
+            // de tuberia; el jingle ya viene sonando desde que empezo a
+            // caminar (MUSIC_AREA_PIPEINTRO). ChangeAreaTimer 0xA0 cuadros.
             pendingWarp_ = warp;
             pipeTransitionTimer_ = kIntroPipeDuration;
-            audio_.playMusic(Music::IntoPipe, false);
+            audio_.play(Sfx::Pipe);
         } else {
             startPipeEnter(character, warp);
         }
@@ -2064,13 +2191,15 @@ void Game::startPipeEnter(Mario& character, const PipeWarp& warp) {
     if (warp.side) {
         // Lateral: sigue caminando hacia adentro hasta quedar tapado.
         character.setFacingRight(true);
-        pipeAnim_.velX = static_cast<float>(level_.tileSize() + character.width()) / kPipeEnterDuration;
+        pipeAnim_.velX = kPipeSideSpeed;
+        pipeAnim_.timer = kPipeSideEnterDuration;
     } else {
-        // Vertical: centrado en el cano, se hunde su propio alto.
+        // Vertical: centrado en el cano, se hunde de a 1 px por cuadro.
         const float ts = static_cast<float>(level_.tileSize());
         character.nudgeX(static_cast<float>(warp.col) * ts + ts - static_cast<float>(character.width()) / 2.0f -
                          character.x());
-        pipeAnim_.velY = static_cast<float>(character.height()) / kPipeEnterDuration;
+        character.standStill();
+        pipeAnim_.velY = kPipeVerticalSpeed;
     }
 }
 
@@ -2079,6 +2208,11 @@ void Game::updatePipeAnim(float dt) {
     character.nudgeX(pipeAnim_.velX * dt);
     character.nudgeY(pipeAnim_.velY * dt);
     character.setGrounded(true);
+    if (pipeAnim_.velX != 0.0f) {
+        character.stepWalkAnimation(dt);
+    } else {
+        character.standStill();
+    }
     pipeAnim_.timer -= dt;
     if (pipeAnim_.timer > 0.0f) return;
 
@@ -2118,8 +2252,8 @@ void Game::updatePipeAnim(float dt) {
             audio_.play(Sfx::Pipe);
             pipeAnim_.exiting = true;
             pipeAnim_.velX = 0.0f;
-            pipeAnim_.velY = -static_cast<float>(character.height()) / kPipeExitDuration;
-            pipeAnim_.timer = kPipeExitDuration;
+            pipeAnim_.velY = -kPipeVerticalSpeed;
+            pipeAnim_.timer = static_cast<float>(character.height()) / kPipeVerticalSpeed;
             return;
         }
         break;
@@ -2260,8 +2394,7 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
         }
     }
     // Como el original (ChkToStunEnemies): Koopa y Buzzy Beetle quedan boca
-    // arriba como caparazon (100 puntos), el Spiny pega un saltito; Goomba y
-    // Hammer Bro mueren. Todo se aleja del que golpeo el bloque, igual que
+    // arriba como caparazon (100 puntos); Goomba, Hammer Bro y Spiny mueren. Todo se aleja del que golpeo el bloque, igual que
     // los items (hongo, 1-UP, estrella), que pegan un saltito.
     const Mario& hitter = scorer_ == 1 ? luigi_ : mario_;
     const float hitterCenter = hitter.x() + static_cast<float>(hitter.width()) / 2.0f;
@@ -2283,9 +2416,10 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
             killEnemyFalling(bro, true);
         }
     }
+    // El Spiny tambien muere (a pedido: antes solo pegaba un saltito).
     for (Spiny& spiny : spinies_) {
         if (spiny.isDangerous() && onTop(spiny.x(), spiny.y(), Spiny::kSize, Spiny::kSize)) {
-            spiny.bumpFromBelow();
+            killEnemyFalling(spiny, awayFromHitter(spiny.x(), Spiny::kSize));
         }
     }
     if (mushroom_.isAlive() && onTop(mushroom_.x(), mushroom_.y(), Mushroom::kSize, Mushroom::kSize)) {
@@ -2359,24 +2493,31 @@ void Game::checkQuestionBlockHit(Mario& character) {
         // maxHits=1: el primer golpe YA es el ultimo).
         const int maxHits = findBlockSpawn(col, row).maxHits;
         const int hitsSoFar = isQuestion ? level_.questionHitCount(col, row) : level_.dispenserHitCount(col, row);
+        bool lastHit = hitsSoFar + 1 >= maxHits;
+        if (maxHits > 1) {
+            // Bloque de muchas monedas (BrickCoinTimer del original): el
+            // primer golpe arranca un tiempo de 0x0B intervalos de 21
+            // cuadros (~3,85 s); cada golpe da una moneda y el primero
+            // despues de que se termina da la ultima y lo deja vacio.
+            if (!brickCoinTimerStarted_) {
+                brickCoinTimerStarted_ = true;
+                brickCoinTimer_ = 11.0f * 21.0f / 60.0f;
+            }
+            lastHit = brickCoinTimer_ <= 0.0f;
+        }
         if (isQuestion) {
             level_.incrementQuestionHit(col, row);
-            if (hitsSoFar + 1 >= maxHits) level_.markQuestionUsed(col, row);
+            if (lastHit) level_.markQuestionUsed(col, row);
         } else {
             level_.incrementDispenserHit(col, row);
-            if (hitsSoFar + 1 >= maxHits) level_.markDispenserUsed(col, row);
+            if (lastHit) level_.markDispenserUsed(col, row);
         }
         killEnemyOnTopOfTile(col, row);
         collectTopCoinIfAny(col, row);
-        // Estilo Super Mario Bros. 3: el item sale hacia el lado OPUESTO
-        // de donde vino el golpe (si el personaje esta a la izquierda
-        // del centro del bloque, el item sale hacia la derecha, y
-        // viceversa) -- no siempre a la derecha como en el original de
-        // 1985.
-        const float blockCenterX = static_cast<float>(col * level_.tileSize()) +
-                                    static_cast<float>(level_.tileSize()) / 2.0f;
-        const float characterCenterX = character.x() + static_cast<float>(character.width()) / 2.0f;
-        const bool movingRight = characterCenterX < blockCenterX;
+        // Como el original (PowerUpObjHandler): el hongo, el 1-UP y la
+        // estrella salen siempre hacia la derecha, sin importar de que lado
+        // vino el golpe.
+        const bool movingRight = true;
         // El item recien sale cuando termina de sacudirse (ver el update()
         // del pool de blockBumps_), no al toque -- a pedido del usuario. Si
         // el pool estaba lleno (startBlockBump devolvio nullptr, no deberia
@@ -2517,10 +2658,14 @@ void Game::respawnNearestPlatform(Mario& character) {
 
 void Game::placeCharactersAtStart() {
     if (checkpointCol_ < 0) {
-        // Parados sobre el piso de entrada (no cayendo desde arriba).
-        const SDL_Point marioPoint = findRespawnPoint(kMarioSpawnX + 1.0f, mario_.height());
+        // Parados sobre el piso de entrada (no cayendo desde arriba). El
+        // nivel puede pedir otra columna ("start_col": la escena de la
+        // tuberia, centrada con relleno).
+        const float startShift =
+            level_.startCol() >= 0 ? static_cast<float>(level_.startCol() * level_.tileSize()) - kMarioSpawnX : 0.0f;
+        const SDL_Point marioPoint = findRespawnPoint(kMarioSpawnX + startShift + 1.0f, mario_.height());
         mario_.spawn(static_cast<float>(marioPoint.x), static_cast<float>(marioPoint.y));
-        const SDL_Point luigiPoint = findRespawnPoint(kLuigiSpawnX + 1.0f, luigi_.height());
+        const SDL_Point luigiPoint = findRespawnPoint(kLuigiSpawnX + startShift + 1.0f, luigi_.height());
         luigi_.spawn(static_cast<float>(luigiPoint.x), static_cast<float>(luigiPoint.y));
     } else {
         // Parados sobre el piso de la columna del checkpoint (o la mas
@@ -2536,6 +2681,9 @@ void Game::placeCharactersAtStart() {
             mario_.spawn(x - mario_.width() / 2.0f, static_cast<float>(customStartRow_) * ts - mario_.height());
         }
     }
+    // Arrancan mirando hacia adelante (a la derecha), como el original.
+    mario_.setFacingRight(true);
+    luigi_.setFacingRight(true);
     // Puede quedar lejos de la camara actual: si se acercara de a poco,
     // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
     cameraSnapPending_ = true;
@@ -2579,6 +2727,9 @@ void Game::updateCamera(float dt) {
         (!luigiActive || belowScreen(luigi_))) {
         return;
     }
+    // Tocada la bandera, la pantalla queda quieta (el personaje camina al
+    // castillo dentro de ella).
+    if (!cameraSnapPending_ && levelEnding_ && !castleMessage_) return;
     float focusX = mario_.x();
     if (marioActive && luigiActive) {
         focusX = (mario_.x() + luigi_.x()) / 2.0f;
@@ -2602,19 +2753,69 @@ void Game::updateCamera(float dt) {
     const float minCameraX = areaWidth < static_cast<float>(gLogicalWidth)
         ? areaLeft - (static_cast<float>(gLogicalWidth) - areaWidth) / 2.0f
         : areaLeft;
-    const float maxCameraX = std::max(minCameraX, areaLeft + areaWidth - static_cast<float>(gLogicalWidth));
+    float maxCameraX = std::max(minCameraX, areaLeft + areaWidth - static_cast<float>(gLogicalWidth));
+    // Warp zone: el borde derecho de la pantalla no pasa de su columna.
+    for (WarpZoneLock& lock : warpZoneLocks_) {
+        if (lock.col < area.startCol || lock.col > area.endCol + 1) continue;
+        const float limit = static_cast<float>(lock.col) * ts - static_cast<float>(gLogicalWidth);
+        maxCameraX = std::max(minCameraX, std::min(maxCameraX, limit));
+    }
     if (areaIndex != currentArea_) {
         // Recien entro (o volvio) a esta area: cambia el tipo de mundo
         // (fondo/paletas) y la camara salta directo, sin barrido.
         currentArea_ = areaIndex;
-        worldType_ = parseWorldType(area.world, levelWorldType_);
+        worldType_ = area.palette == "gray" ? WorldType::Castle : parseWorldType(area.world, levelWorldType_);
         mario_.setWorldType(worldType_);
         luigi_.setWorldType(worldType_);
         cameraSnapPending_ = true;
     }
-    const float targetX = std::clamp(focusX - static_cast<float>(gLogicalWidth) / 2.0f, minCameraX, maxCameraX);
+    if (cutscene_) {
+        // Escena de la tuberia: la camara queda quieta, centrada en el area
+        // (asi se ve igual en 4:3 y en 16:9).
+        cameraX_ = std::round(areaLeft + (areaWidth - static_cast<float>(gLogicalWidth)) / 2.0f);
+        cameraSnapPending_ = false;
+        return;
+    }
+    float targetX = std::clamp(focusX - static_cast<float>(gLogicalWidth) / 2.0f, minCameraX, maxCameraX);
+    // Como el original: la pantalla solo avanza (no se vuelve atras); solo
+    // salta al cambiar de area o reaparecer (cameraSnapPending_).
+    if (!cameraSnapPending_) targetX = std::max(targetX, std::min(cameraX_, maxCameraX));
     const float previousCameraX = cameraX_;
-    if (!twoPlayerMode_ || cameraSnapPending_) {
+    if (!twoPlayerMode_) {
+        // 1P: la pantalla de 256 px del original (spawnScreenLeft_) se
+        // mueve con su ScrollHandler y nuestra camara la sigue centrada
+        // (en 16:9 sobra lo mismo a cada lado, salvo pegada a los bordes
+        // del area). Con el jugador pasado 80 px de su borde izquierdo la
+        // pantalla avanza lo que el se movio menos 1 px por cuadro (si se
+        // movio 2 o mas); pasado 112, todo lo que se movio. Asi caminando
+        // se va acercando de a poco a 112 y corriendo llega enseguida.
+        const float offset = (static_cast<float>(gLogicalWidth) - kNesScreenWidth) / 2.0f;
+        // Limites de la pantalla del original: el area (y la warp zone: su
+        // borde derecho no pasa del de nuestra camara en el tope).
+        const float nesMin = areaLeft;
+        const float nesMax = std::max(nesMin, std::min(areaLeft + areaWidth - kNesScreenWidth,
+                                                       maxCameraX + static_cast<float>(gLogicalWidth) - kNesScreenWidth));
+        if (cameraSnapPending_ || spawnArea_ != currentArea_) {
+            spawnScreenLeft_ = std::clamp(focusX - 112.0f, nesMin, nesMax);
+            spawnArea_ = currentArea_;
+        } else {
+            // Player_X_Scroll: los px enteros que avanzo este cuadro (a 1,5 px
+            // por cuadro alterna 1 y 2).
+            const float framePx = 60.0f * dt;
+            const float moved = std::floor(focusX) - std::floor(cameraFocusPrevX_);
+            const float screenX = focusX - spawnScreenLeft_;
+            float amount = 0.0f;
+            if (screenX >= 80.0f && moved > 0.0f) {
+                amount = moved >= 2.0f * framePx ? moved - framePx : moved;
+                if (screenX >= 112.0f) amount = moved;
+            }
+            // Nunca mas adelante de 112 (un salto grande de golpe).
+            const float next = std::max(spawnScreenLeft_ + amount, focusX - 112.0f);
+            spawnScreenLeft_ = std::clamp(std::max(next, std::min(spawnScreenLeft_, nesMax)), nesMin, nesMax);
+        }
+        const float wanted = std::clamp(spawnScreenLeft_ - offset, minCameraX, maxCameraX);
+        cameraX_ = cameraSnapPending_ ? wanted : std::max(wanted, std::min(cameraX_, maxCameraX));
+    } else if (cameraSnapPending_) {
         cameraX_ = targetX;
     } else {
         // En 2P el objetivo salta de golpe cuando uno muere (pasa a seguir
@@ -2626,6 +2827,7 @@ void Game::updateCamera(float dt) {
         cameraX_ += std::clamp(targetX - cameraX_, -step, step);
     }
     cameraSnapPending_ = false;
+    cameraFocusPrevX_ = focusX;
     // Ver el comentario de cameraScrollSpeed_ en Game.h (equivalente a
     // ScrollAmount en el original): 0 en vez de un valor real cuando la
     // camara esta pegada a un borde del nivel (clampeada), aunque el
@@ -2635,7 +2837,16 @@ void Game::updateCamera(float dt) {
 }
 
 void Game::keepCharactersOnScreen() {
-    if (!twoPlayerMode_) return;
+    if (!twoPlayerMode_) {
+        // 1P: el borde izquierdo de la pantalla es una pared (la camara no
+        // vuelve atras).
+        if (mario_.isInDeathSequence() || mario_.isOnFlagpole() || mario_.isClimbing()) return;
+        if (mario_.x() < cameraX_) {
+            mario_.nudgeX(cameraX_ - mario_.x());
+            if (mario_.velocityX() < 0.0f) mario_.setVelocityX(0.0f);
+        }
+        return;
+    }
     for (Mario* character : {&mario_, &luigi_}) {
         // El que cae muerto sale de pantalla a proposito (y despues
         // reaparece), no se lo frena.
@@ -2671,20 +2882,29 @@ bool Game::isAreaFree(float x, float y, int width, int height) const {
 }
 
 void Game::update(float dt) {
+    if (appState_ == AppState::Title) return;
     if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
         appStateTimer_ -= dt;
         if (appStateTimer_ > 0.0f) return;
         if (appState_ == AppState::LevelIntro) {
             appState_ = AppState::Playing;
+            // Escena de la tuberia (x-2): el jingle suena mientras camina.
+            if (cutscene_) audio_.playMusic(Music::IntoPipe, false);
             // Lo apretado durante la pantalla negra no cuenta.
             input1_.clearPresses();
             input2_.clearPresses();
         } else {
-            // GAME OVER: de cero; en una partida, desde el primer nivel del
-            // mundo (seccion 6).
+            // GAME OVER: en una partida vuelve al titulo con CONTINUAR
+            // habilitado (desde el primer nivel de ese mundo, como el
+            // original); fuera de la partida, el escenario de cero.
+            if (turnMode_ && passTurn()) return;
             if (campaign_) {
-                campaignLevel_ = 1;
-                customLevelPath_ = campaignLevelPath(campaignWorld_, campaignLevel_);
+                continueWorld_ = turnMode_ ? 0 : campaignWorld_;
+                continueTwoPlayers_ = twoPlayerMode_;
+                continueAsLuigi_ = playAsLuigi_;
+                campaign_ = false;
+                openTitle();
+                return;
             }
             startScenario(scenario_);
         }
@@ -2721,6 +2941,11 @@ void Game::update(float dt) {
         : mario_.isInDeathSequence();
 
     if (damageOrGrowFrozen || everyoneDying) {
+        // Lo que se aprieta mientras esta congelado no cuenta: si no, al
+        // terminar la transformacion saltaba o tiraba fuego de golpe con
+        // las apretadas guardadas.
+        input1_.clearPresses();
+        input2_.clearPresses();
         mario_.updateDamageSequence(dt);
         mario_.updateGrowSequence(dt);
         mario_.updateDeathSequence(dt);
@@ -2743,6 +2968,9 @@ void Game::update(float dt) {
     updatePlatforms(dt);
     updateVines(dt);
     updateVineEntry();
+    if (brickCoinTimer_ > 0.0f) brickCoinTimer_ = std::max(0.0f, brickCoinTimer_ - dt);
+    updateHidden1Ups();
+    updateWarpZones();
 
     // Guardados de antes de mover: para saber si un enemigo lo pisa "de
     // arriba" hace falta ver si los pies YA estaban por encima antes de
@@ -2928,7 +3156,8 @@ void Game::update(float dt) {
     lakitu_.update(dt, lakituTargetX, cameraScrollSpeed_, level_.widthPixels(), kWorldViewBottom);
     checkLakituCollision(mario_, marioPrevY);
     if (twoPlayerMode_) checkLakituCollision(luigi_, luigiPrevY);
-    if (lakitu_.consumeThrowRequest()) {
+    // Sin lugar libre de enemigo no tira (como el original).
+    if (lakitu_.consumeThrowRequest() && enemySlotFree()) {
         for (Spiny& spiny : spinies_) {
             if (spiny.isAlive()) continue;
             spiny.spawn(lakitu_.throwOriginX(), lakitu_.throwOriginY(), lakitu_.throwVelocityX(),
@@ -2948,16 +3177,16 @@ void Game::update(float dt) {
         }
     }
 
-    for (Blooper& blooper : bloopers_) {
+    for (size_t slot = 0; slot < bloopers_.size(); ++slot) {
+        Blooper& blooper = bloopers_[slot];
         // Mismo criterio que Lakitu (targetX): apunta al personaje mas
-        // cercano, esta clase tampoco conoce a Mario/Luigi. Ademas necesita
-        // Y (el chorro apunta en las dos direcciones, no solo en X).
+        // cercano, esta clase tampoco conoce a Mario/Luigi.
         const bool luigiCloser = twoPlayerMode_ &&
             std::hypot(luigi_.x() - blooper.x(), luigi_.y() - blooper.y()) <
                 std::hypot(mario_.x() - blooper.x(), mario_.y() - blooper.y());
-        const float blooperTargetX = luigiCloser ? luigi_.x() : mario_.x();
-        const float blooperTargetY = luigiCloser ? luigi_.y() : mario_.y();
-        blooper.update(dt, level_, blooperTargetX, blooperTargetY, kWorldViewBottom);
+        const Mario& target = luigiCloser ? luigi_ : mario_;
+        blooper.update(dt, target.x(), target.y() + static_cast<float>(target.height()),
+                       target.facingRight(), static_cast<int>(slot), kWorldViewBottom);
         checkBlooperCollision(mario_, blooper);
         if (twoPlayerMode_) checkBlooperCollision(luigi_, blooper);
         cullIfLeftBehindReset(blooper, static_cast<float>(Blooper::kWidth), cameraX_);
@@ -3091,6 +3320,21 @@ void Game::update(float dt) {
             checkKoopaKoopaBounce(*koopas[i], *koopas[j]);
         }
     }
+    // Goombas y Buzzy Beetles que caminan tambien chocan entre si.
+    for (size_t i = 0; i < goombas_.size(); ++i) {
+        for (size_t j = i + 1; j < goombas_.size(); ++j) bounceWalkers(goombas_[i], goombas_[j]);
+        for (BuzzyBeetle& buzzy : buzzyBeetles_) {
+            if (buzzy.state() == BuzzyBeetleState::Walking) bounceWalkers(goombas_[i], buzzy);
+        }
+    }
+    for (size_t i = 0; i < buzzyBeetles_.size(); ++i) {
+        for (size_t j = i + 1; j < buzzyBeetles_.size(); ++j) {
+            if (buzzyBeetles_[i].state() == BuzzyBeetleState::Walking &&
+                buzzyBeetles_[j].state() == BuzzyBeetleState::Walking) {
+                bounceWalkers(buzzyBeetles_[i], buzzyBeetles_[j]);
+            }
+        }
+    }
 
     for (ScorePopup& popup : scorePopups_) popup.update(dt);
     for (BrickDebris& debris : brickDebris_) debris.update(dt, level_.widthPixels(), kWorldViewBottom);
@@ -3133,6 +3377,12 @@ void Game::update(float dt) {
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
+        // Como el original: la bola que sale de la pantalla desaparece (si
+        // no, seguia "viva" adelante y no dejaba tirar otra).
+        if (fireball.isAlive() && !fireball.isExploding() &&
+            (fireball.x() + Fireball::kSize < cameraX_ || fireball.x() > cameraX_ + static_cast<float>(gLogicalWidth))) {
+            fireball.remove();
+        }
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
         for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
         for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
@@ -3156,6 +3406,12 @@ void Game::update(float dt) {
         trySpawnFireball(luigi_, luigiFireballs_);
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, level_.widthPixels());
+        // Como el original: la bola que sale de la pantalla desaparece (si
+        // no, seguia "viva" adelante y no dejaba tirar otra).
+        if (fireball.isAlive() && !fireball.isExploding() &&
+            (fireball.x() + Fireball::kSize < cameraX_ || fireball.x() > cameraX_ + static_cast<float>(gLogicalWidth))) {
+            fireball.remove();
+        }
         if (fireball.consumeWallHitRequest()) audio_.play(Sfx::Bump);
             for (Goomba& goomba : goombas_) checkFireballGoombaCollision(fireball, goomba);
             for (Koopa* koopa : koopas) checkFireballKoopaCollision(fireball, *koopa);
@@ -3211,6 +3467,12 @@ void Game::render() {
     }
 
     beginWorldRender();
+    // Todo el mundo se dibuja con la camara redondeada a pixel (como los
+    // tiles): si cada cosa redondeaba "x - camara" por su cuenta, con la
+    // camara en posiciones fraccionarias (2P: sigue el punto medio) el que
+    // estaba quieto bailaba un pixel contra el piso.
+    const float exactCameraX = cameraX_;
+    cameraX_ = std::round(cameraX_);
     const int worldRow = static_cast<int>(worldType_);
     std::vector<SDL_Point> bumpingTiles;
     for (const BlockBump& bump : blockBumps_) {
@@ -3218,25 +3480,37 @@ void Game::render() {
     }
     // Fondo, escenografia (colinas, nubes, arbustos) y recien despues los
     // bloques: la escenografia queda siempre detras.
+    const bool snow = areaSnow();
     {
-        const SDL_Color bg = backgroundColorFor(worldType_);
+        const SDL_Color bg = skyColor();
         SDL_SetRenderDrawColor(renderer_, bg.r, bg.g, bg.b, 255);
         SDL_RenderFillRect(renderer_, nullptr);
     }
+    // Paleta de castillo en superficie: piso y escenografia de superficie
+    // recoloreados (mismo dibujo, colores de castillo).
+    const bool gray = areaPalette() == "gray";
+    renderStarFlag();
     renderDecorations(false);
-    level_.renderTerrain(renderer_, backgroundColorFor(worldType_), terrainSprite_, worldRow, gLogicalWidth,
-                         cameraX_, false);
-    level_.renderScenery(renderer_, sceneryTilesSprite_, worldRow, gLogicalWidth, cameraX_);
+    level_.renderTerrain(renderer_, skyColor(), gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : worldRow,
+                         gLogicalWidth, cameraX_, false);
+    level_.renderScenery(renderer_, gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_,
+                         gray ? 0 : worldRow, gLogicalWidth, cameraX_, snow && !gray ? &sceneryTilesSprite_ : nullptr);
     level_.renderHazards(renderer_, lavaSprite_, bridgeSprite_, gLogicalWidth, cameraX_);
     renderBalanceRopes();
+    if (bridgeChain_.x >= 0 && !bridgeChainGone_) {
+        const int ts = level_.tileSize();
+        bridgeChainSprite_.draw(renderer_, 0, 0, bridgeChain_.x * ts - static_cast<int>(std::lround(cameraX_)),
+                                bridgeChain_.y * ts, false);
+    }
     for (const MovingPlatform& platform : platforms_) platform.render(renderer_, liftSprite_, cameraX_);
     // Las Piranha Plant van ANTES que las tuberias: asi la tuberia las tapa
     // mientras asoman o se esconden.
     for (const PiranhaPlant& plant : piranhaPlants_) plant.render(renderer_, piranhaPlantSprite_, worldRow, cameraX_);
     // El que esta entrando/saliendo de una tuberia va detras de ella.
     if (pipeAnim_.active && pipeAnim_.character) pipeAnim_.character->render(renderer_, cameraX_);
-    level_.renderPipes(renderer_, pipeSprite_, worldRow, cameraX_);
-    flagpole_.render(renderer_, flagpoleSprite_, flagSprite_, worldRow, cameraX_);
+    level_.renderPipes(renderer_, snow ? pipeSnowSprite_ : areaPalette() == "mushroom" ? pipeMushroomSprite_ : pipeSprite_,
+                       worldRow, cameraX_);
+    flagpole_.render(renderer_, snow ? flagpoleSnowSprite_ : flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
     // bloques (ver el comentario del usuario): mientras esta "emergiendo"
     // (ItemEmerge) el bloque tiene que quedar tapandolo, no al reves. No
@@ -3337,14 +3611,35 @@ void Game::render() {
     // ciclar) usa su fila normal como el resto del elenco.
     const int bowserWorldRow =
         worldType_ == WorldType::Castle ? static_cast<int>(WorldType::Overworld) : worldRow;
-    bowser_.render(renderer_, bowserSprite_, bowserWorldRow, cameraX_);
-    if (!(pipeAnim_.active && pipeAnim_.character == &mario_)) renderCharacter(mario_, marioPlatform_);
+    if (fakeBowser_ >= 0 && bowser_.isFalling() && bowser_.isAlive()) {
+        // Goomba, Koopa verde, Buzzy Beetle, Spiny, Lakitu, Blooper, Hammer Bro.
+        const SpriteSheet* identities[7] = {&goombaSprite_, &koopaSprite_, &buzzyBeetleSprite_, &spinySprite_,
+                                            &lakituSprite_, &blooperSprite_, &hammerBroSprite_};
+        const SpriteSheet& sheet = *identities[fakeBowser_];
+        const int row = std::min(worldRow, std::max(0, sheet.rowCount() - 1));
+        const int x = static_cast<int>(std::lround(bowser_.x() + bowser_.width() / 2.0f - sheet.frameWidth() / 2.0f -
+                                                   cameraX_));
+        const int y = static_cast<int>(std::lround(bowser_.y() + bowser_.height() - sheet.frameHeight()));
+        sheet.draw(renderer_, row, 0, x, y, false, true);
+    } else {
+        bowser_.render(renderer_, bowserSprite_, bowserWorldRow, cameraX_);
+    }
+    renderWarpZoneText();   // detras de los personajes (no los tapa)
+    if (retainer_.x >= 0) {
+        const std::string& name = level_.name();
+        const int frame = (!name.empty() && name[0] == '8') ? 1 : 0;   // la princesa, en el 8-4
+        const int ts = level_.tileSize();
+        retainerSprite_.draw(renderer_, 0, frame, retainer_.x * ts - static_cast<int>(std::lround(cameraX_)),
+                             (retainer_.y + 1) * ts - 24, false);
+    }
+    if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &mario_)) renderCharacter(mario_, marioPlatform_);
     for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     if (twoPlayerMode_) {
-        if (!(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
+        if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
         for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
     }
     renderDecorations(true);
+    renderFireworks();
     // Los martillos en vuelo van al final a proposito, adelante de todo
     // (personajes incluidos): que nunca queden tapados por nada mientras
     // vuelan.
@@ -3353,12 +3648,16 @@ void Game::render() {
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
-    if (castleMessage_ && castleClearTimer_ <= 0.0f) {
+    const bool showCastleMessage =
+        castleMessage_ && (retainer_.x >= 0 ? castleLines_ > 0 : castleClearTimer_ <= 0.0f);
+    if (showCastleMessage) {
         // Castillo: el Toad (o la princesa, en el ultimo) mientras se cuenta
         // el tiempo que sobro.
         const SDL_Color white{255, 255, 255, 255};
         drawCentered(70, tr(playAsLuigi_ ? Txt::ThankYouLuigi : Txt::ThankYouMario), 2, white);
-        if (campaign_ && campaignWorld_ == 8) {
+        if (retainer_.x >= 0 && castleLines_ < 2) {
+            // segundo renglon todavia no
+        } else if (campaign_ && campaignWorld_ == 8) {
             drawCentered(100, tr(Txt::QuestOver1), 2, white);
             drawCentered(120, tr(Txt::QuestOver2), 2, white);
         } else {
@@ -3370,6 +3669,7 @@ void Game::render() {
     }
 
     renderOutsideAreaMask();
+    cameraX_ = exactCameraX;
     endWorldRender();
     renderHud();
 
@@ -3473,6 +3773,12 @@ void Game::run() {
             accumulator -= kFixedDt;
         }
 
+        if (!dumpMapPath_.empty() && appState_ == AppState::Playing) {
+            dumpLevelMap();
+            running_ = false;
+            continue;
+        }
+
         render();
 
         ++fpsFrameCount;
@@ -3534,12 +3840,44 @@ void Game::updateFlagpoleSequence(float dt) {
 }
 
 void Game::updateLevelClear(float dt) {
-    if (castleClearTimer_ > 0.0f) {
+    if (retainer_.x >= 0 && castleMessage_) {
+        // Final de castillo con Toad / princesa.
+        if (castleClearTimer_ > 0.0f) castleClearTimer_ = std::max(0.0f, castleClearTimer_ - dt);
+        const float ts = static_cast<float>(level_.tileSize());
+        const float stopX = static_cast<float>(retainer_.x) * ts - 1.5f * ts;
+        if (castleWalk_) {
+            if (mario_.x() + static_cast<float>(mario_.width()) >= stopX) {
+                castleWalk_ = false;
+                // Frena en seco frente al Toad (sin patinar encima de el).
+                mario_.setVelocityX(0.0f);
+                luigi_.setVelocityX(0.0f);
+                input1_.setScripted(true);
+                input2_.setScripted(true);
+                castleLines_ = 1;
+                castleMessageTimer_ = 0.0f;
+            }
+            return;
+        }
+        if (castleLines_ > 0 && castleLines_ < 3) {
+            castleMessageTimer_ += dt;
+            if (castleLines_ == 1 && castleMessageTimer_ >= 1.0f) castleLines_ = 2;
+            if (castleLines_ == 2 && castleMessageTimer_ >= 2.5f) {
+                castleLines_ = 3;   // ya esta todo: arranca la cuenta del tiempo
+                timeTallying_ = true;
+                tallySoundTimer_ = 0.0f;
+            }
+            return;
+        }
+    } else if (castleClearTimer_ > 0.0f) {
         castleClearTimer_ -= dt;
         if (castleClearTimer_ <= 0.0f) {
             timeTallying_ = true;
             tallySoundTimer_ = 0.0f;
         }
+    }
+    if (endSequence_.active) {
+        if (!updateEndSequence(dt)) levelClearTimer_ = kLevelClearDuration;
+        return;
     }
     if (levelClearTimer_ > 0.0f) {
         levelClearTimer_ -= dt;
@@ -3557,16 +3895,176 @@ void Game::updateLevelClear(float dt) {
         }
         if (timeRemaining_ <= 0.0f) {
             timeTallying_ = false;
-            levelClearTimer_ = kLevelClearDuration;
+            if (endSequence_.fromFlagpole) {
+                startEndSequence();
+            } else {
+                levelClearTimer_ = kLevelClearDuration;
+            }
         }
     } else if (mario_.hasFinishedLevel() || (twoPlayerMode_ && luigi_.hasFinishedLevel())) {
         timeTallying_ = true;
         tallySoundTimer_ = 0.0f;
+        // GameTimerFireworks: el ultimo digito del tiempo cuando empieza la
+        // cuenta decide los fuegos (1, 3 o 6; si no, ninguno).
+        const int digit = static_cast<int>(std::ceil(timeRemaining_)) % 10;
+        endSequence_.fromFlagpole = true;
+        endSequence_.fireworks = (digit == 1 || digit == 3 || digit == 6) ? digit : 0;
+        endSequence_.lookup = 5;
+    }
+}
+
+void Game::updateWarpZones() {
+    const float ts = static_cast<float>(level_.tileSize());
+    for (WarpZoneLock& lock : warpZoneLocks_) {
+        if (lock.reached) continue;
+        // Llega cuando la pantalla muestra la primera tuberia de la zona.
+        if (cameraX_ + static_cast<float>(gLogicalWidth) < static_cast<float>(lock.firstPipe) * ts) continue;
+        lock.reached = true;
+        const float left = static_cast<float>(lock.firstPipe - 1) * ts;
+        const float right = static_cast<float>(lock.col) * ts;
+        for (PiranhaPlant& plant : piranhaPlants_) {
+            if (plant.x() >= left && plant.x() < right) plant.reset();
+        }
+        const std::vector<LevelEntity>& entities = level_.entities();
+        for (size_t i = 0; i < entities.size(); ++i) {
+            if (entities[i].type == "piranha" && entities[i].col >= lock.firstPipe - 1 && entities[i].col < lock.col) {
+                entitySpawned_[i] = true;   // no vuelven a aparecer
+            }
+        }
+    }
+}
+
+void Game::updateHidden1Ups() {
+    if (!campaign_ || hidden1Ups_.empty()) return;
+    // Se gasta la marca cuando el bloque entra en pantalla (en el original,
+    // cuando se dibuja esa columna).
+    const float ts = static_cast<float>(level_.tileSize());
+    for (const SDL_Point& block : hidden1Ups_) {
+        if (static_cast<float>(block.x) * ts < cameraX_ + static_cast<float>(gLogicalWidth) + ts) {
+            hidden1UpFlag_ = false;
+            hidden1Ups_.clear();
+            return;
+        }
+    }
+}
+
+void Game::startEndSequence() {
+    // La bandera sale del castillo que sigue al mastil (del medio de su
+    // torre); sin castillo, solo los fuegos sobre el final del nivel.
+    const float ts = static_cast<float>(level_.tileSize());
+    const float poleX = flagpole_.poleCenterX();
+    float castleX = -1.0f;
+    float castleTop = 0.0f;
+    float towerOffset = 2.0f * ts;   // centro de la torre de arriba
+    for (const LevelDecoration& decoration : level_.decorations()) {
+        if (decoration.type != "castle_small" && decoration.type != "castle_big") continue;
+        const float x = static_cast<float>(decoration.col) * ts;
+        if (x < poleX) continue;
+        if (castleX < 0.0f || x < castleX) {
+            castleX = x;
+            castleTop = static_cast<float>(decoration.row) * ts;
+            towerOffset = (decoration.type == "castle_big" ? 4.0f : 2.0f) * ts;
+        }
+    }
+    endSequence_.active = true;
+    endSequence_.flagShown = castleX >= 0.0f;
+    endSequence_.flagX = castleX >= 0.0f ? castleX + towerOffset : poleX + 5.0f * ts;
+    endSequence_.flagY = castleTop;
+    endSequence_.flagTopY = castleTop - ts;
+    endSequence_.spawnTimer = 0.0f;
+    endSequence_.waitTimer = 6.0f / 60.0f;
+    endSequence_.bursts.clear();
+}
+
+bool Game::updateEndSequence(float dt) {
+    EndSequence& seq = endSequence_;
+    // Sube de a 1 px por cuadro hasta asomar entera.
+    if (seq.flagShown && seq.flagY > seq.flagTopY) {
+        seq.flagY = std::max(seq.flagTopY, seq.flagY - 60.0f * dt);
+        return true;
+    }
+    // Cada explosion: 3 cuadros de 8; al terminar suena y suma 500.
+    for (size_t i = 0; i < seq.bursts.size();) {
+        seq.bursts[i].t += dt;
+        if (seq.bursts[i].t >= 24.0f / 60.0f) {
+            audio_.play(Sfx::BillFirework);
+            scorer_ = levelFinisher_;
+            addScore(500);
+            seq.bursts.erase(seq.bursts.begin() + static_cast<long>(i));
+        } else {
+            ++i;
+        }
+    }
+    if (seq.fireworks > 0) {
+        seq.spawnTimer -= dt;
+        if (seq.spawnTimer <= 0.0f) {
+            // InitFireworks: uno cada 0x20 cuadros, en la tabla de posiciones
+            // relativa a la bandera (de la ultima a la primera).
+            static const float kX[6] = {0x00, 0x30, 0x60, 0x60, 0x00, 0x20};
+            static const float kY[6] = {0x60, 0x40, 0x70, 0x40, 0x60, 0x30};
+            const int j = ((seq.lookup % 6) + 6) % 6;
+            seq.bursts.push_back({seq.flagX - 0x30 + kX[j], kY[j] + static_cast<float>(kWorldViewOffsetY), 0.0f});
+            --seq.lookup;
+            --seq.fireworks;
+            seq.spawnTimer = 32.0f / 60.0f;
+        }
+        return true;
+    }
+    if (!seq.bursts.empty()) return true;
+    seq.waitTimer -= dt;
+    if (seq.waitTimer > 0.0f) return true;
+    seq.active = false;
+    return false;
+}
+
+void Game::renderWarpZoneText() {
+    const int ts = level_.tileSize();
+    const int cam = static_cast<int>(std::lround(cameraX_));
+    const SDL_Color white{255, 255, 255, 255};
+    // Tuberias de warp zone agrupadas (las de un mismo cartel estan juntas).
+    std::vector<const PipeWarp*> group;
+    auto flush = [&]() {
+        if (group.empty()) return;
+        int left = group.front()->col;
+        int right = group.back()->col + 2;
+        int top = group.front()->row;
+        for (const PipeWarp* warp : group) {
+            top = std::min(top, warp->row);
+            // Numero del mundo arriba de cada tuberia (centrado en sus 2 tiles).
+            const std::string world = warp->level.substr(0, warp->level.find('-'));
+            DebugFont::drawText(renderer_, warp->col * ts + ts - 4 - cam, warp->row * ts - 12, world, 2, white);
+        }
+        const std::string text = tr(Txt::WelcomeWarpZone);
+        const int textWidth = static_cast<int>(text.size()) * 8;
+        const int centerX = (left + right) * ts / 2 - cam;
+        DebugFont::drawText(renderer_, centerX - textWidth / 2, top * ts - 3 * ts, text, 2, white);
+        group.clear();
+    };
+    for (const PipeWarp& warp : pipeWarps_) {
+        if (warp.level.empty()) continue;
+        if (!group.empty() && warp.col - group.back()->col > 8) flush();
+        group.push_back(&warp);
+    }
+    flush();
+}
+
+void Game::renderStarFlag() {
+    if (!endSequence_.flagShown) return;
+    starFlagSprite_.draw(renderer_, 0, 0, static_cast<int>(std::lround(endSequence_.flagX - cameraX_)),
+                         static_cast<int>(std::lround(endSequence_.flagY)), false);
+}
+
+void Game::renderFireworks() {
+    for (const EndSequence::Burst& burst : endSequence_.bursts) {
+        const int frame = std::min(2, static_cast<int>(burst.t / (8.0f / 60.0f)));
+        fireballExplosionSprite_.draw(renderer_, 0, frame, static_cast<int>(std::lround(burst.x - cameraX_)),
+                                      static_cast<int>(std::lround(burst.y)), false);
     }
 }
 
 void Game::collectCoin() {
     ++coinCount_;
+    ++coinTallyForOneUps_;
     addScore(200);
     int& coins = playerCoins_[static_cast<size_t>(scorer_)];
     ++coins;
@@ -3650,7 +4148,7 @@ void Game::renderHud() {
         drawCoins(coinX, kValueY, playerCoins_[0]);
     }
 
-    DebugFont::drawTextOutlined(renderer_, worldX, kTitleY, "WORLD", 2, white);
+    DebugFont::drawTextOutlined(renderer_, worldX, kTitleY, tr(Txt::HudWorld), 2, white);
     if (onTitle) {
         std::snprintf(text, sizeof(text), "%d-%d", campaignWorld_, campaignLevel_);
         DebugFont::drawTextOutlined(renderer_, worldX + 8, kValueY, text, 2, white);
@@ -3658,16 +4156,77 @@ void Game::renderHud() {
         DebugFont::drawTextOutlined(renderer_, worldX + 8, kValueY, level_.name(), 2, white);
     }
 
-    DebugFont::drawTextOutlined(renderer_, timeX, kTitleY, "TIME", 2, white);
+    const std::string timeLabel = tr(Txt::HudTime);
+    DebugFont::drawTextOutlined(renderer_, timeX, kTitleY, timeLabel, 2, white);
     // En el titulo y las pantallas negras el tiempo no se muestra (como el original).
     if (appState_ == AppState::Playing || appState_ == AppState::Paused) {
         std::snprintf(text, sizeof(text), "%03d", static_cast<int>(std::ceil(timeRemaining_)));
-        DebugFont::drawTextOutlined(renderer_, timeX + 8, kValueY, text, 2, white);
+        // Los 3 digitos centrados debajo del rotulo (TIME o TIEMPO).
+        const int valueX = timeX + (static_cast<int>(timeLabel.size()) * 8 - 24) / 2;
+        DebugFont::drawTextOutlined(renderer_, valueX, kValueY, text, 2, white);
     }
+}
+
+void Game::saveTurnState() {
+    TurnState& state = turnStates_[static_cast<size_t>(turnPlayer_)];
+    state.lives = livesCount_;
+    state.score = score_;
+    state.coins = coinCount_;
+    state.world = campaignWorld_;
+    state.level = campaignLevel_;
+    state.checkpointCol = checkpointCol_;
+    state.size = mario_.size();
+    state.hidden1Up = hidden1UpFlag_;
+}
+
+void Game::loadTurnState(int player) {
+    // Luigi usa los controles del jugador 2: se intercambian los Input.
+    const bool wantSwapped = player == 1;
+    if (wantSwapped != inputsSwapped_) {
+        std::swap(input1_, input2_);
+        inputsSwapped_ = wantSwapped;
+    }
+    turnPlayer_ = player;
+    const TurnState& state = turnStates_[static_cast<size_t>(player)];
+    livesCount_ = state.lives;
+    score_ = state.score;
+    coinCount_ = state.coins;
+    playerScore_ = {};
+    playerCoins_ = {};
+    playerScore_[0] = state.score;
+    playerCoins_[0] = state.coins % 100;
+    campaignWorld_ = state.world;
+    campaignLevel_ = state.level;
+    checkpointCol_ = state.checkpointCol;
+    hidden1UpFlag_ = state.hidden1Up;
+    setPlayAsLuigi(player == 1);
+    mario_.setSize(state.size);
+    customLevelPath_ = campaignLevelPath(campaignWorld_, campaignLevel_);
+}
+
+bool Game::passTurn() {
+    const int other = 1 - turnPlayer_;
+    if (turnStates_[static_cast<size_t>(other)].lives <= 0) return false;
+    loadTurnState(other);
+    loadScenario(TestScenario::CustomLevel);
+    return true;
 }
 
 void Game::onAllPlayersDied() {
     --livesCount_;
+    if (turnMode_) {
+        saveTurnState();
+        turnStates_[static_cast<size_t>(turnPlayer_)].size = MarioSize::Small;
+        if (livesCount_ <= 0) {
+            // GAME OVER de este jugador; despues sigue el otro si le quedan.
+            saveTopScore();
+            appState_ = AppState::GameOver;
+            appStateTimer_ = kGameOverDuration;
+            audio_.playMusic(Music::GameOver, false);
+            return;
+        }
+        if (passTurn()) return;
+    }
     if (livesCount_ <= 0) {
         livesCount_ = 0;
         saveTopScore();
@@ -3717,7 +4276,7 @@ void Game::checkPitDeath(Mario& character) {
 
 void Game::renderLevelIntro() {
     const SDL_Color white{255, 255, 255, 255};
-    const std::string world = "WORLD " + level_.name();
+    const std::string world = std::string(tr(Txt::HudWorld)) + " " + level_.name();
     DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
     // Mario chico parado, una "x" y las vidas (como el original).
     const int x = gLogicalWidth / 2 - 28;
@@ -3787,7 +4346,18 @@ BlockItem parseBlockItem(const std::string& name) {
 
 void Game::loadLevelData() {
     blockSpawns_.clear();
+    brickCoinTimerStarted_ = false;   // BrickCoinTimerFlag: uno por area
+    brickCoinTimer_ = 0.0f;
+    hidden1Ups_.clear();
     for (const LevelBlock& block : level_.blocks()) {
+        if (block.item == "one_up" && level_.isHiddenBlockTile(block.col, block.row)) {
+            // Sin la marca, en la partida ese 1-UP escondido no esta.
+            if (campaign_ && !hidden1UpFlag_) {
+                level_.clearHiddenBlock(block.col, block.row);
+                continue;
+            }
+            hidden1Ups_.push_back(SDL_Point{block.col, block.row});
+        }
         QuestionBlockSpawn spawn{block.col, block.row, parseBlockItem(block.item), block.hits};
         spawn.destCol = block.destCol;
         spawn.destRow = block.destRow;
@@ -3800,6 +4370,12 @@ void Game::loadLevelData() {
                                       warp.level});
     }
     entitySpawned_.assign(level_.entities().size(), false);
+    spawnOrder_.clear();
+    for (size_t i = 0; i < level_.entities().size(); ++i) spawnOrder_.push_back(i);
+    std::stable_sort(spawnOrder_.begin(), spawnOrder_.end(), [this](size_t a, size_t b) {
+        return level_.entities()[a].col < level_.entities()[b].col;
+    });
+    spawnArea_ = -1;
 
     cannons_.clear();
     for (int col = 0; col < level_.widthTiles(); ++col) {
@@ -3812,6 +4388,13 @@ void Game::loadLevelData() {
     frenzies_.clear();
     vines_.clear();
     vineRects_.clear();
+    bridgeChain_ = SDL_Point{-1, -1};
+    bridgeChainGone_ = false;
+    warpZoneLocks_.clear();
+    retainer_ = SDL_Point{-1, -1};
+    castleWalk_ = false;
+    castleLines_ = 0;
+    castleMessageTimer_ = 0.0f;
     vineEntry_ = VineEntry{};
     loopChecks_.clear();
     loopPassCount_ = 0;
@@ -3821,6 +4404,8 @@ void Game::loadLevelData() {
     lakituZoneActive_ = false;
     lakituRespawnTimer_ = 0.0f;
     for (const LevelEntity& entity : level_.entities()) {
+        // Solo del modo dificil (segunda vuelta en los niveles normales).
+        if (entity.hardOnly && !gPrimaryHardMode) continue;
         if (entity.type == "firebar") {
             firebars_.push_back(Firebar{(static_cast<float>(entity.col) + 0.5f) * ts,
                                         (static_cast<float>(entity.row) + 0.5f) * ts, entity.length, 0.0f,
@@ -3838,6 +4423,12 @@ void Game::loadLevelData() {
             frenzy.startX = static_cast<float>(entity.col) * ts;
             frenzy.endX = static_cast<float>(entity.endCol >= 0 ? entity.endCol : level_.widthTiles()) * ts;
             frenzies_.push_back(frenzy);
+        } else if (entity.type == "retainer") {
+            retainer_ = SDL_Point{entity.col, entity.row};
+        } else if (entity.type == "warp_zone") {
+            warpZoneLocks_.push_back(WarpZoneLock{entity.col, entity.endCol >= 0 ? entity.endCol : entity.col - 24, false});
+        } else if (entity.type == "bridge_chain") {
+            bridgeChain_ = SDL_Point{entity.col, entity.row};
         } else if (entity.type == "vine") {
             Vine vine;
             vine.x = static_cast<float>(entity.col) * ts + ts / 2.0f;
@@ -3863,31 +4454,146 @@ void Game::loadLevelData() {
     }
 }
 
+namespace {
+// Entidades que no son enemigos del original: se arman al cargar el nivel
+// (loadLevelData) y no ocupan lugar.
+bool isStaticEntity(const std::string& type) {
+    return type == "firebar" || type == "cheep_jump" || type == "spring" || type == "vine" ||
+           type == "bridge_chain" || type == "warp_zone" || type == "retainer" || type == "bullet_frenzy" ||
+           type == "cheep_frenzy" || type == "flame_frenzy" || type == "loop" || type == "axe";
+}
+}  // namespace
+
+void Game::updateSpawnScreen() {
+    // La pantalla del original mide 256 px y deja al jugador a unos 112 px
+    // de su borde izquierdo; solo avanza. Los enemigos aparecen segun ella,
+    // asi salen en el mismo momento en 4:3 y en 16:9 (en la pantalla ancha
+    // se ve mas, pero el momento de aparicion es el del original).
+    const std::vector<LevelArea>& areas = level_.areas();
+    if (areas.empty()) return;
+    const int index = std::clamp(currentArea_, 0, static_cast<int>(areas.size()) - 1);
+    const LevelArea& area = areas[static_cast<size_t>(index)];
+    const float ts = static_cast<float>(level_.tileSize());
+    const float areaLeft = static_cast<float>(area.startCol) * ts;
+    const float areaRight = static_cast<float>(area.endCol + 1) * ts;
+    float focusX = mario_.x();
+    if (twoPlayerMode_ && !luigi_.isInDeathSequence()) {
+        focusX = mario_.isInDeathSequence() ? luigi_.x() : (mario_.x() + luigi_.x()) / 2.0f;
+    }
+    // 1P: la mueve updateCamera (ScrollHandler del original); aca solo
+    // por si todavia no la inicio para esta area.
+    if (!twoPlayerMode_ && spawnArea_ == index) return;
+    const float target = std::clamp(focusX - 112.0f, areaLeft, std::max(areaLeft, areaRight - kNesScreenWidth));
+    if (index != spawnArea_) {
+        spawnArea_ = index;
+        spawnScreenLeft_ = target;
+    } else {
+        spawnScreenLeft_ = std::max(spawnScreenLeft_, target);
+    }
+}
+
+int Game::occupiedEnemySlots() const {
+    auto alive = [](const auto& pool) {
+        int n = 0;
+        for (const auto& e : pool) n += e.isAlive() ? 1 : 0;
+        return n;
+    };
+    int n = alive(goombas_) + alive(levelKoopas_) + alive(buzzyBeetles_) + alive(piranhaPlants_) +
+            alive(hammerBros_) + alive(spinies_) + alive(bloopers_) + alive(levelCheeps_) + alive(cheepCheepJumps_) +
+            alive(bulletBills_) + alive(podoboos_) + alive(bowserFires_);
+    if (lakitu_.isAlive()) ++n;
+    if (bowser_.isAlive()) ++n;
+    // Las barras de fuego y las plataformas tambien son enemigos en el
+    // original: ocupan lugar mientras estan donde existirian (la pantalla
+    // +- 72 px, OffscreenBoundsCheck).
+    const float left = spawnScreenLeft_ - kOffscreenBehindMargin;
+    const float right = spawnScreenLeft_ + kNesScreenWidth + kOffscreenBehindMargin;
+    for (const Firebar& bar : firebars_) n += (bar.centerX >= left && bar.centerX <= right) ? 1 : 0;
+    for (const MovingPlatform& platform : platforms_) {
+        if (platform.isActive() && platform.started() && platform.x() + static_cast<float>(platform.width()) >= left &&
+            platform.x() <= right) {
+            ++n;
+        }
+    }
+    return n;
+}
+
 void Game::spawnLevelEntities() {
+    // Como ProcessEnemyData del original: los enemigos se leen en orden; el
+    // que sigue aparece cuando su columna entra 48 px (redondeado al bloque)
+    // despues del borde derecho de la pantalla y hay un lugar libre (5 en
+    // total). Si cuando le toca ya quedo adentro de la pantalla (o atras),
+    // se saltea y no aparece nunca. Mientras espera, los que siguen esperan.
     const float ts = static_cast<float>(level_.tileSize());
     const std::vector<LevelEntity>& entities = level_.entities();
-    for (size_t i = 0; i < entities.size(); ++i) {
+    const std::vector<LevelArea>& areas = level_.areas();
+    updateSpawnScreen();
+    const float screenRight = spawnScreenLeft_ + kNesScreenWidth - 1.0f;
+    // En 16:9 la camara ve mas alla de la pantalla del original: ahi los
+    // enemigos arrancan apenas entran en la camara (no se quedan quietos
+    // esperando a la vista).
+    const float cameraLimit = std::floor((cameraX_ + static_cast<float>(gLogicalWidth) + 16.0f) / 16.0f) * 16.0f;
+    const float spawnLimit = std::max(std::floor((screenRight + 48.0f) / 16.0f) * 16.0f, cameraLimit);
+    const LevelArea* area = (currentArea_ >= 0 && currentArea_ < static_cast<int>(areas.size()))
+                                ? &areas[static_cast<size_t>(currentArea_)]
+                                : nullptr;
+    // Las plataformas tambien: arrancan cuando el original las haria
+    // aparecer (asi no van todas sincronizadas).
+    for (MovingPlatform& platform : platforms_) {
+        if (platform.isActive() && !platform.started() && platform.x() <= spawnLimit) platform.start();
+    }
+    for (size_t i : spawnOrder_) {
         if (entitySpawned_[i]) continue;
         const LevelEntity& entity = entities[i];
-        const float x = static_cast<float>(entity.col) * ts + entity.xOffset;
-        if (x + ts < cameraX_) {
-            entitySpawned_[i] = true;  // quedo atras de la camara: no aparece
+        // Cada area tiene sus propios datos de enemigos.
+        if (area && (entity.col < area->startCol || entity.col > area->endCol)) continue;
+        if (isStaticEntity(entity.type)) {
+            if (entity.type == "axe") axe_.spawn(static_cast<float>(entity.col) * ts, static_cast<float>(entity.row) * ts);
+            entitySpawned_[i] = true;  // ya armados en loadLevelData
             continue;
         }
-        // Un tile mas alla del borde derecho: aparece justo fuera de vista.
-        if (x > cameraX_ + static_cast<float>(gLogicalWidth) + ts) continue;
+        // Solo del modo dificil: en un nivel normal, solo en la segunda vuelta.
+        if (entity.hardOnly && !gPrimaryHardMode) {
+            entitySpawned_[i] = true;
+            continue;
+        }
+        const float baseX = static_cast<float>(entity.col) * ts;
+        if (baseX < screenRight) {
+            entitySpawned_[i] = true;  // ya quedo en pantalla o atras: no aparece
+            continue;
+        }
+        // Las Piranha Plants no estan en los datos de enemigos: las crea el
+        // caño al dibujarse (VerticalPipe) si hay un lugar libre; si no hay,
+        // ese caño queda sin planta. No esperan ni hacen esperar a nadie.
+        if (entity.type == "piranha") {
+            if (baseX > spawnLimit) continue;
+            if (!enemySlotFree()) {
+                entitySpawned_[i] = true;
+                continue;
+            }
+        } else {
+            if (baseX > spawnLimit) break;  // todavia no: los que siguen esperan
+            if (!enemySlotFree()) break;    // sin lugar: espera
+        }
+        const float x = baseX + entity.xOffset;
 
         // row es la fila del enemigo: los pies sobre el borde de abajo.
         const float feetY = static_cast<float>(entity.row + 1) * ts;
         bool spawned = false;
-        if (entity.type == "goomba") {
+        if (entity.type == "goomba" && gPrimaryHardMode) {
+            // Segunda vuelta: los Goombas son Buzzy Beetles.
+            spawned = spawnInPool(buzzyBeetles_, [&](BuzzyBeetle& buzzy) {
+                buzzy.spawn(x, feetY - static_cast<float>(BuzzyBeetle::kSize), entity.movingRight);
+            });
+        } else if (entity.type == "goomba") {
             spawned = spawnGoomba(x, feetY - static_cast<float>(Goomba::kSize), entity.movingRight);
         } else if (entity.type == "koopa") {
             const KoopaColor color = entity.color == "red" ? KoopaColor::Red : KoopaColor::Green;
             const KoopaState state = entity.state == "jumping" ? KoopaState::Jumping
-                                     : entity.state == "flying" ? KoopaState::Flying
+                                     : (entity.state == "flying" || entity.state == "flying_h") ? KoopaState::Flying
                                                                 : KoopaState::Walking;
-            spawned = spawnLevelKoopa(x, feetY - static_cast<float>(Koopa::kWalkHeight), entity.movingRight, color, state);
+            spawned = spawnLevelKoopa(x, feetY - static_cast<float>(Koopa::kWalkHeight), entity.movingRight, color, state,
+                                      entity.state == "flying_h");
         } else if (entity.type == "buzzy") {
             spawned = spawnInPool(buzzyBeetles_, [&](BuzzyBeetle& buzzy) {
                 buzzy.spawn(x, feetY - static_cast<float>(BuzzyBeetle::kSize), entity.movingRight);
@@ -3903,20 +4609,20 @@ void Game::spawnLevelEntities() {
                 bro.spawn(x, feetY - static_cast<float>(HammerBro::kHeight), entity.movingRight);
             });
         } else if (entity.type == "lakitu") {
-            if (!lakitu_.isAlive()) lakitu_.spawn(x, static_cast<float>(entity.row) * ts, entity.movingRight);
+            if (!lakitu_.isAlive()) lakitu_.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset, entity.movingRight);
             lakituZoneActive_ = true;
-            lakituSpawnY_ = static_cast<float>(entity.row) * ts;
+            lakituSpawnY_ = static_cast<float>(entity.row) * ts + entity.yOffset;
             lakituRespawnTimer_ = 0.0f;
             spawned = true;
         } else if (entity.type == "blooper") {
             spawned = spawnInPool(bloopers_, [&](Blooper& blooper) {
-                blooper.spawn(x, static_cast<float>(entity.row) * ts);
+                blooper.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset);
             });
         } else if (entity.type == "cheep") {
             spawned = spawnInPool(levelCheeps_, [&](CheepCheep& fish) {
                 fish.setVariant(CheepCheepVariant::Swimming);
                 fish.setSwimPattern(entity.color == "red" ? SwimPattern::Oscillating : SwimPattern::Straight);
-                fish.spawn(x, static_cast<float>(entity.row) * ts, entity.movingRight);
+                fish.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset, entity.movingRight);
             });
         } else if (entity.type == "podoboo") {
             spawned = spawnInPool(podoboos_, [&](Podoboo& podoboo) {
@@ -3933,22 +4639,22 @@ void Game::spawnLevelEntities() {
             }
             bowser_.spawn(x, feetY - static_cast<float>(Bowser::kHeight), entity.movingRight);
             spawned = true;
-        } else if (entity.type == "axe") {
-            axe_.spawn(x, static_cast<float>(entity.row) * ts);
-            spawned = true;
         } else if (entity.type == "bullet_bill") {
             spawned = spawnInPool(bulletBills_, [&](BulletBill& bill) {
-                bill.spawn(x, static_cast<float>(entity.row) * ts, false);
+                bill.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset, false);
             });
-        } else if (entity.type == "firebar" || entity.type == "cheep_jump" || entity.type == "spring" || entity.type == "vine" ||
-                   entity.type == "bullet_frenzy" || entity.type == "cheep_frenzy" || entity.type == "flame_frenzy") {
-            spawned = true;  // ya armados en loadLevelData
+            // Toda bala sale con el "kaboom" (BulletBillHandler del original).
+            if (spawned) audio_.play(Sfx::BillFirework);
         } else {
             SDL_Log("Entidad de nivel desconocida '%s' (columna %d)", entity.type.c_str(), entity.col);
             spawned = true;  // no reintentar cada cuadro
         }
-        // Pool lleno: se reintenta el cuadro siguiente.
-        if (spawned) entitySpawned_[i] = true;
+        // Pool lleno: espera (y los que siguen tambien; la planta no).
+        if (!spawned) {
+            if (entity.type == "piranha") continue;
+            break;
+        }
+        entitySpawned_[i] = true;
     }
 }
 
@@ -3961,11 +4667,13 @@ bool Game::spawnGoomba(float x, float y, bool movingRight) {
     return false;
 }
 
-bool Game::spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state) {
+bool Game::spawnLevelKoopa(float x, float y, bool movingRight, KoopaColor color, KoopaState state,
+                           bool horizontalFly) {
     for (Koopa& koopa : levelKoopas_) {
         if (koopa.isAlive()) continue;
         koopa.setColor(color);
         koopa.spawn(x, y, movingRight, state);
+        koopa.setHorizontalFly(horizontalFly);
         return true;
     }
     return false;
@@ -4098,6 +4806,7 @@ void Game::execLoopback(int backCols) {
     if (twoPlayerMode_) luigi_.shiftX(-back);
     cameraX_ -= back;
     for (LoopCheck& check : loopChecks_) check.armed = true;
+    spawnArea_ = -1;  // la pantalla del original vuelve atras con el jugador
     // KillAllEnemies + releer los enemigos desde el principio: los que
     // quedan adelante de la camara vuelven a aparecer.
     for (Goomba& goomba : goombas_) goomba.reset();
@@ -4130,12 +4839,15 @@ void Game::updateFrenzies(float dt) {
                 // Desde el borde derecho a la altura del jugador (+- un poco).
                 frenzy.timer = randomRange(1.2f, 2.6f);
                 const float y = std::clamp(mario_.y() + randomRange(-24.0f, 8.0f), 48.0f, 208.0f);
-                spawnInPool(bulletBills_, [&](BulletBill& bill) { bill.spawn(right, y, false); });
+                if (enemySlotFree() && spawnInPool(bulletBills_, [&](BulletBill& bill) { bill.spawn(right, y, false); })) {
+                    audio_.play(Sfx::BillFirework);
+                }
                 break;
             }
             case Frenzy::Kind::CheepCheep: {
                 frenzy.timer = randomRange(0.8f, 2.0f);
                 const float y = randomRange(64.0f, 200.0f);
+                if (!enemySlotFree()) break;  // sin lugar libre no sale (como el original)
                 spawnInPool(levelCheeps_, [&](CheepCheep& fish) {
                     fish.setVariant(CheepCheepVariant::Swimming);
                     fish.setSwimPattern(randomRange(0.0f, 1.0f) < 0.5f ? SwimPattern::Straight : SwimPattern::Oscillating);
@@ -4153,6 +4865,7 @@ void Game::updateFrenzies(float dt) {
                 static const float kTable[8] = {3.18f, 1.07f, 3.18f, 3.18f, 3.18f, 1.07f, 1.07f, 3.18f};
                 frenzy.timer = kTable[flameTimerIndex_] + 0.53f;
                 flameTimerIndex_ = (flameTimerIndex_ + 1) % 8;
+                if (!enemySlotFree()) break;
                 for (BowserFire& fire : bowserFires_) {
                     if (fire.isAlive()) continue;
                     // El fuego se acomoda a 32/48/64 px por encima de maxY.
@@ -4180,6 +4893,7 @@ void Game::updateCannons(float dt) {
         // Pegado al canon no dispara (si no seria imposible pasarlo).
         if (std::abs(target.x() - x) < kCannonSafeDistance) continue;
         const bool right = target.x() > x;
+        if (!enemySlotFree()) continue;  // sin lugar libre no dispara (como el original)
         for (BulletBill& bill : bulletBills_) {
             if (bill.isAlive()) continue;
             bill.spawn(right ? x + ts : x - static_cast<float>(BulletBill::kSize),
@@ -4254,6 +4968,24 @@ void Game::updateLakituZone() {
     }
 }
 
+const std::string& Game::areaPalette() const {
+    static const std::string kNone;
+    if (currentArea_ < 0 || currentArea_ >= static_cast<int>(level_.areas().size())) return kNone;
+    return level_.areas()[static_cast<size_t>(currentArea_)].palette;
+}
+
+bool Game::areaSnow() const {
+    const std::string& palette = areaPalette();
+    return palette == "snow" || palette == "night_snow";
+}
+
+SDL_Color Game::skyColor() const {
+    // Noche (y la paleta de castillo en superficie): cielo negro.
+    const std::string& palette = areaPalette();
+    if (palette == "night" || palette == "night_snow" || palette == "gray") return SDL_Color{0, 0, 0, 255};
+    return backgroundColorFor(worldType_);
+}
+
 void Game::renderDecorations(bool front) {
     const int ts = level_.tileSize();
     const int camOffset = static_cast<int>(std::lround(cameraX_));
@@ -4263,7 +4995,16 @@ void Game::renderDecorations(bool front) {
             if (decoration.type != kDecorations[i].type) continue;
             const int x = decoration.col * ts - camOffset;
             if (x + kDecorations[i].width < 0 || x > gLogicalWidth) break;
-            decorationSprites_[i].draw(renderer_, 0, 0, x, decoration.row * ts, false);
+            // La nieve solo cambia la paleta 0 (colinas, arbustos, tuberia en
+            // L): el castillo (paleta 1) y las nubes (paleta 3) quedan igual.
+            // La paleta de castillo cambia todo menos las nubes.
+            const std::string& type = decoration.type;
+            const bool cloud = type.rfind("cloud", 0) == 0;
+            const bool castle = type.rfind("castle", 0) == 0;
+            const SpriteSheet& sheet = (areaPalette() == "gray" && !cloud)            ? decorationGraySprites_[i]
+                                       : (areaSnow() && !cloud && !castle) ? decorationSnowSprites_[i]
+                                                                           : decorationSprites_[i];
+            sheet.draw(renderer_, 0, 0, x, decoration.row * ts, false);
             break;
         }
     }
@@ -4288,6 +5029,11 @@ void Game::checkCoinTiles(Mario& character) {
 }
 
 void Game::startBridgeCollapse() {
+    bridgeChainGone_ = true;
+    // Tocado el hacha se terminan los fuegos (el frenesi de llamas y las
+    // que estaban en el aire), como el original.
+    frenzies_.clear();
+    for (BowserFire& fire : bowserFires_) fire.reset();
     // De la punta del hacha (derecha) hacia atras, como el original.
     bridgeTilesToCollapse_.clear();
     for (int col = level_.widthTiles() - 1; col >= 0; --col) {
@@ -4317,6 +5063,13 @@ void Game::updateBridgeCollapse(float dt) {
         audio_.play(Sfx::BowserFall);
     }
     castleClearTimer_ = kCastleClearDelay;
+    if (retainer_.x >= 0) {
+        // Camina solo hasta el Toad / la princesa (sin control del jugador).
+        castleWalk_ = true;
+        castleLines_ = 0;
+        input1_.setScripted(true, {Action::MoveRight});
+        input2_.setScripted(true, {Action::MoveRight});
+    }
 }
 
 void Game::resetCastleSequence() {
@@ -4324,6 +5077,8 @@ void Game::resetCastleSequence() {
     bridgeCollapsing_ = false;
     bridgeTilesToCollapse_.clear();
     castleClearTimer_ = 0.0f;
+    endSequence_ = EndSequence{};
+    fakeBowser_ = -1;
     levelEnding_ = false;
     timeTallying_ = false;
     levelClearTimer_ = 0.0f;
@@ -4614,7 +5369,7 @@ void Game::renderOutsideAreaMask() {
     const int camOffset = static_cast<int>(std::lround(cameraX_));
     const int left = area.startCol * ts - camOffset;
     const int right = (area.endCol + 1) * ts - camOffset;
-    const SDL_Color color = backgroundColorFor(worldType_);
+    const SDL_Color color = skyColor();
     SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, 255);
     if (left > 0) {
         const SDL_Rect band{0, 0, left, kWorldViewBottom};
@@ -4645,6 +5400,44 @@ void Game::startWithLevelFile(const std::string& path, int startCol, int startRo
     customStartCol_ = startCol;
     customStartRow_ = startRow;
     startScenario(TestScenario::CustomLevel);
+}
+
+void Game::dumpLevelMap() {
+    // Area por area (cada una con su fondo y paleta), de a una pantalla.
+    dumping_ = true;
+    const int ts = level_.tileSize();
+    const int height = kWorldViewBottom;
+    SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, level_.widthPixels(), height, 32, SDL_PIXELFORMAT_RGBA32);
+    std::vector<Uint32> pixels(static_cast<size_t>(gLogicalWidth) * height);
+    const std::vector<LevelArea>& areas = level_.areas();
+    for (size_t i = 0; i < areas.size() && out; ++i) {
+        const LevelArea& area = areas[i];
+        currentArea_ = static_cast<int>(i);
+        worldType_ = area.palette == "gray" ? WorldType::Castle : parseWorldType(area.world, levelWorldType_);
+        const int left = area.startCol * ts;
+        const int right = (area.endCol + 1) * ts;
+        for (int x = left; x < right; x += gLogicalWidth) {
+            cameraX_ = static_cast<float>(x);
+            render();
+            if (!worldTarget_) break;
+            SDL_SetRenderTarget(renderer_, worldTarget_);
+            SDL_RenderReadPixels(renderer_, nullptr, SDL_PIXELFORMAT_RGBA32, pixels.data(), gLogicalWidth * 4);
+            SDL_SetRenderTarget(renderer_, nullptr);
+            SDL_Surface* shot = SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(), gLogicalWidth, height, 32,
+                                                                   gLogicalWidth * 4, SDL_PIXELFORMAT_RGBA32);
+            if (!shot) continue;
+            SDL_SetSurfaceBlendMode(shot, SDL_BLENDMODE_NONE);
+            SDL_Rect src{0, 0, std::min(gLogicalWidth, right - x), height};
+            SDL_Rect dst{x, 0, src.w, height};
+            SDL_BlitSurface(shot, &src, out, &dst);
+            SDL_FreeSurface(shot);
+        }
+    }
+    if (out) {
+        SDL_SaveBMP(out, dumpMapPath_.c_str());
+        SDL_FreeSurface(out);
+    }
+    dumping_ = false;
 }
 
 void Game::beginWorldRender() {

@@ -298,8 +298,10 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
             starCycleIndex_ = 0;
         } else {
             starFlickerTimer_ += dt;
-            while (starFlickerTimer_ >= kStarFlickerInterval) {
-                starFlickerTimer_ -= kStarFlickerInterval;
+            const float flickerInterval =
+                invincibleTimer_ < kStarSlowFlickerAt ? kStarFlickerSlowInterval : kStarFlickerInterval;
+            while (starFlickerTimer_ >= flickerInterval) {
+                starFlickerTimer_ -= flickerInterval;
                 starCycleIndex_ = (starCycleIndex_ + 1) % 4;
             }
         }
@@ -322,12 +324,23 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
     }
 }
 
+void Mario::stepWalkAnimation(float dt) {
+    animState_ = MarioAnim::Walk;
+    walkAnimTimer_ += dt;
+    if (walkAnimTimer_ >= 0.1f) {
+        walkAnimTimer_ = 0.0f;
+        walkFrame_ = (walkFrame_ + 1) % 3;  // kWalkFrameCount (se define mas abajo)
+    }
+}
+
 void Mario::playThrowAnimation() {
     throwAnimTimer_ = kThrowAnimDuration;
 }
 
 bool Mario::consumeThrowRequest() {
-    const bool value = wantsThrow_;
+    // Como el original (ProcFireball_Bubble): agachado o trepando no se
+    // tira fuego (el boton se ignora).
+    const bool value = wantsThrow_ && !isDucking_ && !isClimbing();
     wantsThrow_ = false;
     return value;
 }
@@ -444,6 +457,39 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
 
     // --- Eje X ---
     float newX = x_ + velX_ * dt;
+    // Corriendo sobre pozos de un bloque (8-1): pasa de largo sin caer,
+    // como el original, que al tocar el borde del bloque siguiente con los
+    // pies apenas hundidos lo sube arriba en vez de frenarlo. Caminando se
+    // hunde mas y si cae.
+    auto tryStepUp = [&](int col) {
+        if (velY_ < 0.0f || std::abs(velX_) <= kMaxWalkSpeed + 1.0f) return false;
+        const float feet = y_ + static_cast<float>(currentHeight());
+        int topRow = -1;
+        const int r0 = static_cast<int>(std::floor(y_ / ts));
+        const int r1 = static_cast<int>(std::floor((feet - kEdgeEpsilon) / ts));
+        for (int row = r0; row <= r1; ++row) {
+            if (level.isSolidTile(col, row)) {
+                topRow = row;
+                break;
+            }
+        }
+        if (topRow < 0) return false;
+        const float step = feet - static_cast<float>(topRow * ts);
+        constexpr float kMaxStep = 6.0f;
+        if (step <= 0.0f || step > kMaxStep) return false;
+        const float raisedY = static_cast<float>(topRow * ts) - static_cast<float>(currentHeight());
+        const int c0 = static_cast<int>(std::floor(newX / ts));
+        const int c1 = static_cast<int>(std::floor((newX + width - kEdgeEpsilon) / ts));
+        const int rr0 = static_cast<int>(std::floor(raisedY / ts));
+        for (int c = c0; c <= c1; ++c) {
+            for (int row = rr0; row < topRow; ++row) {
+                if (level.isSolidTile(c, row)) return false;
+            }
+        }
+        y_ = raisedY;
+        velY_ = 0.0f;
+        return true;
+    };
     {
         float left = newX;
         float right = newX + width;
@@ -458,6 +504,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
                 for (int row = row0; row <= row1; ++row) {
                     if (level.isSolidTile(col, row)) { blocked = true; break; }
                 }
+                if (blocked && tryStepUp(col)) break;
                 if (blocked) {
                     newX = static_cast<float>(col * ts - width);
                     velX_ = 0.0f;
@@ -470,6 +517,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
                 for (int row = row0; row <= row1; ++row) {
                     if (level.isSolidTile(col, row)) { blocked = true; break; }
                 }
+                if (blocked && tryStepUp(col)) break;
                 if (blocked) {
                     newX = static_cast<float>((col + 1) * ts);
                     velX_ = 0.0f;
@@ -652,6 +700,29 @@ void Mario::updateAnimation(float dt, const Input& input) {
 
 void Mario::render(SDL_Renderer* renderer, float cameraX) const {
     if (hasFinishedLevel()) return;  // ya entro al castillo
+    // Entrando al castillo: en los ultimos px antes de la puerta se funde a
+    // negro (a pedido). Se restaura al salir de render, sea por donde sea.
+    struct Fade {
+        const Mario& m;
+        Uint8 value;
+        Fade(const Mario& mario, Uint8 v) : m(mario), value(v) { apply(value); }
+        ~Fade() {
+            if (value != 255) apply(255);
+        }
+        void apply(Uint8 v) const {
+            for (const SpriteSheet* sheet : {&m.spriteSmall_, &m.spriteBig_, &m.spriteFire_, &m.spriteSmallStar_,
+                                             &m.spriteBigStar_, &m.spriteFireStar_}) {
+                sheet->setBrightness(v);
+            }
+        }
+    };
+    Uint8 brightness = 255;
+    if (flagpolePhase_ == FlagpolePhase::Walk) {
+        constexpr float kFadeDistance = 24.0f;
+        const float t = std::clamp((x_ - (flagpoleExitX_ - kFadeDistance)) / kFadeDistance, 0.0f, 1.0f);
+        brightness = static_cast<Uint8>(std::lround(255.0f * (1.0f - t)));
+    }
+    const Fade fade(*this, brightness);
     const int drawXBase = static_cast<int>(std::lround(x_ - cameraX)) - (kSpriteFrameWidth - currentWidth()) / 2;
     // El frame del sprite es mas alto que el hitbox real (ver el comentario
     // de kSmallHitboxWidth en Mario.h): se dibuja mas arriba de y_ por esta

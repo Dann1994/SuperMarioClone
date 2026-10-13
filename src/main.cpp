@@ -9,6 +9,8 @@
 //   --start-col: arranca en esa columna del nivel (como un checkpoint).
 //   --start-row: con --start-col, parado con los pies sobre esa fila (para
 //                probar cosas altas sin tener que llegar).
+//   --dump-map:  con --level, guarda el mapa entero como BMP y sale (para
+//                compararlo con los mapas del original).
 int main(int argc, char** argv) {
     Game game;
     if (!game.init()) {
@@ -22,6 +24,7 @@ int main(int argc, char** argv) {
         if (arg == "--level") level = argv[i + 1];
         if (arg == "--start-col") startCol = std::atoi(argv[i + 1]);
         if (arg == "--start-row") startRow = std::atoi(argv[i + 1]);
+        if (arg == "--dump-map") game.setDumpMap(argv[i + 1]);
     }
     if (!level.empty()) game.startWithLevelFile(level, startCol, startRow);
     game.run();

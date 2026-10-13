@@ -190,7 +190,10 @@ void Bowser::update(float dt, int screenHeight) {
         // fuego en pleno salto) -- saltar SI sigue pidiendolo, no se puede
         // saltar de nuevo en el aire. Ataque primero si los dos estan
         // listos el mismo frame.
-        jumpTimer_ -= dt;
+        // El del salto cuenta solo apoyado (EnemyFrameTimer del original se
+        // arma al aterrizar): si contara en el aire, como el salto dura mas
+        // que la espera, volvia a saltar apenas tocaba el piso, sin parar.
+        if (grounded) jumpTimer_ -= dt;
         attackTimer_ -= dt;
         if (attackTimer_ <= 0.0f) {
             attackWindupTimer_ = kAttackWindupDuration;

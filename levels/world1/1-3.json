@@ -14,11 +14,13 @@
   ],
   "warps": [],
   "entities": [
+    {"type": "bullet_frenzy", "col": 18, "row": 13, "hard_only": true, "end_col": 141},
     {"type": "koopa", "col": 30, "row": 5, "color": "red"},
     {"type": "goomba", "col": 44, "row": 4},
     {"type": "goomba", "col": 46, "row": 4},
     {"type": "koopa", "col": 74, "row": 5, "color": "red", "state": "flying"},
     {"type": "goomba", "col": 80, "row": 5},
+    {"type": "bullet_frenzy", "col": 82, "row": 13, "hard_only": true, "end_col": 141},
     {"type": "koopa", "col": 110, "row": 7, "color": "red"},
     {"type": "koopa", "col": 114, "row": 6, "color": "red", "state": "flying"},
     {"type": "koopa", "col": 133, "row": 13, "color": "red"}
@@ -30,8 +32,29 @@
     {"col": 131, "row": 7, "width": 3, "mode": "horizontal", "range": 4, "period": 4}
   ],
   "decorations": [
+    {"type": "castle_wall", "col": 155, "row": 8},
+    {"type": "castle_wall", "col": 156, "row": 8},
+    {"type": "castle_wall", "col": 157, "row": 8},
+    {"type": "castle_wall", "col": 158, "row": 8},
+    {"type": "castle_wall", "col": 159, "row": 8},
+    {"type": "castle_wall", "col": 160, "row": 8},
+    {"type": "castle_wall", "col": 161, "row": 8},
+    {"type": "castle_wall", "col": 162, "row": 8},
+    {"type": "castle_wall", "col": 163, "row": 8},
+    {"type": "castle_wall", "col": 164, "row": 8},
+    {"type": "castle_wall", "col": 165, "row": 8},
+    {"type": "castle_wall", "col": 166, "row": 8},
+    {"type": "castle_wall", "col": 167, "row": 8},
+    {"type": "castle_wall", "col": 168, "row": 8},
+    {"type": "castle_wall", "col": 169, "row": 8},
+    {"type": "castle_wall", "col": 170, "row": 8},
+    {"type": "castle_wall", "col": 171, "row": 8},
+    {"type": "castle_wall", "col": 172, "row": 8},
+    {"type": "castle_wall", "col": 173, "row": 8},
+    {"type": "castle_wall", "col": 174, "row": 8},
+    {"type": "castle_wall", "col": 175, "row": 8},
     {"type": "castle_small", "col": 0, "row": 9},
-    {"type": "castle_big", "col": 157, "row": 3},
+    {"type": "castle_big", "col": 155, "row": 3},
     {"type": "cloud_big", "col": 3, "row": 4},
     {"type": "cloud_small", "col": 9, "row": 8},
     {"type": "cloud_big", "col": 18, "row": 3},
@@ -53,10 +76,7 @@
     {"type": "cloud_small", "col": 131, "row": 8},
     {"type": "cloud_small", "col": 134, "row": 7},
     {"type": "cloud_small", "col": 142, "row": 12},
-    {"type": "cloud_big", "col": 147, "row": 4},
-    {"type": "cloud_small", "col": 153, "row": 8},
-    {"type": "cloud_big", "col": 162, "row": 3},
-    {"type": "cloud_small", "col": 172, "row": 12}
+    {"type": "cloud_big", "col": 147, "row": 4}
   ],
   "rows": [
     "................................................................................................................................................................................",
@@ -73,7 +93,7 @@
     ".........................rrrrrr.....rrr..rrrrr.............?.rr........r.....rrrr........................rrrrrr......rr....rr.............SSSSSS........F.......................",
     ".........................rrrrrr..o..rrr..rrrrr...............rr........r.....rrrr.................tttt...rrrrrr......rr....rr.............SSSSSS........F.......................",
     "..................tttt...rrrrrr.ttt.rrr..rrrrr...............rr........r.....rrrr..................rr....rrrrrr..ooo.rr....rr.............SSSSSS........S.......................",
-    "###############....rr....rrrrrr..r..rrr..rrrrr....tttt.....ttttt.ttttt.r.....rrrr..................rr....rrrrrr..ttt.rr....rr...################################################",
-    "###############....rr....rrrrrr..r..rrr..rrrrr.....rr.......rrr...rrr..r.....rrrr..................rr....rrrrrr...r..rr....rr...################################################"
+    "################...rr....rrrrrr..r..rrr..rrrrr....tttt.....ttttt.ttttt.r.....rrrr..................rr....rrrrrr..ttt.rr....rr....###############################################",
+    "################...rr....rrrrrr..r..rrr..rrrrr.....rr.......rrr...rrr..r.....rrrr..................rr....rrrrrr...r..rr....rr....###############################################"
   ]
 }
