@@ -736,6 +736,10 @@ private:
     static std::string campaignLevelPath(int world, int level);
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
+    // Vibracion leve al pisar un enemigo (si la vibracion esta activada).
+    void stompRumble(const Mario& character);
+    static constexpr Uint16 kStompRumbleStrength = 0x3000;  // ~19% (lastimarse usa 0xC000)
+    static constexpr Uint32 kStompRumbleMs = 70;
     void updateRumble();
     // Guarda el puntaje como record (TOP-) si lo supera.
     void saveTopScore();
@@ -882,6 +886,9 @@ private:
 
     SpriteSheet fireballSprite_;
     SpriteSheet fireballExplosionSprite_;
+    SpriteSheet fireballGreenSprite_;            // el fuego de Luigi
+    SpriteSheet fireballExplosionGreenSprite_;
+    bool loadLuigiSprites();
     std::array<Fireball, kMaxFireballsPerPlayer> marioFireballs_;
     std::array<Fireball, kMaxFireballsPerPlayer> luigiFireballs_;
 

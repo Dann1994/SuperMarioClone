@@ -11,6 +11,8 @@ SpriteSheet::~SpriteSheet() {
 }
 
 bool SpriteSheet::loadFromFile(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight) {
+    // Si se recarga, libera la textura anterior.
+    if (texture_) SDL_DestroyTexture(texture_);
     texture_ = IMG_LoadTexture(renderer, path.c_str());
     if (!texture_) {
         SDL_Log("No se pudo cargar el spritesheet '%s': %s", path.c_str(), IMG_GetError());
@@ -48,6 +50,7 @@ bool SpriteSheet::loadRecolored(SDL_Renderer* renderer, const std::string& path,
         }
     }
     SDL_UnlockSurface(surface);
+    if (texture_) SDL_DestroyTexture(texture_);
     texture_ = SDL_CreateTextureFromSurface(renderer, surface);
     SDL_FreeSurface(surface);
     if (!texture_) return false;

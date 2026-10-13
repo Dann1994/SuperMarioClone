@@ -32,28 +32,73 @@ DEEP_BLUE = (0, 64, 152)      # 0x02, el agua profunda
 SEA_GREEN = (0, 168, 116)     # 0x1A/0x2A, las algas
 LIGHT_BLUE = (164, 228, 252)  # 0x3C
 
+# Grises con un toque de verde: Luigi en el castillo no queda igual a Mario.
+LUIGI_DARK = (60, 96, 60)
+LUIGI_LIGHT = (150, 186, 150)
+SEA_DARK = (0, 110, 76)
+# Luigi fuego en superficie (paleta pedida): gorra y overol verde lima;
+# camisa, pelo y zapatos rojos. Mismo dibujo que Mario fuego.
+FIRE_LIME = (181, 222, 49)
+FIRE_RED = (247, 57, 16)
+LIGHT_GREEN = (150, 230, 120)
+SALMON = (255, 120, 90)
+
+# Por mundo y personaje: el mapeo de cada tamano ("small"/"big"/"fire").
+# Grande y fuego siempre con colores distintos entre si (antes el blanco
+# del grande y el crema del fuego terminaban en el mismo color).
 PALETTES = {
     "underground": {
-        "mario": {RED: TEAL, OLIVE: BROWN, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_TEAL},
-        "luigi": {GREEN: DARK_TEAL, WHITE: LIGHT_TEAL, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_TEAL},
+        "mario": dict.fromkeys(("small", "big", "fire"),
+                               {RED: TEAL, OLIVE: BROWN, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_TEAL}),
+        "luigi": {
+            "small": {GREEN: DARK_TEAL, WHITE: LIGHT_TEAL, SKIN: PALE_SKIN},
+            "big": {GREEN: DARK_TEAL, WHITE: LIGHT_TEAL, SKIN: PALE_SKIN},
+            "fire": {FIRE_LIME: LIGHT_GREEN, FIRE_RED: DARK_TEAL, SKIN: PALE_SKIN},
+        },
     },
-    # Castillo: grises (como los bloques) sobre el fondo negro.
+    # Castillo: grises (como los bloques) sobre el fondo negro; Luigi con
+    # grises verdosos.
     "castle": {
-        "mario": {RED: LIGHT_GRAY, OLIVE: DARK_GRAY, SKIN: PALE_SKIN, FIRE_WHITE: WHITE},
-        "luigi": {GREEN: DARK_GRAY, SKIN: PALE_SKIN, FIRE_WHITE: WHITE},
+        "mario": dict.fromkeys(("small", "big", "fire"),
+                               {RED: LIGHT_GRAY, OLIVE: DARK_GRAY, SKIN: PALE_SKIN, FIRE_WHITE: WHITE}),
+        "luigi": {
+            "small": {GREEN: LUIGI_DARK, WHITE: LIGHT_GRAY, SKIN: PALE_SKIN},
+            "big": {GREEN: LUIGI_DARK, WHITE: LIGHT_GRAY, SKIN: PALE_SKIN},
+            "fire": {FIRE_LIME: LUIGI_LIGHT, FIRE_RED: WHITE, SKIN: PALE_SKIN},
+        },
     },
     # Agua: coral y azul profundo (Mario), verde agua y celeste (Luigi).
     "underwater": {
-        "mario": {RED: CORAL, OLIVE: DEEP_BLUE, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_BLUE},
-        "luigi": {GREEN: SEA_GREEN, WHITE: LIGHT_BLUE, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_BLUE},
+        "mario": dict.fromkeys(("small", "big", "fire"),
+                               {RED: CORAL, OLIVE: DEEP_BLUE, SKIN: PALE_SKIN, FIRE_WHITE: LIGHT_BLUE}),
+        "luigi": {
+            "small": {GREEN: SEA_GREEN, WHITE: LIGHT_BLUE, SKIN: PALE_SKIN},
+            "big": {GREEN: SEA_GREEN, WHITE: LIGHT_BLUE, SKIN: PALE_SKIN},
+            "fire": {FIRE_LIME: SEA_GREEN, FIRE_RED: SALMON, SKIN: PALE_SKIN},
+        },
     },
 }
 
 
+def build_luigi_fire():
+    """Luigi fuego (superficie) con la paleta pedida: el dibujo de Mario
+    fuego con el crema en verde lima y el rojo en el rojo de esa paleta."""
+    image = Image.open("assets/sprites/mario_fire.png").convert("RGBA")
+    pixels = image.load()
+    swap = {FIRE_WHITE: FIRE_LIME, RED: FIRE_RED}
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = pixels[x, y]
+            if a and (r, g, b) in swap:
+                pixels[x, y] = swap[(r, g, b)] + (a,)
+    image.save("assets/sprites/luigi_fire.png")
+
+
 def main():
+    build_luigi_fire()
     for world, characters in PALETTES.items():
-        for character, mapping in characters.items():
-            for size in ("small", "big", "fire"):
+        for character, sizes in characters.items():
+            for size, mapping in sizes.items():
                 image = Image.open(f"assets/sprites/{character}_{size}.png").convert("RGBA")
                 pixels = image.load()
                 for y in range(image.height):

@@ -208,6 +208,11 @@ El `.exe` se genera junto con sus DLLs y las carpetas `assets/` y `levels/` copi
     - Paratroopa verde que vuela de un lado a otro (7-3, `MoveFlyGreenPTroopa`, estado `"flying_h"`)
     - Áreas de hongos (estilo 1: zona warp del 4-2, 4-3): paleta `"mushroom"`, caños naranjas. Fondo subterráneo negro como el original
     - Se sacó la demo del título
+    - **El fuego de Luigi es verde** (`fireball_green.png` / `fireball_explosion_green.png`, recortados de `Documentaciones/Luigi_moderno.png` con `tools/asset_scripts/gen_fireball_green.py`)
+    - **Vibración al pisar un enemigo**: leve y corta (`kStompRumbleStrength` 0x3000, 70 ms) en el mando de quien pisó, si la vibración está activada (lastimarse sigue siendo fuerte: 0xC000)
+    - **Choque entre jugadores** (opción `CHOQUE ENTRE JUGADORES`, `"player_collision"`): activa o desactiva que Mario y Luigi se empujen/pisen en 2P a la vez
+    - Luigi fuego con la paleta pedida (gorra y overol verde lima, camisa/pelo/zapatos rojos; en el original es igual a Mario fuego): `gen_player_palettes.py` arma `luigi_fire.png` desde `mario_fire.png`
+    - Paletas por mundo de Luigi: grande y fuego ahora con colores distintos entre sí (antes en castillo, subterráneo y agua quedaban iguales) y con grises verdosos en el castillo para no confundirse con Mario
     - **Revisión de los 32 niveles contra los mapas originales** (exportando el mapa entero con `--dump-map` y comparándolo): el conversor ahora
       - aplica los cambios de terreno (fila E) desde la columna siguiente, como `AreaParserCore` (primero dibuja el terreno vigente, después procesa los objetos): faltaba la pared de ladrillo al entrar al subterráneo del 1-2 y el techo arrancaba un bloque antes
       - pone la escenografía de "árboles y cercos" (fondo 3: `fence`, `tree_short`, `tree_tall`, recortados de Tiles.png) que faltaba en 2-1, 3-1, 5-x, 7-1, 8-x...

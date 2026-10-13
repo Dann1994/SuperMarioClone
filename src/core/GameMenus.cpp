@@ -28,7 +28,7 @@ enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleContinue, kTitleWorldS
 enum PauseItem { kPauseResume, kPauseRestart, kPauseOptions, kPauseQuit, kPauseCount };
 // Opciones del menu de configuracion.
 enum SettingsItem { kSetDisplay, kSetWindowSize, kSetAspect, kSetFps, kSetMaster, kSetMusic, kSetSfx,
-                    kSetLanguage, kSetVibration, kSetControls, kSetBack, kSetCount };
+                    kSetLanguage, kSetVibration, kSetPlayerBump, kSetControls, kSetBack, kSetCount };
 // Filas del menu de controles: 5 acciones x 2 jugadores, 2 botones del
 // mando, restaurar, volver.
 constexpr int kActionCount = 6;
@@ -382,6 +382,7 @@ void Game::changeSetting(int index, int direction) {
         case kSetSfx: settings_.sfxVolume = std::clamp(settings_.sfxVolume + direction, 0, 10); break;
         case kSetLanguage: settings_.english = !settings_.english; break;
         case kSetVibration: settings_.vibration = !settings_.vibration; break;
+        case kSetPlayerBump: settings_.playerCollision = !settings_.playerCollision; break;
         default: return;
     }
     applySettings();
@@ -457,6 +458,7 @@ void Game::applyWindowSize() {
 
 void Game::applySettings() {
     setEnglish(settings_.english);
+    characterCollisionEnabled_ = settings_.playerCollision;
 
     // Proporcion: cambia el ancho logico (la camara se reacomoda sola).
     const int width = settings_.widescreen ? kWideLogicalWidth : kClassicWidth;
@@ -494,6 +496,12 @@ void Game::applySettings() {
                                                      : SDL_CONTROLLER_BUTTON_X;
         input.setPadButtons(jump, run);
     }
+}
+
+void Game::stompRumble(const Mario& character) {
+    // Pisar un enemigo: una vibracion leve y corta en el mando de quien piso.
+    if (!settings_.vibration) return;
+    (&character == &luigi_ ? input2_ : input1_).rumble(kStompRumbleStrength, kStompRumbleMs);
 }
 
 void Game::updateRumble() {
@@ -785,6 +793,8 @@ void Game::renderSettings() {
     values.push_back(tr(Txt::LanguageName));
     labels.push_back(tr(Txt::Vibration));
     values.push_back(onOff(settings_.vibration));
+    labels.push_back(tr(Txt::PlayerBump));
+    values.push_back(onOff(settings_.playerCollision));
     labels.push_back(tr(Txt::Controls));
     values.push_back(">");
     labels.push_back(tr(Txt::Back));

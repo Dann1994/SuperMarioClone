@@ -17,6 +17,7 @@ struct Settings {
     int sfxVolume = 10;       // 0..10
     bool english = false;     // idioma: espanol (false) o ingles (true)
     bool vibration = true;
+    bool playerCollision = true;  // Mario y Luigi chocan entre si (2P a la vez)
     // Mejor puntaje (el "TOP-" de la pantalla de titulo).
     int topScore = 0;
 

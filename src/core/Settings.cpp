@@ -35,6 +35,7 @@ bool Settings::load() {
     sfxVolume = std::clamp(json.value("sfx_volume", sfxVolume), 0, 10);
     english = json.value("language", std::string("es")) == "en";
     vibration = json.value("vibration", vibration);
+    playerCollision = json.value("player_collision", playerCollision);
     topScore = json.value("top_score", topScore);
     if (json.contains("keys")) {
         try {
@@ -63,6 +64,7 @@ bool Settings::save() const {
         {"sfx_volume", sfxVolume},
         {"language", english ? "en" : "es"},
         {"vibration", vibration},
+        {"player_collision", playerCollision},
         {"top_score", topScore},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

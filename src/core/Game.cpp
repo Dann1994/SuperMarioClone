@@ -494,20 +494,15 @@ bool Game::init() {
                             "assets/sprites/mario_big.png", "assets/sprites/mario_fire.png")) {
         return false;
     }
-    if (!luigi_.loadSprite(renderer_, "assets/sprites/luigi_small.png",
-                            "assets/sprites/luigi_big.png", "assets/sprites/luigi_fire.png")) {
-        return false;
-    }
+    if (!loadLuigiSprites()) return false;
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
     for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},
                                        {WorldType::Underground, "underground"},
                                        {WorldType::Castle, "castle"}}) {
-        for (auto& [character, name] : {std::pair<Mario*, const char*>{&mario_, "mario"}, {&luigi_, "luigi"}}) {
-            const std::string base = std::string("assets/sprites/") + name + "_";
-            character->loadPaletteSprites(renderer_, type, base + "small_" + suffix + ".png",
-                                          base + "big_" + suffix + ".png", base + "fire_" + suffix + ".png");
-        }
+        const std::string base = "assets/sprites/mario_";
+        mario_.loadPaletteSprites(renderer_, type, base + "small_" + suffix + ".png", base + "big_" + suffix + ".png",
+                                  base + "fire_" + suffix + ".png");
     }
     // Paleta de estrella: por ahora solo la variante "overworld" (falta el
     // concepto de tipo de mundo para elegir entre overworld/castle/
@@ -516,14 +511,19 @@ bool Game::init() {
                                 "assets/sprites/mario_big_star.png", "assets/sprites/mario_fire_star.png")) {
         return false;
     }
-    if (!luigi_.loadStarSprite(renderer_, "assets/sprites/luigi_small_star.png",
-                                "assets/sprites/luigi_big_star.png", "assets/sprites/luigi_fire_star.png")) {
-        return false;
-    }
+
     if (!fireballSprite_.loadFromFile(renderer_, "assets/sprites/fireball.png", Fireball::kSize, Fireball::kSize)) {
         return false;
     }
     if (!fireballExplosionSprite_.loadFromFile(renderer_, "assets/sprites/fireball_explosion.png", 16, 16)) {
+        return false;
+    }
+    // El fuego de Luigi es verde (gen_fireball_green.py).
+    if (!fireballGreenSprite_.loadFromFile(renderer_, "assets/sprites/fireball_green.png", Fireball::kSize,
+                                           Fireball::kSize)) {
+        return false;
+    }
+    if (!fireballExplosionGreenSprite_.loadFromFile(renderer_, "assets/sprites/fireball_explosion_green.png", 16, 16)) {
         return false;
     }
     if (!mushroomSprite_.loadFromFile(renderer_, "assets/sprites/mushroom.png", Mushroom::kSize, Mushroom::kSize)) {
@@ -645,7 +645,6 @@ bool Game::init() {
     if (!titleCursorSprite_.loadFromFile(renderer_, "assets/sprites/title_cursor.png", 8, 8)) return false;
     if (!hudCoinSprite_.loadFromFile(renderer_, "assets/sprites/hud_coin.png", 8, 8)) return false;
     if (!introMarioSprite_.loadFromFile(renderer_, "assets/sprites/mario_small.png", 16, 16)) return false;
-    if (!introLuigiSprite_.loadFromFile(renderer_, "assets/sprites/luigi_small.png", 16, 16)) return false;
     for (int i = 0; i < kDecorationCount; ++i) {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
@@ -1359,6 +1358,7 @@ void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*
         goomba.squish();
         character.setVelocityY(kKoopaStompBounce);
         audio_.play(Sfx::StompKill);
+        stompRumble(character);
         awardStompPoints(character, goomba.x(), goomba.y());
         return;
     }
@@ -1413,6 +1413,7 @@ void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, f
             awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
         }
         character.setVelocityY(bounce);
+        stompRumble(character);
         return;
     }
     applyContactDamage(character);
@@ -1608,6 +1609,7 @@ void Game::resolveShellEnemyContact(Mario& character, Shell& enemy, bool shellId
         enemy.stomp(&character);
         character.setVelocityY(kKoopaStompBounce);
         audio_.play(Sfx::StompKill);
+        stompRumble(character);
         awardStompPoints(character, enemy.x(), enemy.y());
         return;
     }
@@ -3633,10 +3635,18 @@ void Game::render() {
                              (retainer_.y + 1) * ts - 24, false);
     }
     if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &mario_)) renderCharacter(mario_, marioPlatform_);
-    for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
+    // Jugando solo con Luigi, el personaje 1 es Luigi: su fuego tambien es verde.
+    {
+        const bool luigiFire = playAsLuigi_ && !twoPlayerMode_;
+        const SpriteSheet& ball = luigiFire ? fireballGreenSprite_ : fireballSprite_;
+        const SpriteSheet& boom = luigiFire ? fireballExplosionGreenSprite_ : fireballExplosionSprite_;
+        for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_);
+    }
     if (twoPlayerMode_) {
         if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
-        for (const Fireball& fireball : luigiFireballs_) fireball.render(renderer_, fireballSprite_, fireballExplosionSprite_, cameraX_);
+        for (const Fireball& fireball : luigiFireballs_) {
+            fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_);
+        }
     }
     renderDecorations(true);
     renderFireworks();
@@ -3789,6 +3799,25 @@ void Game::run() {
             fpsWindowStart = nowTicks;
         }
     }
+}
+
+bool Game::loadLuigiSprites() {
+    // Hojas de Luigi, sus paletas por mundo (gen_player_palettes.py) y la de
+    // estrella.
+    const std::string base = "assets/sprites/luigi_";
+    if (!luigi_.loadSprite(renderer_, base + "small.png", base + "big.png", base + "fire.png")) return false;
+    for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},
+                                       {WorldType::Underground, "underground"},
+                                       {WorldType::Castle, "castle"}}) {
+        luigi_.loadPaletteSprites(renderer_, type, base + "small_" + suffix + ".png", base + "big_" + suffix + ".png",
+                                  base + "fire_" + suffix + ".png");
+    }
+    if (!luigi_.loadStarSprite(renderer_, base + "small_star.png", base + "big_star.png", base + "fire_star.png")) {
+        return false;
+    }
+    if (!introLuigiSprite_.loadFromFile(renderer_, base + "small.png", 16, 16)) return false;
+    luigi_.setWorldType(worldType_);
+    return true;
 }
 
 void Game::shutdown() {

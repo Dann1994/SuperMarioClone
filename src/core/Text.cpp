@@ -84,6 +84,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"POR TURNOS", "TAKE TURNS"},
     {"MUNDO", "WORLD"},
     {"TIEMPO", "TIME"},
+    {"CHOQUE ENTRE JUGADORES", "PLAYERS BUMP"},
 }};
 
 }  // namespace
