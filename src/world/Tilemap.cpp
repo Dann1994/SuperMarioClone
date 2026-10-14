@@ -33,6 +33,15 @@ nlohmann::json arrayField(const nlohmann::json& json, const char* key) {
 bool Tilemap::loadFromJson(const nlohmann::json& json) {
     tileSize_ = json.value("tile_size", 16);
     world_ = json.value("world", std::string());
+    // "night" / "snow" / "night_snow": tipos de mundo que son superficie con
+    // otra variante de colores (BackgroundColorCtrl 4/5/6 del original: la
+    // noche solo pone el cielo negro; la nieve cambia la paleta 0, canos y
+    // arboles blancos).
+    const auto overworldVariant = [](const std::string& world) {
+        return world == "night" || world == "snow" || world == "night_snow";
+    };
+    const std::string variantPalette = overworldVariant(world_) ? world_ : std::string();
+    if (!variantPalette.empty()) world_ = "overworld";
     name_ = json.value("name", std::string("TEST"));
     timeLimit_ = json.value("time", 400);
     checkpointCols_.clear();
@@ -65,6 +74,9 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         warps_.push_back(warp);
     }
     areas_.clear();
+    // "palette" del nivel (lo pone el editor sin areas): la de las areas que
+    // no tienen una propia.
+    const std::string levelPalette = json.value("palette", variantPalette);
     for (const auto& entry : arrayField(json, "areas")) {
         LevelArea area;
         area.startCol = entry.at("start").get<int>();
@@ -73,7 +85,8 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         area.fallCol = entry.value("fall_col", -1);
         area.fallRow = entry.value("fall_row", 2);
         area.cloud = entry.value("cloud", false);
-        area.palette = entry.value("palette", std::string());
+        area.palette = entry.value("palette", overworldVariant(area.world) ? area.world : levelPalette);
+        if (overworldVariant(area.world)) area.world = "overworld";
         areas_.push_back(area);
     }
     decorations_.clear();
@@ -136,7 +149,10 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     // Sin "areas" en el JSON: una sola que cubre todo el nivel. Recien aca,
     // con width_ ya calculado para ESTE nivel (antes usaba el del nivel
     // cargado anteriormente, o 0 en el primero).
-    if (areas_.empty()) areas_.push_back(LevelArea{0, width_ - 1, std::string()});
+    if (areas_.empty()) {
+        areas_.push_back(LevelArea{0, width_ - 1, std::string()});
+        areas_.back().palette = json.value("palette", variantPalette);
+    }
     solid_.assign(static_cast<size_t>(width_) * height_, 0);
     platform_.assign(static_cast<size_t>(width_) * height_, 0);
     brick_.assign(static_cast<size_t>(width_) * height_, 0);

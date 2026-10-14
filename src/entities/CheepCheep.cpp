@@ -106,11 +106,11 @@ void CheepCheep::render(SDL_Renderer* renderer, const SpriteSheet& sprite, float
     if (falling_) {
         // Boca abajo, frame quieto (no tiene un frame "muerto" propio
         // recortado del sheet, mismo criterio que Goomba/HammerBro).
-        sprite.draw(renderer, 0, 0, drawX, drawY, velX_ < 0.0f, true);
+        sprite.draw(renderer, renderRow_, 0, drawX, drawY, velX_ < 0.0f, true);
         return;
     }
     // El arte fuente mira a la izquierda por defecto (mismo criterio que el
     // resto del elenco): se flipea mirando a la derecha. Alterna sus dos
     // frames en las dos variantes (nado/salto).
-    sprite.draw(renderer, 0, animFrame_, drawX, drawY, lastFacingRight_);
+    sprite.draw(renderer, renderRow_, animFrame_, drawX, drawY, lastFacingRight_);
 }

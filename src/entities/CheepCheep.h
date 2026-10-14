@@ -87,6 +87,12 @@ public:
     // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de
     // dibujar.
     void render(SDL_Renderer* renderer, const SpriteSheet& sprite, float cameraX = 0.0f) const;
+    // El gris del original (EnemyAttributeData: paleta de sprites 1, la
+    // "verde"): cambia con el tipo de mundo, a diferencia del rojo. Game
+    // elige el sheet (cheep_cheep_gray.png) y la fila con esto.
+    void setGray(bool gray) { gray_ = gray; }
+    bool isGray() const { return gray_; }
+    void setRenderRow(int row) { renderRow_ = row; }
 
     bool isAlive() const { return alive_; }
     bool isFalling() const { return falling_; }
@@ -148,4 +154,6 @@ private:
     bool lastFacingRight_ = true;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
+    bool gray_ = false;
+    int renderRow_ = 0;   // fila del sheet (el gris va por tipo de mundo)
 };

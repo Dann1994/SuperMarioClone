@@ -93,6 +93,8 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"SELECCIONAR", "SELECT"},
     {"PARTIDA +", "NEW GAME +"},
     {"OPCIONES EXTRA", "EXTRA OPTIONS"},
+    {"APRETA EL BOTON B", "PUSH BUTTON B"},
+    {"PARA ELEGIR UN MUNDO", "TO SELECT A WORLD"},
     {"ESTA SEGURO QUE QUIERE", "ARE YOU SURE YOU WANT"},
     {"CERRAR EL JUEGO?", "TO QUIT THE GAME?"},
     {"SI", "YES"},

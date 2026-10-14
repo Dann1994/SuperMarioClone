@@ -531,6 +531,8 @@ private:
     // Cuenta del tiempo que sobro + cartel de nivel completo, sea por la
     // bandera o por el hacha del castillo.
     void updateLevelClear(float dt);
+    bool isFinalCastle() const;
+    void finishFinalEnding();
     // Bandera de meta (seccion 5.3, ver Flagpole.h): si el personaje toca el
     // mastil lo agarra (Mario::startFlagpoleGrab), suena flagpole.wav, sale
     // el puntaje segun la altura del agarre y la bandera empieza a bajar.
@@ -1146,6 +1148,7 @@ private:
     // llaman una sola vez en init()) que comparten sprite con la Jumping
     // (una sola paleta, ver CheepCheep.h). Tecla N las repone.
     SpriteSheet cheepCheepSprite_;
+    SpriteSheet cheepCheepGraySprite_;   // el gris: una fila por tipo de mundo
     CheepCheep cheepCheepSwim_;     // SwimPattern::Straight
     CheepCheep cheepCheepSwimOsc_;  // SwimPattern::Oscillating
     // Las que nadan en los niveles de agua (campo "entities", tipo "cheep").
@@ -1300,6 +1303,16 @@ private:
     SpriteSheet retainerSprite_;
     bool castleWalk_ = false;
     int castleLines_ = 0;         // renglones del mensaje a la vista (0 = ninguno)
+    // Final del juego (la princesa del 8-4), como PrintVictoryMessages del
+    // original: un renglon por cada "tic" de 64 cuadros (THANK YOU, dos tics
+    // sin nada, YOUR QUEST IS OVER + el tema de la princesa, WE PRESENT YOU
+    // A NEW QUEST, PUSH BUTTON B, TO SELECT A WORLD) y despues espera un
+    // boton para volver al titulo.
+    bool finalEnding_ = false;
+    float finalTimer_ = 0.0f;
+    int finalLines_ = 0;          // contador de mensajes del original (0..7)
+    bool finalMusic_ = false;     // ya suena el tema de la princesa
+    bool finalWaiting_ = false;   // todo a la vista: espera un boton
     float castleMessageTimer_ = 0.0f;
     SDL_Point bridgeChain_{-1, -1};
     bool bridgeChainGone_ = false;

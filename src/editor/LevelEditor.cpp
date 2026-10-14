@@ -84,17 +84,44 @@ bool isBlockTile(char tile) { return tile == '?' || tile == 'D' || tile == 'H'; 
 
 const char* const kTabNames[] = {"TERRENO", "ITEMS", "ENEMIGOS", "OBJETOS"};
 const char* const kButtonNames[] = {"MOVER",  "GOMA",       "SELECCION", "DESHACER", "BORRAR TODO", "PROBAR",
-                                    "PROBAR ACA", "SUBAREA", "NIVELES",   "GUARDAR",  "COMANDOS",    "MUNDO"};
+                                    "PROBAR ACA", "SUBAREA", "NIVELES",   "GUARDAR",  "COMANDOS",    "PALETA", "MUNDO"};
 // Botones del cartel de cambios sin guardar.
 const char* const kLeaveButtons[] = {"GUARDAR Y SALIR", "SALIR SIN GUARDAR", "CANCELAR"};
 
 // Nombre del tipo de mundo para el boton MUNDO.
 const char* worldLabel(const std::string& world) {
     if (world == "overworld") return "SUPERFICIE";
+    if (world == "night") return "NOCHE";
+    if (world == "snow") return "NIEVE";
+    if (world == "night_snow") return "NOCHE NEVADA";
     if (world == "underground") return "SUBTERRANEO";
     if (world == "underwater") return "AGUA";
     if (world == "castle") return "CASTILLO";
     return "AUTOMATICO";
+}
+
+// Variantes de colores en el orden del boton PALETA.
+const char* const kPalettes[] = {"", "night", "snow", "night_snow", "gray", "mushroom"};
+
+const char* paletteLabel(const std::string& palette) {
+    if (palette == "night") return "NOCHE";
+    if (palette == "snow") return "NIEVE";
+    if (palette == "night_snow") return "NOCHE NEVADA";
+    if (palette == "gray") return "GRIS";
+    if (palette == "mushroom") return "HONGOS";
+    return "NORMAL";
+}
+
+// Variante de colores de un area (o del nivel, area == nullptr): la suya, la
+// del nivel, o "night" si el tipo de mundo es NOCHE (superficie con el cielo
+// negro, como el BackgroundColorCtrl 4 del original).
+std::string paletteOf(const nlohmann::json& meta, const nlohmann::json* area) {
+    std::string palette = area ? area->value("palette", std::string()) : std::string();
+    if (palette.empty()) palette = meta.value("palette", std::string());
+    const std::string world = area ? area->value("world", meta.value("world", std::string()))
+                                   : meta.value("world", std::string());
+    if (palette.empty() && (world == "night" || world == "snow" || world == "night_snow")) palette = world;
+    return palette;
 }
 
 // Listas del JSON que guardan objetos con "col"/"row" (los que se copian,
@@ -163,6 +190,7 @@ bool LevelEditor::init() {
     lakituSprite_.loadFromFile(renderer_, dir + "lakitu.png", 16, 24);
     blooperSprite_.loadFromFile(renderer_, dir + "blooper.png", 16, 24);
     cheepSprite_.loadFromFile(renderer_, dir + "cheep_cheep.png", 16, 16);
+    cheepGraySprite_.loadFromFile(renderer_, dir + "cheep_cheep_gray.png", 16, 16);
     bulletBillSprite_.loadFromFile(renderer_, dir + "bullet_bill.png", 16, 16);
     podobooSprite_.loadFromFile(renderer_, dir + "podoboo.png", 16, 16);
     bowserSprite_.loadFromFile(renderer_, dir + "bowser.png", 32, 32);
@@ -1184,6 +1212,42 @@ void LevelEditor::cycleWorld() {
     markDirty();
 }
 
+int LevelEditor::viewCenterCol() const {
+    return static_cast<int>(cameraX_) / kTile + kViewWidth / kTile / 2;
+}
+
+void LevelEditor::cyclePalette() {
+    pushUndo();
+    const int col = viewCenterCol();
+    const std::string current = areaPaletteAt(col);
+    size_t index = 0;
+    while (index < std::size(kPalettes) && current != kPalettes[index]) ++index;
+    const std::string next = index + 1 < std::size(kPalettes) ? kPalettes[index + 1] : kPalettes[0];
+    // Un "world" viejo de noche/nieve pasa a ser superficie + paleta.
+    const auto plainWorld = [](nlohmann::json& owner) {
+        const std::string world = owner.value("world", std::string());
+        if (world == "night" || world == "snow" || world == "night_snow") owner["world"] = "overworld";
+    };
+    bool done = false;
+    auto found = meta_.find("areas");
+    if (found != meta_.end() && found->is_array()) {
+        for (auto& area : *found) {
+            if (col < area.value("start", 0) || col > area.value("end", 0)) continue;
+            plainWorld(area);
+            area["palette"] = next;   // "" tambien: que no herede la del nivel
+            done = true;
+            break;
+        }
+    }
+    if (!done) {
+        plainWorld(meta_);
+        if (next.empty()) meta_.erase("palette");
+        else meta_["palette"] = next;
+    }
+    showMessage(std::string("PALETA: ") + paletteLabel(next));
+    markDirty();
+}
+
 void LevelEditor::addSubArea() {
     // Subarea (Mario Maker): un tramo aparte en el mismo mapa, a la derecha,
     // con camara propia (campo "areas" del nivel). Se conecta con tuberias (P).
@@ -1342,8 +1406,9 @@ bool LevelEditor::mouseToCell(int x, int y, int& col, int& row) const {
 
 SDL_Rect LevelEditor::buttonRect(Button button) const {
     const int i = static_cast<int>(button);
-    if (button == Button::World) return SDL_Rect{kPaletteX + 2, kButtonsY + 6 * 16 - 2, 124, 14};
+    if (button == Button::World) return SDL_Rect{kPaletteX + 2, kButtonsY + 7 * 16, 124, 14};
     if (button == Button::Commands) return SDL_Rect{kPaletteX + 2, kButtonsY + 5 * 16, 124, 14};
+    if (button == Button::Palette) return SDL_Rect{kPaletteX + 2, kButtonsY + 6 * 16, 124, 14};
     return SDL_Rect{kPaletteX + 2 + (i % 2) * 63, kButtonsY + (i / 2) * 16, 61, 14};
 }
 
@@ -1429,6 +1494,9 @@ void LevelEditor::pressButton(Button button) {
             break;
         case Button::SubArea:
             addSubArea();
+            break;
+        case Button::Palette:
+            cyclePalette();
             break;
         case Button::World:
             cycleWorld();
@@ -1889,6 +1957,7 @@ void LevelEditor::handleKey(const SDL_KeyboardEvent& key) {
         showGrid_ = !showGrid_;
     } else if (code == SDLK_w) {
         cycleWorld();
+
     } else if (code == SDLK_s && hoverCol_ >= 0) {
         shakeAt(hoverCol_, hoverRow_);
     } else if (code == SDLK_a && hoverCol_ >= 0) {
@@ -1933,17 +2002,21 @@ void LevelEditor::handleKey(const SDL_KeyboardEvent& key) {
 
 std::string LevelEditor::areaPaletteAt(int col) const {
     for (const auto& area : meta_.value("areas", nlohmann::json::array())) {
-        if (col >= area.value("start", 0) && col <= area.value("end", 0)) return area.value("palette", std::string());
+        if (col >= area.value("start", 0) && col <= area.value("end", 0)) return paletteOf(meta_, &area);
     }
-    return "";
+    return paletteOf(meta_, nullptr);
 }
 
 int LevelEditor::areaRowAt(int col) const {
     for (const auto& area : meta_.value("areas", nlohmann::json::array())) {
         if (col < area.value("start", 0) || col > area.value("end", 0)) continue;
-        if (area.value("palette", std::string()) == "gray") return static_cast<int>(WorldType::Castle);
+        if (paletteOf(meta_, &area) == "gray") {
+            return static_cast<int>(WorldType::Castle);
+        }
         return static_cast<int>(worldTypeFromName(area.value("world", meta_.value("world", std::string()))));
     }
+    // Sin areas: la paleta del nivel (GRIS = colores de castillo, como el mapa).
+    if (paletteOf(meta_, nullptr) == "gray") return static_cast<int>(WorldType::Castle);
     return worldRow();
 }
 
@@ -2006,13 +2079,17 @@ void LevelEditor::renderLevel() {
     };
     std::vector<AreaView> areaViews;
     for (const auto& area : meta_.value("areas", nlohmann::json::array())) {
-        const std::string palette = area.value("palette", std::string());
+        const std::string palette = paletteOf(meta_, &area);
         const bool gray = palette == "gray";
         const WorldType world = gray ? WorldType::Castle : worldTypeFromName(area.value("world", meta_.value("world", std::string())));
         areaViews.push_back({area.value("start", 0), area.value("end", widthTiles() - 1), world,
                              palette == "night" || palette == "night_snow" || gray});
     }
-    if (areaViews.empty()) areaViews.push_back({0, widthTiles() - 1, levelWorld, false});
+    if (areaViews.empty()) {
+        const std::string palette = paletteOf(meta_, nullptr);
+        areaViews.push_back({0, widthTiles() - 1, palette == "gray" ? WorldType::Castle : levelWorld,
+                             palette == "night" || palette == "night_snow" || palette == "gray"});
+    }
     // Lo que no es de ningun area (columnas separadoras): el mundo del nivel.
     {
         const SDL_Color bg = backgroundColorFor(levelWorld);
@@ -2161,10 +2238,20 @@ LevelEditor::EntitySprite LevelEditor::entitySprite(const nlohmann::json& entity
     if (type == "hammer_bro") return byWorld(hammerBroSprite_, 16, 24);
     if (type == "lakitu") return byWorld(lakituSprite_, 16, 24);
     if (type == "blooper") return byWorld(blooperSprite_, 16, 24);
-    if (type == "cheep") return single(cheepSprite_, 16, 16);
+    if (type == "cheep") {
+        // El rojo es igual en todos los mundos; el gris va por tipo de mundo.
+        if (entity.value("color", std::string()) == "red") return single(cheepSprite_, 16, 16);
+        return byWorld(cheepGraySprite_, 16, 16);
+    }
     if (type == "bullet_bill") return byWorld(bulletBillSprite_, 16, 16);
     if (type == "podoboo") return single(podobooSprite_, 16, 16);
-    if (type == "bowser") return byWorld(bowserSprite_, 32, 32);
+    if (type == "bowser") {
+        // Como el juego: en el castillo, la paleta verde de superficie
+        // (BowserPaletteData del original).
+        EntitySprite sprite = byWorld(bowserSprite_, 32, 32);
+        if (sprite.row == static_cast<int>(WorldType::Castle)) sprite.row = static_cast<int>(WorldType::Overworld);
+        return sprite;
+    }
     if (type == "axe") return single(axeSprite_, 16, 16);
     if (type == "spring") return single(springSprite_, 16, 24);
     if (type == "retainer") {
@@ -2172,7 +2259,7 @@ LevelEditor::EntitySprite LevelEditor::entitySprite(const nlohmann::json& entity
         return single(retainerSprite_, 16, 24, (!name.empty() && name[0] == '8') ? 1 : 0);
     }
     if (type == "bridge_chain") return single(bridgeChainSprite_, 16, 16);
-    if (type == "vine") return single(vineSprite_, 16, 16);
+    if (type == "vine") return byWorld(vineSprite_, 16, 16);
     return EntitySprite{};
 }
 
@@ -2339,12 +2426,35 @@ void LevelEditor::renderOverlays() {
     }
 
     if (showGrid_) {
-        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 28);
+        // Lineas de 1 pixel de la ventana (no de la vista logica, que con la
+        // ventana agrandada las hacia de 3-4 px): se dibuja sin la escala y
+        // se pasa cada coordenada a pixeles reales.
+        float sx = 1.0f;
+        float sy = 1.0f;
+        SDL_RenderGetScale(renderer_, &sx, &sy);
+        SDL_Rect vp;
+        SDL_RenderGetViewport(renderer_, &vp);
+        SDL_Rect clip;
+        SDL_RenderGetClipRect(renderer_, &clip);
+        const bool clipped = SDL_RenderIsClipEnabled(renderer_);
+        SDL_RenderSetLogicalSize(renderer_, 0, 0);
+        SDL_RenderSetScale(renderer_, 1.0f, 1.0f);
+        const auto realX = [&](int x) { return static_cast<int>((vp.x + x) * sx); };
+        const auto realY = [&](int y) { return static_cast<int>((vp.y + y) * sy); };
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 40);
         for (int c = 0; c <= widthTiles(); ++c) {
             const int x = c * kTile - cam;
-            if (x >= 0 && x <= kViewWidth) SDL_RenderDrawLine(renderer_, x, 0, x, kViewHeight);
+            if (x >= 0 && x <= kViewWidth) SDL_RenderDrawLine(renderer_, realX(x), realY(0), realX(x), realY(kViewHeight));
         }
-        for (int r = 0; r <= heightTiles(); ++r) SDL_RenderDrawLine(renderer_, 0, r * kTile, kViewWidth, r * kTile);
+        for (int r = 0; r <= heightTiles(); ++r) {
+            SDL_RenderDrawLine(renderer_, realX(0), realY(r * kTile), realX(kViewWidth), realY(r * kTile));
+        }
+        // Volver a la vista logica con el mismo viewport (el mapa va corrido
+        // kTopBar hacia abajo) y recorte: si no, lo que se dibuja despues
+        // (el cuadro bajo el mouse, la seleccion) queda desfasado.
+        SDL_RenderSetLogicalSize(renderer_, kWidth, kHeight);
+        SDL_RenderSetViewport(renderer_, &vp);
+        SDL_RenderSetClipRect(renderer_, clipped ? &clip : nullptr);
     }
     // Borde derecho del nivel.
     fillRect({widthTiles() * kTile - cam, 0, 2, kViewHeight}, kRed);
@@ -2396,11 +2506,24 @@ void LevelEditor::renderOverlays() {
 
 void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int levelRow) {
     const SDL_Rect icon{cell.x + (cell.w - 16) / 2, cell.y + 3, 16, 16};
+    // Misma variante de colores que el area que se ve (PALETA), como el mapa.
+    const std::string palette = areaPaletteAt(viewCenterCol());
+    const bool gray = palette == "gray";
+    const bool snow = palette == "snow" || palette == "night_snow";
+    const bool mushroom = palette == "mushroom";
+    const int tileRow = gray ? 0 : levelRow;
+    const SpriteSheet& terrain = gray ? terrainGraySprite_ : terrainSprite_;
+    const SpriteSheet& scenery = gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_;
+    const SpriteSheet& pipe = snow ? pipeSnowSprite_ : mushroom ? pipeMushroomSprite_ : pipeSprite_;
+    const SpriteSheet& pipeSide = gray || levelRow == static_cast<int>(WorldType::Castle) ? pipeSideVariants_[1]
+                                  : snow                                                  ? pipeSideVariants_[0]
+                                  : levelRow == static_cast<int>(WorldType::Underground)  ? pipeSideVariants_[2]
+                                                                                          : pipeSideSlices_;
     switch (tool.kind) {
         case ToolKind::Tile:
             switch (tool.tile) {
-                case '#': terrainSprite_.drawScaled(renderer_, levelRow, 0, icon); break;
-                case 'S': terrainSprite_.drawScaled(renderer_, levelRow, 1, icon); break;
+                case '#': terrain.drawScaled(renderer_, tileRow, 0, icon); break;
+                case 'S': terrain.drawScaled(renderer_, tileRow, 1, icon); break;
                 case 'B': brickSprite_.drawScaled(renderer_, levelRow, 0, icon); break;
                 case 'C':
                     brickSprite_.drawScaled(renderer_, levelRow, 0, {icon.x, icon.y + 6, 16, 10});
@@ -2416,14 +2539,14 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
                     drawText(icon.x + 6, icon.y + 5, "H", kCyan);
                     break;
                 case 'o': coinSprite_.drawScaled(renderer_, levelRow, 0, icon); break;
-                case 'T': pipeSprite_.drawScaled(renderer_, levelRow, 0, {icon.x - 4, icon.y + 4, 24, 12}); break;
+                case 'T': pipe.drawScaled(renderer_, levelRow, 0, {icon.x - 4, icon.y + 4, 24, 12}); break;
                 case 'Y':
-                    pipeSideSlices_.drawScaled(renderer_, 2, 0, {icon.x - 2, icon.y + 2, 8, 8});
-                    pipeSideSlices_.drawScaled(renderer_, 3, 0, {icon.x - 2, icon.y + 10, 8, 8});
-                    pipeSideSlices_.drawScaled(renderer_, 2, 1, {icon.x + 6, icon.y + 2, 8, 8});
-                    pipeSideSlices_.drawScaled(renderer_, 3, 1, {icon.x + 6, icon.y + 10, 8, 8});
-                    pipeSideSlices_.drawScaled(renderer_, 2, 1, {icon.x + 14, icon.y + 2, 8, 8});
-                    pipeSideSlices_.drawScaled(renderer_, 3, 1, {icon.x + 14, icon.y + 10, 8, 8});
+                    pipeSide.drawScaled(renderer_, 2, 0, {icon.x - 2, icon.y + 2, 8, 8});
+                    pipeSide.drawScaled(renderer_, 3, 0, {icon.x - 2, icon.y + 10, 8, 8});
+                    pipeSide.drawScaled(renderer_, 2, 1, {icon.x + 6, icon.y + 2, 8, 8});
+                    pipeSide.drawScaled(renderer_, 3, 1, {icon.x + 6, icon.y + 10, 8, 8});
+                    pipeSide.drawScaled(renderer_, 2, 1, {icon.x + 14, icon.y + 2, 8, 8});
+                    pipeSide.drawScaled(renderer_, 3, 1, {icon.x + 14, icon.y + 10, 8, 8});
                     break;
                 case 'L': lavaSprite_.drawScaled(renderer_, 0, 0, icon); break;
                 case 'b': bridgeSprite_.drawScaled(renderer_, 0, 0, icon); break;
@@ -2432,22 +2555,24 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
                     drawRect(icon, kGray);
                     drawText(icon.x + 6, icon.y + 5, "X", kGray);
                     break;
-                case 't': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 1, icon); break;
-                case 'r': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 3, icon); break;
-                case 'm': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 5, icon); break;
-                case 'n': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 8, icon); break;
-                case 'R': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 10, icon); break;
+                case 't': scenery.drawScaled(renderer_, levelRow, 1, icon); break;
+                case 'r': scenery.drawScaled(renderer_, levelRow, 3, icon); break;
+                case 'm': scenery.drawScaled(renderer_, levelRow, 5, icon); break;
+                case 'n': scenery.drawScaled(renderer_, levelRow, 8, icon); break;
+                case 'R': scenery.drawScaled(renderer_, levelRow, 10, icon); break;
                 case 'K': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 11, icon); break;
-                case 'c': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 14, icon); break;
-                case 'W': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 16, icon); break;
-                case 'w': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 18, icon); break;
+                case 'c': scenery.drawScaled(renderer_, levelRow, 14, icon); break;
+                case 'W': scenery.drawScaled(renderer_, levelRow, 16, icon); break;
+                case 'w': scenery.drawScaled(renderer_, levelRow, 18, icon); break;
+                // Bloque de nube: no usa la paleta de la escenografia (como en el mapa).
+                case 'N': sceneryTilesSprite_.drawScaled(renderer_, levelRow, 19, icon); break;
                 default: break;
             }
             break;
         case ToolKind::Goal:
-            flagpoleSprite_.drawScaled(renderer_, levelRow, 0, {icon.x, icon.y - 2, 16, 6});
-            flagpoleSprite_.drawScaled(renderer_, levelRow, 1, {icon.x, icon.y + 4, 16, 9});
-            terrainSprite_.drawScaled(renderer_, levelRow, 1, {icon.x + 4, icon.y + 13, 8, 6});
+            (snow ? flagpoleSnowSprite_ : flagpoleSprite_).drawScaled(renderer_, levelRow, 0, {icon.x, icon.y - 2, 16, 6});
+            (snow ? flagpoleSnowSprite_ : flagpoleSprite_).drawScaled(renderer_, levelRow, 1, {icon.x, icon.y + 4, 16, 9});
+            terrain.drawScaled(renderer_, tileRow, 1, {icon.x + 4, icon.y + 13, 8, 6});
             break;
         case ToolKind::Item: {
             const SpriteSheet* sprite = &coinSprite_;
@@ -2488,7 +2613,12 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
             const float scale = std::min(26.0f / static_cast<float>(info.width), 18.0f / static_cast<float>(info.height));
             const int w = static_cast<int>(static_cast<float>(info.width) * scale);
             const int h = static_cast<int>(static_cast<float>(info.height) * scale);
-            decorationSprites_[index].drawScaled(renderer_, 0, 0, {cell.x + (cell.w - w) / 2, cell.y + 21 - h, w, h});
+            const bool cloud = tool.type.rfind("cloud", 0) == 0;
+            const bool castle = tool.type.rfind("castle", 0) == 0;
+            const SpriteSheet& sheet = gray && !cloud              ? decorationGraySprites_[index]
+                                       : snow && !cloud && !castle ? decorationSnowSprites_[index]
+                                                                   : decorationSprites_[index];
+            sheet.drawScaled(renderer_, 0, 0, {cell.x + (cell.w - w) / 2, cell.y + 21 - h, w, h});
             break;
         }
         case ToolKind::Platform: {
@@ -2553,7 +2683,7 @@ void LevelEditor::renderPalette() {
             continue;
         }
         if (pageTools[i] == selectedTool_) fillRect(cell, kPanelLight);
-        drawToolIcon(tools_[pageTools[i]], cell, levelRow);
+        drawToolIcon(tools_[pageTools[i]], cell, areaRowAt(viewCenterCol()));
         if (pageTools[i] == selectedTool_) drawRect(cell, kYellow);
     }
     // Botones (goma, seleccion, deshacer, borrar todo, probar, subarea).
@@ -2568,9 +2698,11 @@ void LevelEditor::renderPalette() {
         if (button == Button::Reset && confirmReset_) color = SDL_Color{130, 40, 40, 255};
         fillRect(rect, color);
         drawRect(rect, active ? kYellow : kGray);
-        const std::string label = button == Button::World
+        std::string label = button == Button::World
             ? std::string("MUNDO: ") + worldLabel(meta_.value("world", std::string()))
             : std::string(kButtonNames[i]);
+        if (button == Button::Palette) label = std::string("PALETA: ") + paletteLabel(areaPaletteAt(viewCenterCol()));
+
         if (button == Button::Move) {
             drawArrowIcon(rect.x + 4, rect.y + 2, active ? kYellow : kWhite);
             drawText(rect.x + 16, rect.y + 5, label, active ? kYellow : kWhite);
@@ -2770,7 +2902,7 @@ void LevelEditor::renderStructureMap() {
         }
         const nlohmann::json area = box.area >= 0 ? areas[static_cast<size_t>(box.area)] : nlohmann::json::object();
         const std::string world = area.value("world", meta_.value("world", std::string("overworld")));
-        const std::string palette = area.value("palette", std::string());
+        const std::string palette = paletteOf(meta_, &area);
         SDL_Color bg = box.band == 0 ? SDL_Color{110, 170, 250, 255}
                        : (world == "underground" || world == "castle" || palette == "night" ||
                           palette == "night_snow" || palette == "gray") ? SDL_Color{12, 12, 20, 255}
@@ -2961,7 +3093,7 @@ void LevelEditor::renderPreviewTexture() {
         if (left >= 512 || right <= 0) continue;
         const SDL_Rect clip{left, 0, std::min(512, right) - left, 256};
         SDL_RenderSetClipRect(renderer_, &clip);
-        const std::string palette = area.value("palette", std::string());
+        const std::string palette = paletteOf(previewMeta_, &area);
         const WorldType world = palette == "gray" ? WorldType::Castle
                                 : worldTypeFromName(area.value("world", previewMeta_.value("world", std::string())));
         const int areaRow = static_cast<int>(world);

@@ -574,6 +574,10 @@ bool Game::init() {
                                          CheepCheep::kSize)) {
         return false;
     }
+    if (!cheepCheepGraySprite_.loadFromFile(renderer_, "assets/sprites/cheep_cheep_gray.png", CheepCheep::kSize,
+                                            CheepCheep::kSize)) {
+        return false;
+    }
     if (!bulletBillSprite_.loadFromFile(renderer_, "assets/sprites/bullet_bill.png", BulletBill::kSize,
                                          BulletBill::kSize)) {
         return false;
@@ -917,6 +921,13 @@ void Game::processEvents() {
         }
         if (isMenuState()) {
             handleMenuEvent(event);
+            continue;
+        }
+        // Final del juego con todo a la vista: cualquier tecla o boton
+        // vuelve al titulo (PUSH BUTTON B TO SELECT A WORLD).
+        if (finalWaiting_ && ((event.type == SDL_KEYDOWN && !event.key.repeat) ||
+                              event.type == SDL_CONTROLLERBUTTONDOWN)) {
+            finishFinalEnding();
             continue;
         }
         if (event.type == SDL_CONTROLLERBUTTONDOWN) {
@@ -3578,9 +3589,9 @@ void Game::render() {
     // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
     blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
     const int camOffset = static_cast<int>(std::lround(cameraX_));
-    // Los bloques (ladrillos, ?, monedas sueltas y la sacudida) se dibujan
-    // despues de los personajes: quedan por delante de Mario y Luigi (los
-    // items que emergen siguen yendo antes, el bloque los tapa).
+    // Los bloques (ladrillos, ?, monedas sueltas y la sacudida): despues de
+    // los items que emergen (el bloque los tapa) y antes de enemigos y
+    // personajes, que quedan por delante (son sprites, como en el original).
     auto drawBlocks = [&]() {
         level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
                             questionBlockAnimFrame_, &coinSprite_, brickCoinAnimFrame_);
@@ -3614,6 +3625,7 @@ void Game::render() {
             }
         }
     };
+    drawBlocks();
     for (const Goomba& goomba : goombas_) goomba.render(renderer_, goombaSprite_, worldRow, cameraX_);
     for (const Koopa& koopa : levelKoopas_) {
         koopa.render(renderer_, koopa.color() == KoopaColor::Red ? koopaRedSprite_ : koopaSprite_, worldRow,
@@ -3644,7 +3656,11 @@ void Game::render() {
     cheepCheepSwim_.render(renderer_, cheepCheepSprite_, cameraX_);
     cheepCheepSwimOsc_.render(renderer_, cheepCheepSprite_, cameraX_);
     for (const CheepCheep& fish : cheepCheepJumps_) fish.render(renderer_, cheepCheepSprite_, cameraX_);
-    for (const CheepCheep& fish : levelCheeps_) fish.render(renderer_, cheepCheepSprite_, cameraX_);
+    for (CheepCheep& fish : levelCheeps_) {
+        // El gris cambia de paleta con el mundo (gris en el agua); el rojo no.
+        fish.setRenderRow(fish.isGray() ? worldRow : 0);
+        fish.render(renderer_, fish.isGray() ? cheepCheepGraySprite_ : cheepCheepSprite_, cameraX_);
+    }
     for (const BulletBill& bill : bulletBills_) bill.render(renderer_, bulletBillSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de Podoboo.h): sin worldRow.
     for (const Podoboo& podoboo : podoboos_) podoboo.render(renderer_, podobooSprite_, cameraX_);
@@ -3706,7 +3722,6 @@ void Game::render() {
             fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_);
         }
     }
-    drawBlocks();
     renderDecorations(true);
     renderFireworks();
     // Los martillos en vuelo van al final a proposito, adelante de todo
@@ -3724,11 +3739,15 @@ void Game::render() {
         // el tiempo que sobro.
         const SDL_Color white{255, 255, 255, 255};
         drawCentered(70, tr(playAsLuigi_ ? Txt::ThankYouLuigi : Txt::ThankYouMario), 2, white);
-        if (retainer_.x >= 0 && castleLines_ < 2) {
+        if (finalEnding_) {
+            // Los renglones del final, de a uno (mismas filas relativas que
+            // el original: 13, 15, 18 y 20 con THANK YOU en la 10).
+            if (finalLines_ >= 3) drawCentered(94, tr(Txt::QuestOver1), 2, white);
+            if (finalLines_ >= 4) drawCentered(110, tr(Txt::QuestOver2), 2, white);
+            if (finalLines_ >= 5) drawCentered(134, tr(Txt::PushButtonB), 2, white);
+            if (finalLines_ >= 6) drawCentered(150, tr(Txt::ToSelectWorld), 2, white);
+        } else if (retainer_.x >= 0 && castleLines_ < 2) {
             // segundo renglon todavia no
-        } else if (campaign_ && campaignWorld_ == 8) {
-            drawCentered(100, tr(Txt::QuestOver1), 2, white);
-            drawCentered(120, tr(Txt::QuestOver2), 2, white);
         } else {
             drawCentered(100, tr(Txt::PrincessElsewhere1), 2, white);
             drawCentered(120, tr(Txt::PrincessElsewhere2), 2, white);
@@ -3928,6 +3947,27 @@ void Game::updateFlagpoleSequence(float dt) {
 
 }
 
+bool Game::isFinalCastle() const {
+    // La princesa: en la partida, el mundo 8; abriendo el nivel suelto
+    // (--level, para probarlo), un nivel del mundo 8.
+    if (retainer_.x < 0) return false;
+    if (campaign_) return campaignWorld_ == 8;
+    return !level_.name().empty() && level_.name()[0] == '8';
+}
+
+void Game::finishFinalEnding() {
+    finalWaiting_ = false;
+    finalEnding_ = false;
+    finalMusic_ = false;
+    // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
+    if (campaign_ && !settings_.gameCompleted) {
+        settings_.gameCompleted = true;
+        settings_.save();
+    }
+    audio_.stopMusic();
+    openTitle();
+}
+
 void Game::updateLevelClear(float dt) {
     if (retainer_.x >= 0 && castleMessage_) {
         // Final de castillo con Toad / princesa.
@@ -3944,6 +3984,27 @@ void Game::updateLevelClear(float dt) {
                 input2_.setScripted(true);
                 castleLines_ = 1;
                 castleMessageTimer_ = 0.0f;
+                finalEnding_ = isFinalCastle();
+                finalTimer_ = 0.0f;
+                finalLines_ = 0;
+            }
+            return;
+        }
+        if (finalEnding_ && finalWaiting_) return;
+        if (finalEnding_ && castleLines_ > 0 && castleLines_ < 3) {
+            // Un mensaje cada 64 cuadros (SecondaryMsgCounter += 4).
+            constexpr float kFinalMsgStep = 64.0f / 60.0f;
+            finalTimer_ += dt;
+            finalLines_ = std::min(7, static_cast<int>(finalTimer_ / kFinalMsgStep));
+            if (finalLines_ >= 3 && !finalMusic_) {
+                // MUSIC_EVENT_PRINCESS, junto con YOUR QUEST IS OVER.
+                finalMusic_ = true;
+                audio_.playMusic(Music::Ending, true);
+            }
+            if (finalLines_ >= 7) {
+                castleLines_ = 3;   // ya esta todo: arranca la cuenta del tiempo
+                timeTallying_ = true;
+                tallySoundTimer_ = 0.0f;
             }
             return;
         }
@@ -3970,7 +4031,15 @@ void Game::updateLevelClear(float dt) {
     }
     if (levelClearTimer_ > 0.0f) {
         levelClearTimer_ -= dt;
-        if (levelClearTimer_ <= 0.0f) onLevelCleared();
+        if (levelClearTimer_ <= 0.0f) {
+            // El final: queda la pantalla con la princesa hasta que se
+            // apriete un boton (finishFinalEnding).
+            if (finalEnding_) {
+                finalWaiting_ = true;
+            } else {
+                onLevelCleared();
+            }
+        }
     } else if (timeTallying_) {
         // El tiempo que sobro pasa a puntos de a una unidad, rapido.
         const float before = std::ceil(timeRemaining_);
@@ -4485,6 +4554,11 @@ void Game::loadLevelData() {
     castleWalk_ = false;
     castleLines_ = 0;
     castleMessageTimer_ = 0.0f;
+    finalEnding_ = false;
+    finalTimer_ = 0.0f;
+    finalLines_ = 0;
+    finalMusic_ = false;
+    finalWaiting_ = false;
     vineEntry_ = VineEntry{};
     loopChecks_.clear();
     loopPassCount_ = 0;
@@ -4714,6 +4788,7 @@ void Game::spawnLevelEntities() {
             spawned = spawnInPool(levelCheeps_, [&](CheepCheep& fish) {
                 fish.setVariant(CheepCheepVariant::Swimming);
                 fish.setSwimPattern(entity.color == "red" ? SwimPattern::Oscillating : SwimPattern::Straight);
+                fish.setGray(entity.color != "red");
                 fish.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset, entity.movingRight);
             });
         } else if (entity.type == "podoboo") {
@@ -5473,9 +5548,11 @@ void Game::renderVines() {
         const int bottom = static_cast<int>(std::lround(vine.bottom));
         if (bottom - top <= 0) continue;
         // Punta con el brote arriba, tallo repetido hasta la base.
-        vineSprite_.drawSlice(renderer_, 0, 0, 0, std::min(16, bottom - top), x, top, false);
+        // Paleta de sprites 1: verde, gris en el agua, verde azulado abajo.
+        const int row = static_cast<int>(worldType_);
+        vineSprite_.drawSlice(renderer_, row, 0, 0, std::min(16, bottom - top), x, top, false);
         for (int y = top + 16; y < bottom; y += 16) {
-            vineSprite_.drawSlice(renderer_, 0, 1, 0, std::min(16, bottom - y), x, y, false);
+            vineSprite_.drawSlice(renderer_, row, 1, 0, std::min(16, bottom - y), x, y, false);
         }
     }
 }

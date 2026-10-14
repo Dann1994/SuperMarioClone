@@ -79,7 +79,7 @@ private:
     // Lo que se iba a hacer cuando aparecio el cartel de cambios sin guardar.
     enum class LeaveAction { Quit, Open, New };
     // World: ocupa todo el ancho, debajo de los demas (cicla el tipo de mundo).
-    enum class Button { Move, Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, Open, Save, Commands, World, Count };
+    enum class Button { Move, Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, Open, Save, Commands, Palette, World, Count };
 
     // --- modelo
     void newLevel();
@@ -112,6 +112,11 @@ private:
     void shakeAt(int col, int row);
     void toggleWingsAt(int col, int row);
     void cycleWorld();
+    // PALETA: la variante de colores (BackgroundColorCtrl / AreaStyle del
+    // original) del area que se ve, o de todo el nivel si no tiene areas.
+    // Va aparte del tipo de mundo, asi se combinan.
+    void cyclePalette();
+    int viewCenterCol() const;
     void addSubArea();
     void resetLevel();
     void playTest(bool fromView);
@@ -186,11 +191,11 @@ private:
     static constexpr int kTile = 16;
     static constexpr int kPaletteCols = 4;
     static constexpr int kPaletteCellW = 32;
-    static constexpr int kPaletteCellH = 26;
+    static constexpr int kPaletteCellH = 25;
     static constexpr int kTabsY = 36;
     static constexpr int kPaletteTop = 50;
     static constexpr int kPaletteRows = 7;  // filas de la paleta (hasta los botones)
-    static constexpr int kButtonsY = 248;
+    static constexpr int kButtonsY = 230;
     static constexpr int kMaxRecents = 4;
 
     SDL_Window* window_ = nullptr;
@@ -330,6 +335,7 @@ private:
     SpriteSheet lakituSprite_;
     SpriteSheet blooperSprite_;
     SpriteSheet cheepSprite_;
+    SpriteSheet cheepGraySprite_;
     SpriteSheet bulletBillSprite_;
     SpriteSheet podobooSprite_;
     SpriteSheet bowserSprite_;

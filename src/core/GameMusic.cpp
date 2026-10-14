@@ -73,6 +73,8 @@ void Game::updateMusic(float dt) {
     // Intro: silencio mientras camina; el jingle de la tuberia lo arranca
     // checkSideWarp y no hay que cortarlo.
     if (cutscene_ || pipeTransitionTimer_ > 0.0f) return;
+    // El final: el tema de la princesa sigue sonando hasta volver al titulo.
+    if (finalMusic_) return;
     // Castillo: silencio mientras cae el puente; despues, el tema de
     // castillo completo (una vez).
     if (bridgeCollapsing_) {
