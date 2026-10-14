@@ -39,7 +39,7 @@ public:
     void shutdown();
 
 private:
-    enum class ToolKind { Tile, Goal, Item, Entity, Decoration, Platform, Checkpoint, Eraser, Select };
+    enum class ToolKind { Tile, Goal, Item, Entity, Decoration, Platform, Checkpoint, Start, Eraser, Select, Move };
     enum class Tab { Terrain, Items, Enemies, Objects, Count };
     struct Tool {
         ToolKind kind;
@@ -70,10 +70,14 @@ private:
         size_t index = 0;
         int offsetCol = 0;
         int offsetRow = 0;
+        int startCol = 0;   // donde estaba (tuberia en L: mover su tramo solido y su warp)
+        int startRow = 0;
     };
-    enum class Mode { Edit, OpenFile, TextInput, PickWarpDest };
+    enum class Mode { Edit, OpenFile, TextInput, PickWarpDest, ConfirmLeave, Help };
+    // Lo que se iba a hacer cuando aparecio el cartel de cambios sin guardar.
+    enum class LeaveAction { Quit, Open, New };
     // World: ocupa todo el ancho, debajo de los demas (cicla el tipo de mundo).
-    enum class Button { Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, World, Count };
+    enum class Button { Move, Eraser, Select, Undo, Reset, Play, PlayHere, SubArea, Open, Save, Commands, World, Count };
 
     // --- modelo
     void newLevel();
@@ -141,8 +145,35 @@ private:
     int worldRow() const;
     int decorationIndex(const std::string& type) const;
     std::vector<int> toolsInTab(Tab tab) const;
+    // Paginas de la paleta (si una pestana no entra entera).
+    std::array<int, 4> tabPage_{};
+    int palettePageCount() const;
+    std::vector<int> paletteToolsOnPage() const;
     SDL_Rect buttonRect(Button button) const;
     SDL_Rect minimapRect() const;
+    // Mapa de la estructura del nivel (abajo del mapa): el area principal en
+    // el medio, las de cielo arriba y las demas (cuartos, agua, la escena de
+    // entrada, la salida) abajo, cada una a la altura de por donde se entra.
+    struct MapBox {
+        int area = 0;        // indice en "areas" (-1: el nivel entero, sin areas)
+        int start = 0;       // columnas del area
+        int end = 0;
+        int band = 1;        // 0 cielo, 1 principal, 2 subarea
+        int anchorX = -1;    // x en el mapa de por donde se conecta (la linea)
+        SDL_Rect rect{};
+    };
+    std::vector<MapBox> structureBoxes() const;
+    void renderStructureMap();
+    bool structureMapClick(int x, int y);
+    void renderHelp();
+    // Selector de niveles: vista previa del elegido.
+    void loadPreview();
+    void renderPreviewTexture();
+    SDL_Rect pickerArrowRect(int direction) const;
+    SDL_Texture* previewTexture_ = nullptr;
+    Tilemap previewMap_;
+    nlohmann::json previewMeta_;
+    int previewIndex_ = -1;
 
     static constexpr int kWidth = 640;
     static constexpr int kHeight = 360;
@@ -156,7 +187,7 @@ private:
     static constexpr int kPaletteCellH = 26;
     static constexpr int kTabsY = 36;
     static constexpr int kPaletteTop = 50;
-    static constexpr int kRecentsY = 208;  // 6 filas de paleta (kPaletteTop + 6 * kPaletteCellH + 2)
+    static constexpr int kPaletteRows = 7;  // filas de la paleta (hasta los botones)
     static constexpr int kButtonsY = 248;
     static constexpr int kMaxRecents = 4;
 
@@ -170,6 +201,17 @@ private:
     std::string levelsDir_;
     bool dirty_ = false;
     bool confirmQuit_ = false;
+    LeaveAction leaveAction_ = LeaveAction::Quit;
+    SDL_Cursor* arrowCursor_ = nullptr;
+    SDL_Cursor* handCursor_ = nullptr;
+    SDL_Cursor* moveCursor_ = nullptr;
+    // Cambios sin guardar: pregunta antes de hacer `action` (salir, abrir
+    // otro nivel o empezar uno nuevo).
+    void requestLeave(LeaveAction action);
+    void doLeave(LeaveAction action);
+    void renderConfirmLeave();
+    SDL_Rect leaveButtonRect(int index) const;
+    void drawArrowIcon(int x, int y, SDL_Color color);
     bool confirmReset_ = false;
     Tilemap tilemap_;
     std::vector<Snapshot> undoStack_;
@@ -210,6 +252,55 @@ private:
     int textTarget_ = 0;  // 0 = nombre, 1 = tiempo
     int warpSourceCol_ = 0;
     int warpSourceRow_ = 0;
+    bool warpSourceSide_ = false;   // el warp es de una tuberia en L (se entra caminando)
+    // Tuberia en L (decorado "pipe_side") que ocupa esa celda: indice en
+    // "decorations" o -1. Su tramo vertical (2 columnas a la derecha de la
+    // boca, 4 filas) lleva bloques invisibles 'X' para que sea solido.
+    int sidePipeAt(int col, int row) const;
+    void setSidePipeSolid(int col, int row, int length, bool solid);
+    // Arrastrar la punta de una tuberia para estirarla (herramienta MOVER):
+    // el tope de una vertical, el tope del tramo vertical de la de L o su
+    // boca (hacia la izquierda).
+    enum class StretchKind { None, PipeTop, SideTop, SideMouth, HMouth };
+    struct Stretch {
+        StretchKind kind = StretchKind::None;
+        int index = -1;    // decorado (tuberia en L)
+        int left = 0;      // tuberia vertical: columna izquierda y fila de abajo
+        int bottom = 0;    // (horizontal: left = su boca, bottom = la fila de arriba del par, right = la otra punta)
+        int right = 0;
+    };
+    Stretch stretch_;
+    SDL_Cursor* resizeVCursor_ = nullptr;
+    SDL_Cursor* resizeHCursor_ = nullptr;
+    SpriteSheet pipeSideSlices_;   // la tuberia en L en piezas de 16x16
+    // Las mismas variantes de paleta que el juego (Palettes.h): nieve, gris
+    // (castillo en superficie), hongos y la tuberia en L de cada mundo.
+    SpriteSheet terrainGraySprite_;
+    SpriteSheet sceneryTilesSnowSprite_;
+    SpriteSheet sceneryTilesGraySprite_;
+    SpriteSheet pipeSnowSprite_;
+    SpriteSheet pipeMushroomSprite_;
+    SpriteSheet flagpoleSnowSprite_;
+    std::array<SpriteSheet, 3> pipeSideVariants_;   // nieve, gris/castillo, subterraneo
+    // Paleta del area de esa columna ("" , "snow", "night", "gray"...) y su
+    // fila de mundo (la de sus enemigos, items y mastil).
+    std::string areaPaletteAt(int col) const;
+    int areaRowAt(int col) const;
+    // Que punta de tuberia hay en la celda (None: ninguna).
+    Stretch pipeTipAt(int col, int row) const;
+    void applyStretch(int col, int row);
+    int sidePipeTop(int index) const;   // fila del tope de su tramo vertical
+    // Tuberia horizontal ('Y', de a pares de filas): fila de arriba del par
+    // y la columna de su punta izquierda (la boca).
+    int hpipeTopRow(int col, int row) const;
+    // Remolino (entidad "whirlpool") que cubre esa columna: indice o -1.
+    int whirlpoolAt(int col) const;
+    int hpipeLeftCol(int col, int row) const;
+    // Los decorados "pipe_side" de antes pasan a tiles ('Y' y 'T').
+    void convertSidePipeDecorations();
+    // Estira (+1) o acorta (-1) hacia arriba el tramo vertical de la
+    // tuberia en L; toTop: hasta el techo (o el borde de arriba).
+    void stretchSidePipe(int index, int delta, bool toTop);
 
     // Sprites (los mismos PNG que el juego).
     SpriteSheet terrainSprite_;
@@ -223,12 +314,42 @@ private:
     SpriteSheet flagpoleSprite_;
     SpriteSheet liftSprite_;
     SpriteSheet goombaSprite_;
+    SpriteSheet marioSprite_;      // el inicio del jugador
     SpriteSheet koopaSprite_;
     SpriteSheet koopaRedSprite_;
     SpriteSheet mushroomSprite_;
     SpriteSheet oneUpSprite_;
     SpriteSheet fireFlowerSprite_;
     SpriteSheet starSprite_;
-    static constexpr int kDecorationCount = 9;
+    // Enemigos y objetos de nivel (los mismos sprites que el juego).
+    SpriteSheet buzzySprite_;
+    SpriteSheet piranhaSprite_;
+    SpriteSheet hammerBroSprite_;
+    SpriteSheet lakituSprite_;
+    SpriteSheet blooperSprite_;
+    SpriteSheet cheepSprite_;
+    SpriteSheet bulletBillSprite_;
+    SpriteSheet podobooSprite_;
+    SpriteSheet bowserSprite_;
+    SpriteSheet axeSprite_;
+    SpriteSheet springSprite_;
+    SpriteSheet retainerSprite_;
+    SpriteSheet bridgeChainSprite_;
+    SpriteSheet vineSprite_;
+    SpriteSheet fireballSprite_;   // barras de fuego
+    // Sprite de una entidad: hoja, tamano del cuadro, fila (segun el mundo,
+    // si la hoja tiene una por mundo) y cuadro. nullptr: es un marcador
+    // (frenesi, laberinto...) y va con rotulo.
+    struct EntitySprite {
+        const SpriteSheet* sheet = nullptr;
+        int w = 16;
+        int h = 16;
+        int row = 0;
+        int frame = 0;
+    };
+    EntitySprite entitySprite(const nlohmann::json& entity, int levelRow) const;
+    static constexpr int kDecorationCount = 13;
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
+    std::array<SpriteSheet, kDecorationCount> decorationSnowSprites_;
+    std::array<SpriteSheet, kDecorationCount> decorationGraySprites_;
 };

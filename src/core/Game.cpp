@@ -11,32 +11,7 @@
 #include <ctime>
 
 #include "../render/DebugFont.h"
-
-// Paleta 0 de superficie -> la de nieve (DaySnowPaletteData del original,
-// colores de la seccion "Snow" de Documentaciones/Tiles.png): verde claro a
-// blanco, verde a gris oscuro, negro a gris claro.
-static const std::vector<std::pair<SDL_Color, SDL_Color>> kSnowColors = {
-    {SDL_Color{140, 214, 0, 255}, SDL_Color{255, 255, 255, 255}},
-    {SDL_Color{16, 148, 0, 255}, SDL_Color{99, 99, 99, 255}},
-    {SDL_Color{0, 0, 0, 255}, SDL_Color{173, 173, 173, 255}},
-};
-// Areas de hongos (estilo 1 del encabezado: 4-2 zona warp, 4-3): la paleta
-// 0 es la de hongos del original (naranja y rojo en vez de los verdes): los
-// caños salen naranjas.
-static const std::vector<std::pair<SDL_Color, SDL_Color>> kMushroomColors = {
-    {SDL_Color{140, 214, 0, 255}, SDL_Color{230, 156, 33, 255}},
-    {SDL_Color{16, 148, 0, 255}, SDL_Color{181, 49, 33, 255}},
-};
-// Superficie -> paleta de castillo (BackgroundColorCtrl 7, el 6-3): las
-// paletas 0 (verdes) y 1 (marron/rosado) del original, comparando tile a
-// tile las secciones Overworld y Castle de Documentaciones/Tiles.png.
-static const std::vector<std::pair<SDL_Color, SDL_Color>> kGrayColors = {
-    {SDL_Color{140, 214, 0, 255}, SDL_Color{255, 255, 255, 255}},
-    {SDL_Color{16, 148, 0, 255}, SDL_Color{173, 173, 173, 255}},
-    {SDL_Color{156, 74, 0, 255}, SDL_Color{173, 173, 173, 255}},
-    {SDL_Color{255, 206, 197, 255}, SDL_Color{255, 255, 255, 255}},
-    {SDL_Color{0, 0, 0, 255}, SDL_Color{99, 99, 99, 255}},
-};
+#include "../render/Palettes.h"
 
 namespace {
 constexpr float kFixedDt = 1.0f / 60.0f;
@@ -645,6 +620,16 @@ bool Game::init() {
     if (!titleCursorSprite_.loadFromFile(renderer_, "assets/sprites/title_cursor.png", 8, 8)) return false;
     if (!hudCoinSprite_.loadFromFile(renderer_, "assets/sprites/hud_coin.png", 8, 8)) return false;
     if (!introMarioSprite_.loadFromFile(renderer_, "assets/sprites/mario_small.png", 16, 16)) return false;
+    // Tuberia en L en franjas de 16 px (boca, tramo, codo y tramo
+    // vertical) para dibujarla estirada.
+    {
+        const std::string path = "assets/sprites/scenery_pipe_side.png";
+        if (!pipeSideSlices_[0].loadFromFile(renderer_, path, 16, 16)) return false;
+        if (!pipeSideSlices_[1].loadRecolored(renderer_, path, 16, 16, kSnowColors)) return false;
+        if (!pipeSideSlices_[2].loadRecolored(renderer_, path, 16, 16, kGrayColors)) return false;
+        if (!pipeSideSlices_[3].loadRecolored(renderer_, path, 16, 16, kPipeUndergroundColors)) return false;
+        if (!pipeSideSlices_[4].loadRecolored(renderer_, path, 16, 16, kPipeCastleColors)) return false;
+    }
     for (int i = 0; i < kDecorationCount; ++i) {
         const DecorationInfo& info = kDecorations[i];
         const std::string path = std::string("assets/sprites/scenery_") + info.type + ".png";
@@ -895,7 +880,17 @@ void Game::loadScenario(TestScenario scenario) {
     resetLevelMusic();
     // Escena de introduccion (si el nivel tiene): solo arrancando desde el
     // principio, no reapareciendo en un checkpoint.
+    // La escena de la tuberia (x-2) solo si se arranca en ella: con un
+    // inicio puesto en el editor ("start") fuera de esa area, no.
     cutscene_ = level_.introArea() >= 0 && checkpointCol_ < 0;
+    if (cutscene_ && level_.startPointRow() >= 0) {
+        const std::vector<LevelArea>& areas = level_.areas();
+        const int intro = level_.introArea();
+        if (intro < static_cast<int>(areas.size())) {
+            const LevelArea& area = areas[static_cast<size_t>(intro)];
+            cutscene_ = level_.startPointCol() >= area.startCol && level_.startPointCol() <= area.endCol;
+        }
+    }
     pipeTransitionTimer_ = 0.0f;
     pipeAnim_ = PipeAnim{};
     enemyContacts_.clear();
@@ -2154,25 +2149,51 @@ void Game::checkPipeWarp(Mario& character, Input& input) {
     }
 }
 
+void Game::updateWhirlpools(Mario& character, float dt) {
+    // ProcessWhirlpools del original: en el agua, adentro de la zona tira al
+    // jugador para abajo (gravedad de mas y brazada mas debil, ver
+    // Mario::setInWhirlpool). A pedido, sin el tiron hacia el medio del
+    // original: no frena el avance de costado.
+    (void)dt;
+    bool inside = false;
+    if (worldType_ == WorldType::Underwater && !character.isInDeathSequence()) {
+        for (const Whirlpool& pool : whirlpools_) {
+            const float diff = character.x() - pool.x;
+            if (diff < 0.0f || diff > pool.length) continue;
+            inside = true;
+            break;
+        }
+    }
+    character.setInWhirlpool(inside);
+}
+
 void Game::checkSideWarp(Mario& character) {
     if (character.isInDeathSequence() || pipeTransitionTimer_ > 0.0f) return;
     const float ts = static_cast<float>(level_.tileSize());
     for (const PipeWarp& warp : pipeWarps_) {
         if (!warp.side) continue;
-        // Adentro de la boca (2x2 tiles): metido al menos medio tile y con
-        // el cuerpo entero entre el techo y el piso de la boca.
+        // Contra la boca (2x2 tiles, solida) empujando a la derecha, con el
+        // cuerpo entero entre el techo y el piso de la boca (o adentro, en los
+        // niveles viejos con la boca sin solido).
         const float left = static_cast<float>(warp.col) * ts;
         const float top = static_cast<float>(warp.row) * ts;
-        const bool inside = character.x() >= left + ts / 2.0f && character.x() < left + 2.0f * ts &&
-                            character.y() >= top - 1.0f && character.y() + character.height() <= top + 2.0f * ts + 1.0f;
-        if (!inside) continue;
+        const Input& input = &character == &luigi_ ? input2_ : input1_;
+        const bool pushing = input.down(Action::MoveRight) && character.facingRight();
+        const float right = character.x() + static_cast<float>(character.width());
+        const bool atMouth = right >= left - 1.0f && character.x() < left + 2.0f * ts;
+        const bool fits = character.y() >= top - 1.0f && character.y() + character.height() <= top + 2.0f * ts + 1.0f;
+        if (!atMouth || !fits || !pushing) continue;
         if (cutscene_) {
             // Intro: se queda adentro (tapado por la tuberia) con el sonido
             // de tuberia; el jingle ya viene sonando desde que empezo a
             // caminar (MUSIC_AREA_PIPEINTRO). ChangeAreaTimer 0xA0 cuadros.
             pendingWarp_ = warp;
             pipeTransitionTimer_ = kIntroPipeDuration;
-            audio_.play(Sfx::Pipe);
+            // Se mete caminando en la tuberia (la boca es solida: sin esto se
+            // quedaba parado afuera hasta el cambio de area). El cambio lo
+            // hace finishIntroPipe, no la animacion.
+            startPipeEnter(character, warp);
+            pipeAnim_.timer = kIntroPipeDuration + 1.0f;
         } else {
             startPipeEnter(character, warp);
         }
@@ -2207,6 +2228,12 @@ void Game::startPipeEnter(Mario& character, const PipeWarp& warp) {
 
 void Game::updatePipeAnim(float dt) {
     Mario& character = *pipeAnim_.character;
+    if (pipeAnim_.warp.side && !pipeAnim_.exiting && pipeAnim_.velX > 0.0f) {
+        // Entrando de costado: camina hasta quedar del todo pasando la boca
+        // (tapado por la tuberia) y ahi se queda quieto.
+        const float inside = static_cast<float>(pipeAnim_.warp.col + 2) * static_cast<float>(level_.tileSize());
+        if (character.x() >= inside) pipeAnim_.velX = 0.0f;
+    }
     character.nudgeX(pipeAnim_.velX * dt);
     character.nudgeY(pipeAnim_.velY * dt);
     character.setGrounded(true);
@@ -2286,6 +2313,7 @@ void Game::keepCharacterInsideArea(Mario& character) {
 
 void Game::finishIntroPipe() {
     cutscene_ = false;
+    pipeAnim_ = PipeAnim{};
     input1_.setScripted(false);
     input2_.setScripted(false);
     performWarp(mario_, pendingWarp_);
@@ -2669,6 +2697,16 @@ void Game::placeCharactersAtStart() {
         mario_.spawn(static_cast<float>(marioPoint.x), static_cast<float>(marioPoint.y));
         const SDL_Point luigiPoint = findRespawnPoint(kLuigiSpawnX + startShift + 1.0f, luigi_.height());
         luigi_.spawn(static_cast<float>(luigiPoint.x), static_cast<float>(luigiPoint.y));
+        // Inicio puesto en el editor ("start"): exactamente ahi, parado en
+        // esa fila; Luigi un poco atras (del lado contrario al que mira).
+        if (level_.startPointRow() >= 0) {
+            const float ts = static_cast<float>(level_.tileSize());
+            const float feet = static_cast<float>(level_.startPointRow() + 1) * ts;
+            const float centerX = static_cast<float>(level_.startPointCol()) * ts + ts / 2.0f;
+            mario_.spawn(centerX - mario_.width() / 2.0f, feet - static_cast<float>(mario_.height()));
+            const float behind = level_.startFacingLeft() ? 1.5f * ts : -1.5f * ts;
+            luigi_.spawn(centerX + behind - luigi_.width() / 2.0f, feet - static_cast<float>(luigi_.height()));
+        }
     } else {
         // Parados sobre el piso de la columna del checkpoint (o la mas
         // cercana con piso, ver findRespawnPoint), Luigi un poco atras.
@@ -2683,9 +2721,11 @@ void Game::placeCharactersAtStart() {
             mario_.spawn(x - mario_.width() / 2.0f, static_cast<float>(customStartRow_) * ts - mario_.height());
         }
     }
-    // Arrancan mirando hacia adelante (a la derecha), como el original.
-    mario_.setFacingRight(true);
-    luigi_.setFacingRight(true);
+    // Arrancan mirando hacia adelante (a la derecha), como el original; o
+    // para donde diga el inicio puesto en el editor.
+    const bool faceRight = !(checkpointCol_ < 0 && level_.startPointRow() >= 0 && level_.startFacingLeft());
+    mario_.setFacingRight(faceRight);
+    luigi_.setFacingRight(faceRight);
     // Puede quedar lejos de la camara actual: si se acercara de a poco,
     // keepCharactersOnScreen() lo arrastraria hacia la pantalla vieja.
     cameraSnapPending_ = true;
@@ -2916,8 +2956,9 @@ void Game::update(float dt) {
     updateRumble();
     updateMusic(dt);
     if (pipeTransitionTimer_ > 0.0f) {
-        // Intro: Mario ya se metio en la tuberia, todo quieto hasta que
-        // termina el jingle.
+        // Intro: Mario se mete caminando en la tuberia y todo lo demas queda
+        // quieto hasta que termina el jingle.
+        if (pipeAnim_.active) updatePipeAnim(dt);
         pipeTransitionTimer_ -= dt;
         if (pipeTransitionTimer_ <= 0.0f) finishIntroPipe();
         return;
@@ -2987,6 +3028,7 @@ void Game::update(float dt) {
     checkQuestionBlockHit(mario_);
     checkPipeWarp(mario_, input1_);
     checkSideWarp(mario_);
+    updateWhirlpools(mario_, dt);
     if (mario_.consumeJumpRequest()) {
         audio_.play(mario_.size() == MarioSize::Small ? Sfx::JumpSmall : Sfx::Jump);
     }
@@ -3007,6 +3049,7 @@ void Game::update(float dt) {
         checkQuestionBlockHit(luigi_);
         checkPipeWarp(luigi_, input2_);
         checkSideWarp(luigi_);
+        updateWhirlpools(luigi_, dt);
         if (luigi_.consumeJumpRequest()) {
             audio_.play(luigi_.size() == MarioSize::Small ? Sfx::JumpSmall : Sfx::Jump);
         }
@@ -3493,6 +3536,10 @@ void Game::render() {
     const bool gray = areaPalette() == "gray";
     renderStarFlag();
     renderDecorations(false);
+    // El que esta entrando/saliendo de una tuberia va detras del escenario
+    // (como el original, que le baja la prioridad al sprite): la tuberia y
+    // el piso lo tapan mientras se hunde o sale.
+    if (pipeAnim_.active && pipeAnim_.character) pipeAnim_.character->render(renderer_, cameraX_);
     level_.renderTerrain(renderer_, skyColor(), gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : worldRow,
                          gLogicalWidth, cameraX_, false);
     level_.renderScenery(renderer_, gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_,
@@ -3508,10 +3555,8 @@ void Game::render() {
     // Las Piranha Plant van ANTES que las tuberias: asi la tuberia las tapa
     // mientras asoman o se esconden.
     for (const PiranhaPlant& plant : piranhaPlants_) plant.render(renderer_, piranhaPlantSprite_, worldRow, cameraX_);
-    // El que esta entrando/saliendo de una tuberia va detras de ella.
-    if (pipeAnim_.active && pipeAnim_.character) pipeAnim_.character->render(renderer_, cameraX_);
     level_.renderPipes(renderer_, snow ? pipeSnowSprite_ : areaPalette() == "mushroom" ? pipeMushroomSprite_ : pipeSprite_,
-                       worldRow, cameraX_);
+                       worldRow, cameraX_, &pipeSidePieces());
     flagpole_.render(renderer_, snow ? flagpoleSnowSprite_ : flagpoleSprite_, flagSprite_, worldRow, cameraX_);
     // Los items que pueden salir de un bloque van ANTES de dibujar los
     // bloques (ver el comentario del usuario): mientras esta "emergiendo"
@@ -3524,38 +3569,43 @@ void Game::render() {
     coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
     blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
-    level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
-                        questionBlockAnimFrame_, &coinSprite_, brickCoinAnimFrame_);
     const int camOffset = static_cast<int>(std::lround(cameraX_));
-    for (const BlockBump& bump : blockBumps_) {
-        if (!bump.active) continue;
-        // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
-        // pi): 0 al arrancar y al terminar, maximo a la mitad.
-        const float progress = 1.0f - bump.timer / kBumpDuration;
-        const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
-        // Mismo pool para ladrillo y bloque de interrogacion (ver
-        // startBlockBump): hay que fijarse cual de los dos es esta celda
-        // para dibujarla con el sprite/frame que corresponde, en vez de
-        // asumir siempre ladrillo.
-        if (level_.isQuestionTile(bump.col, bump.row)) {
-            const int frame = level_.isQuestionUsed(bump.col, bump.row) ? Tilemap::kQuestionUsedFrame
-                                                                          : questionBlockAnimFrame_;
-            questionBlockSprite_.draw(renderer_, worldRow, frame, bump.col * level_.tileSize() - camOffset,
-                                       bump.row * level_.tileSize() + offsetY, false);
-        } else if (level_.isDispenserTile(bump.col, bump.row) && level_.isDispenserUsed(bump.col, bump.row)) {
-            // Mismo frame "vacio" que un bloque de interrogacion usado (ver
-            // el comentario de Tilemap::renderBlocks) -- se marca usado
-            // antes de que arranque esta sacudida (checkQuestionBlockHit),
-            // asi que se ve asi durante todo el salto, no solo al terminar.
-            questionBlockSprite_.draw(renderer_, worldRow, Tilemap::kQuestionUsedFrame,
+    // Los bloques (ladrillos, ?, monedas sueltas y la sacudida) se dibujan
+    // despues de los personajes: quedan por delante de Mario y Luigi (los
+    // items que emergen siguen yendo antes, el bloque los tapa).
+    auto drawBlocks = [&]() {
+        level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
+                            questionBlockAnimFrame_, &coinSprite_, brickCoinAnimFrame_);
+        for (const BlockBump& bump : blockBumps_) {
+            if (!bump.active) continue;
+            // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
+            // pi): 0 al arrancar y al terminar, maximo a la mitad.
+            const float progress = 1.0f - bump.timer / kBumpDuration;
+            const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
+            // Mismo pool para ladrillo y bloque de interrogacion (ver
+            // startBlockBump): hay que fijarse cual de los dos es esta celda
+            // para dibujarla con el sprite/frame que corresponde, en vez de
+            // asumir siempre ladrillo.
+            if (level_.isQuestionTile(bump.col, bump.row)) {
+                const int frame = level_.isQuestionUsed(bump.col, bump.row) ? Tilemap::kQuestionUsedFrame
+                                                                              : questionBlockAnimFrame_;
+                questionBlockSprite_.draw(renderer_, worldRow, frame, bump.col * level_.tileSize() - camOffset,
+                                           bump.row * level_.tileSize() + offsetY, false);
+            } else if (level_.isDispenserTile(bump.col, bump.row) && level_.isDispenserUsed(bump.col, bump.row)) {
+                // Mismo frame "vacio" que un bloque de interrogacion usado (ver
+                // el comentario de Tilemap::renderBlocks) -- se marca usado
+                // antes de que arranque esta sacudida (checkQuestionBlockHit),
+                // asi que se ve asi durante todo el salto, no solo al terminar.
+                questionBlockSprite_.draw(renderer_, worldRow, Tilemap::kQuestionUsedFrame,
+                                           bump.col * level_.tileSize() - camOffset,
+                                           bump.row * level_.tileSize() + offsetY, false);
+            } else {
+                brickBlockSprite_.draw(renderer_, worldRow, level_.brickFrame(bump.col, bump.row),
                                        bump.col * level_.tileSize() - camOffset,
-                                       bump.row * level_.tileSize() + offsetY, false);
-        } else {
-            brickBlockSprite_.draw(renderer_, worldRow, level_.brickFrame(bump.col, bump.row),
-                                   bump.col * level_.tileSize() - camOffset,
-                                    bump.row * level_.tileSize() + offsetY, false);
+                                        bump.row * level_.tileSize() + offsetY, false);
+            }
         }
-    }
+    };
     for (const Goomba& goomba : goombas_) goomba.render(renderer_, goombaSprite_, worldRow, cameraX_);
     for (const Koopa& koopa : levelKoopas_) {
         koopa.render(renderer_, koopa.color() == KoopaColor::Red ? koopaRedSprite_ : koopaSprite_, worldRow,
@@ -3648,6 +3698,7 @@ void Game::render() {
             fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_);
         }
     }
+    drawBlocks();
     renderDecorations(true);
     renderFireworks();
     // Los martillos en vuelo van al final a proposito, adelante de todo
@@ -3823,6 +3874,7 @@ bool Game::loadLuigiSprites() {
 void Game::shutdown() {
     if (worldTarget_) SDL_DestroyTexture(worldTarget_);
     audio_.shutdown();  // antes de SDL_Quit() -- ver el comentario en SoundManager.h
+    SpriteSheet::rendererDestroyed();
     if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);
     IMG_Quit();
@@ -4413,6 +4465,7 @@ void Game::loadLevelData() {
         }
     }
     firebars_.clear();
+    whirlpools_.clear();
     springs_.clear();
     frenzies_.clear();
     vines_.clear();
@@ -4435,7 +4488,9 @@ void Game::loadLevelData() {
     for (const LevelEntity& entity : level_.entities()) {
         // Solo del modo dificil (segunda vuelta en los niveles normales).
         if (entity.hardOnly && !gPrimaryHardMode) continue;
-        if (entity.type == "firebar") {
+        if (entity.type == "whirlpool") {
+            whirlpools_.push_back(Whirlpool{static_cast<float>(entity.col) * ts, static_cast<float>(entity.length) * ts});
+        } else if (entity.type == "firebar") {
             firebars_.push_back(Firebar{(static_cast<float>(entity.col) + 0.5f) * ts,
                                         (static_cast<float>(entity.row) + 0.5f) * ts, entity.length, 0.0f,
                                         entity.speed});
@@ -4487,7 +4542,7 @@ namespace {
 // Entidades que no son enemigos del original: se arman al cargar el nivel
 // (loadLevelData) y no ocupan lugar.
 bool isStaticEntity(const std::string& type) {
-    return type == "firebar" || type == "cheep_jump" || type == "spring" || type == "vine" ||
+    return type == "firebar" || type == "whirlpool" || type == "cheep_jump" || type == "spring" || type == "vine" ||
            type == "bridge_chain" || type == "warp_zone" || type == "retainer" || type == "bullet_frenzy" ||
            type == "cheep_frenzy" || type == "flame_frenzy" || type == "loop" || type == "axe";
 }
@@ -5015,6 +5070,16 @@ SDL_Color Game::skyColor() const {
     return backgroundColorFor(worldType_);
 }
 
+const SpriteSheet& Game::pipeSidePieces() const {
+    // La tuberia en L / las horizontales con los colores de las tuberias del
+    // mundo (Palettes.h).
+    return areaPalette() == "gray"                ? pipeSideSlices_[2]
+           : areaSnow()                           ? pipeSideSlices_[1]
+           : worldType_ == WorldType::Castle      ? pipeSideSlices_[4]
+           : worldType_ == WorldType::Underground ? pipeSideSlices_[3]
+                                                  : pipeSideSlices_[0];
+}
+
 void Game::renderDecorations(bool front) {
     const int ts = level_.tileSize();
     const int camOffset = static_cast<int>(std::lround(cameraX_));
@@ -5023,7 +5088,7 @@ void Game::renderDecorations(bool front) {
         for (int i = 0; i < kDecorationCount; ++i) {
             if (decoration.type != kDecorations[i].type) continue;
             const int x = decoration.col * ts - camOffset;
-            if (x + kDecorations[i].width < 0 || x > gLogicalWidth) break;
+            if (x + kDecorations[i].width + decoration.length * ts < 0 || x > gLogicalWidth) break;
             // La nieve solo cambia la paleta 0 (colinas, arbustos, tuberia en
             // L): el castillo (paleta 1) y las nubes (paleta 3) quedan igual.
             // La paleta de castillo cambia todo menos las nubes.
@@ -5033,7 +5098,42 @@ void Game::renderDecorations(bool front) {
             const SpriteSheet& sheet = (areaPalette() == "gray" && !cloud)            ? decorationGraySprites_[i]
                                        : (areaSnow() && !cloud && !castle) ? decorationSnowSprites_[i]
                                                                            : decorationSprites_[i];
-            sheet.draw(renderer_, 0, 0, x, decoration.row * ts, false);
+            const int y = decoration.row * ts;
+            if (type == "pipe_side") {
+                // En piezas de 16x16: boca, tramos horizontales (los de mas
+                // si esta estirada), codo y tramo vertical. Si el tramo
+                // vertical sigue hacia arriba (tiles 'T'), sin el borde de su
+                // tope: lo continua el cuerpo de la tuberia.
+                const SpriteSheet& pieces = pipeSidePieces();
+                const int length = decoration.length;
+                const int verticalCol = decoration.col + 2 + length;
+                // Arriba sigue la tuberia o hay un bloque pegado: sin el borde
+                // del tope. Boca pegada a un bloque a la izquierda: sin boca
+                // (va un tramo).
+                const bool continues = level_.isPipeTile(verticalCol, decoration.row - 1) ||
+                                       level_.isSolidTile(verticalCol, decoration.row - 1) || decoration.row <= 1;
+                const bool mouthBlocked = level_.isSolidTile(decoration.col - 1, decoration.row + 2) ||
+                                          level_.isSolidTile(decoration.col - 1, decoration.row + 3);
+                for (int r = 0; r < 4; ++r) {
+                    const int py = y + r * ts;
+                    pieces.draw(renderer_, r, mouthBlocked ? 1 : 0, x, py, false);
+                    for (int k = 0; k <= length; ++k) pieces.draw(renderer_, r, 1, x + (1 + k) * ts, py, false);
+                    if (r == 0 && continues) continue;
+                    pieces.draw(renderer_, r, 2, x + (2 + length) * ts, py, false);
+                    pieces.draw(renderer_, r, 3, x + (3 + length) * ts, py, false);
+                }
+                if (continues && level_.isPipeTile(verticalCol, decoration.row - 1)) {
+                    const SpriteSheet& pipe = areaSnow() ? pipeSnowSprite_
+                                              : areaPalette() == "mushroom" ? pipeMushroomSprite_ : pipeSprite_;
+                    pipe.draw(renderer_, static_cast<int>(worldType_), 1, verticalCol * ts - camOffset, y, false);
+                } else if (continues) {
+                    const SpriteSheet& pipe = areaSnow() ? pipeSnowSprite_
+                                              : areaPalette() == "mushroom" ? pipeMushroomSprite_ : pipeSprite_;
+                    pipe.draw(renderer_, static_cast<int>(worldType_), 1, verticalCol * ts - camOffset, y, false);
+                }
+            } else {
+                sheet.draw(renderer_, 0, 0, x, y, false);
+            }
             break;
         }
     }

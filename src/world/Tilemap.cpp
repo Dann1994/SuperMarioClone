@@ -83,10 +83,19 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         decoration.col = entry.at("col").get<int>();
         decoration.row = entry.at("row").get<int>();
         decoration.front = entry.value("front", false);
+        decoration.length = std::max(0, entry.value("length", 0));
         decorations_.push_back(decoration);
     }
     introArea_ = json.contains("intro") ? json["intro"].value("area", -1) : -1;
     startCol_ = json.value("start_col", -1);
+    startPointCol_ = -1;
+    startPointRow_ = -1;
+    startFacingLeft_ = false;
+    if (json.contains("start") && json["start"].is_object()) {
+        startPointCol_ = json["start"].value("col", -1);
+        startPointRow_ = json["start"].value("row", -1);
+        startFacingLeft_ = json["start"].value("facing", std::string("right")) == "left";
+    }
     platforms_.clear();
     for (const auto& entry : arrayField(json, "platforms")) {
         LevelPlatform platform;
@@ -140,6 +149,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     dispenserUsed_.assign(static_cast<size_t>(width_) * height_, 0);
     dispenserHits_.assign(static_cast<size_t>(width_) * height_, 0);
     pipe_.assign(static_cast<size_t>(width_) * height_, 0);
+    hpipe_.assign(static_cast<size_t>(width_) * height_, 0);
     flagpole_.assign(static_cast<size_t>(width_) * height_, 0);
     hidden_.assign(static_cast<size_t>(width_) * height_, 0);
     coinTile_.assign(static_cast<size_t>(width_) * height_, 0);
@@ -155,7 +165,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         for (int col = 0; col < width_ && col < static_cast<int>(line.size()); ++col) {
             const char c = line[col];
             const size_t i = static_cast<size_t>(row) * width_ + col;
-            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'U' || c == 'D' || c == 'T' || c == 'b' ||
+            solid_[i] = (c == '#' || c == 'S' || c == 'B' || c == 'C' || c == '?' || c == 'U' || c == 'D' || c == 'T' || c == 'Y' || c == 'b' ||
                          c == 'X' || isSolidSceneryChar(c)) ? 1 : 0;
             scenery_[i] = isSceneryChar(c) ? static_cast<uint8_t>(c) : 0;
             hard_[i] = (c == 'S') ? 1 : 0;
@@ -169,6 +179,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
             if (c == 'U') questionUsed_[i] = 1;
             dispenser_[i] = (c == 'D') ? 1 : 0;
             pipe_[i] = (c == 'T') ? 1 : 0;
+            hpipe_[i] = (c == 'Y') ? 1 : 0;
             flagpole_[i] = (c == 'F') ? 1 : 0;
             hidden_[i] = (c == 'H') ? 1 : 0;
             coinTile_[i] = (c == 'o') ? 1 : 0;
@@ -540,6 +551,11 @@ bool Tilemap::isPipeTile(int col, int row) const {
     return pipe_[row * width_ + col] != 0;
 }
 
+bool Tilemap::isHorizontalPipeTile(int col, int row) const {
+    if (col < 0 || row < 0 || col >= width_ || row >= height_) return false;
+    return hpipe_[row * width_ + col] != 0;
+}
+
 bool Tilemap::isPipeTopTile(int col, int row) const {
     return isPipeTile(col, row) && !isPipeTile(col, row - 1);
 }
@@ -571,7 +587,7 @@ void Tilemap::renderTerrain(SDL_Renderer* renderer, SDL_Color backgroundColor, c
             // interrogacion, tuberias y el puente se dibujan aparte con su
             // propio sprite (renderBlocks/renderPipes/renderHazards).
             if (!isSolidTile(col, row) || isBrickTile(col, row) || isQuestionTile(col, row) ||
-                isDispenserTile(col, row) || isPipeTile(col, row) || isBridgeTile(col, row) ||
+                isDispenserTile(col, row) || isPipeTile(col, row) || isHorizontalPipeTile(col, row) || isBridgeTile(col, row) ||
                 isInvisibleSolidTile(col, row) || sceneryAt(col, row) != 0) {
                 continue;
             }
@@ -664,7 +680,8 @@ void Tilemap::renderBlocks(SDL_Renderer* renderer, const SpriteSheet& brickSprit
     }
 }
 
-void Tilemap::renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX) const {
+void Tilemap::renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX,
+                          const SpriteSheet* sidePieces) const {
     const int camOffset = static_cast<int>(std::lround(cameraX));
     for (int row = 0; row < height_; ++row) {
         for (int col = 0; col < width_; ++col) {
@@ -672,8 +689,53 @@ void Tilemap::renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite,
             // el frame ya cubre las dos columnas de una sola vez (32px de
             // ancho), dibujarlo tambien desde la derecha lo duplicaria.
             if (!isPipeTile(col, row) || !isPipeLeftHalf(col, row)) continue;
-            const int frame = isPipeTopTile(col, row) ? 0 : 1;  // 0 = tope, 1 = cuerpo
+            // 0 = tope, 1 = cuerpo. Si el tope queda pegado a un bloque (se
+            // mete en el techo, como las de salida del original), sin boca.
+            // Tambien contra el techo del nivel (la fila 0 no se ve en pantalla).
+            const bool blocked = row <= 1 || (isSolidTile(col, row - 1) && !isPipeTile(col, row - 1));
+            const int frame = isPipeTopTile(col, row) && !blocked ? 0 : 1;
             pipeSprite.draw(renderer, worldRow, frame, col * tileSize_ - camOffset, row * tileSize_, false);
+        }
+    }
+    if (!sidePieces) return;
+    // Horizontales ('Y', de a pares de filas): piezas de la tuberia en L
+    // (filas 2-3 de la hoja: columna 0 boca, 1 cuerpo, 2-3 el codo).
+    for (int row = 0; row < height_; ++row) {
+        for (int col = 0; col < width_; ++col) {
+            if (!isHorizontalPipeTile(col, row) || isHorizontalPipeTile(col, row - 1)) continue;   // mitad de arriba
+            const int x = col * tileSize_ - camOffset;
+            const int y = row * tileSize_;
+            if (x < -3 * tileSize_ || x > 4096) continue;
+            auto endBlocked = [&](int c) {
+                return isSolidTile(c, row) || isSolidTile(c, row + 1);
+            };
+            const bool leftEnd = !isHorizontalPipeTile(col - 1, row);
+            const bool rightEnd = !isHorizontalPipeTile(col + 1, row);
+            const bool jointRight = rightEnd && isPipeTile(col + 1, row) && isPipeTile(col + 1, row + 1);
+            const bool jointLeft = leftEnd && isPipeTile(col - 1, row) && isPipeTile(col - 1, row + 1);
+            int piece = 1;
+            bool flip = false;
+            if (leftEnd && !jointLeft && !endBlocked(col - 1)) {
+                piece = 0;   // boca mirando a la izquierda
+            } else if (rightEnd && !jointRight && !endBlocked(col + 1)) {
+                piece = 0;   // boca mirando a la derecha
+                flip = true;
+            }
+            sidePieces->draw(renderer, 2, piece, x, y, flip);
+            sidePieces->draw(renderer, 3, piece, x, y + tileSize_, flip);
+            // El codo, encima del cuerpo de la vertical con la que se junta.
+            if (jointRight) {
+                sidePieces->draw(renderer, 2, 2, x + tileSize_, y, false);
+                sidePieces->draw(renderer, 2, 3, x + 2 * tileSize_, y, false);
+                sidePieces->draw(renderer, 3, 2, x + tileSize_, y + tileSize_, false);
+                sidePieces->draw(renderer, 3, 3, x + 2 * tileSize_, y + tileSize_, false);
+            }
+            if (jointLeft) {
+                sidePieces->draw(renderer, 2, 2, x - tileSize_, y, true);
+                sidePieces->draw(renderer, 2, 3, x - 2 * tileSize_, y, true);
+                sidePieces->draw(renderer, 3, 2, x - tileSize_, y + tileSize_, true);
+                sidePieces->draw(renderer, 3, 3, x - 2 * tileSize_, y + tileSize_, true);
+            }
         }
     }
 }

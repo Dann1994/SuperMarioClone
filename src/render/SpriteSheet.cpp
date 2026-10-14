@@ -5,7 +5,7 @@
 #include <cstdlib>
 
 SpriteSheet::~SpriteSheet() {
-    if (texture_) {
+    if (texture_ && sRendererAlive) {
         SDL_DestroyTexture(texture_);
     }
 }

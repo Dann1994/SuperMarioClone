@@ -55,6 +55,10 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
     frame_ = static_cast<int>(animTimer_) % 4;
 
     const int ts = level.tileSize();
+    // El solido invisible ('X') no frena el fuego: lo atraviesa.
+    auto solid = [&level](int col, int row) {
+        return level.isSolidTile(col, row) && !level.isInvisibleSolidTile(col, row);
+    };
 
     // --- Eje X: choca con pared y explota ---
     const float newX = x_ + velX_ * dt;
@@ -64,7 +68,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         const int row0 = static_cast<int>(std::floor(y_ / ts));
         const int row1 = static_cast<int>(std::floor((y_ + kSize - kEdgeEpsilon) / ts));
         for (int row = row0; row <= row1; ++row) {
-            if (level.isSolidTile(col, row)) {
+            if (solid(col, row)) {
                 explode();
                 wallHitRequested_ = true;
                 return;
@@ -82,7 +86,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         const int row = static_cast<int>(std::floor((newY + kSize - kEdgeEpsilon) / ts));
         bool blocked = false;
         for (int col = col0; col <= col1; ++col) {
-            if (level.isSolidTile(col, row)) { blocked = true; break; }
+            if (solid(col, row)) { blocked = true; break; }
         }
         if (blocked) {
             newY = static_cast<float>(row * ts - kSize);

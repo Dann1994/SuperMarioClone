@@ -90,6 +90,9 @@ public:
     // Idem, para el sonido de cada brazada nadando (Underwater, tecla de
     // saltar): true el frame en que arranca una brazada nueva. Este SI se
     // consume (un solo golpe, no loop -- cada brazada es corta).
+    // Adentro de un remolino (lo decide Game cada cuadro).
+    void setInWhirlpool(bool on) { inWhirlpool_ = on; }
+    bool inWhirlpool() const { return inWhirlpool_; }
     bool consumeSwimStrokeSoundRequest() {
         const bool value = swimStrokeSoundRequested_;
         swimStrokeSoundRequested_ = false;
@@ -372,6 +375,9 @@ private:
     static constexpr float kSwimFriction = 90.0f;      // px/s^2
     static constexpr float kSwimGravity = 220.0f;      // px/s^2, se hunde despacio
     static constexpr float kSwimStrokeImpulse = -150.0f; // px/s, cada brazada
+    // Remolino (ProcessWhirlpools del original): gravedad de mas (0x10/256
+    // px por cuadro^2) y la brazada sube la mitad (-1 en vez de -2 px/cuadro).
+    static constexpr float kWhirlpoolPull = 16.0f / 256.0f * 3600.0f;   // px/s^2
     static constexpr float kSwimMaxRiseSpeed = -120.0f;  // px/s, tope subiendo
     static constexpr float kSwimMaxSinkSpeed = 100.0f;   // px/s, tope hundiendose
     static constexpr float kSwimBaseFps = 8.0f;         // fps del ciclo de nado en reposo
@@ -405,6 +411,7 @@ private:
     bool jumpRequested_ = false;
     bool springLaunch_ = false;
     bool swimStrokeSoundRequested_ = false;
+    bool inWhirlpool_ = false;
     bool isDucking_ = false;
     bool headBumped_ = false;
     int headBumpRow_ = 0;

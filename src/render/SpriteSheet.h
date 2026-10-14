@@ -16,6 +16,10 @@ public:
     SpriteSheet& operator=(const SpriteSheet&) = delete;
 
     bool loadFromFile(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight);
+    // Llamar antes de SDL_DestroyRenderer: el renderer libera todas sus
+    // texturas, asi los SpriteSheet que se destruyen despues (miembros del
+    // juego o del editor) no vuelven a liberarlas (se caia al salir).
+    static void rendererDestroyed() { sRendererAlive = false; }
     // Igual, pero cambiando colores exactos (from -> to) al cargar: las
     // variantes de paleta del original que no tienen hoja propia (nieve).
     bool loadRecolored(SDL_Renderer* renderer, const std::string& path, int frameWidth, int frameHeight,
@@ -37,6 +41,7 @@ public:
     int frameWidth() const { return frameWidth_; }
     int frameHeight() const { return frameHeight_; }
     bool isLoaded() const { return texture_ != nullptr; }
+    static inline bool sRendererAlive = true;
     // Cantidad de filas del sheet (alto de la textura / alto de frame). Sirve
     // para calcular offsets de bloque, como en las variantes de paleta de estrella.
     int rowCount() const;

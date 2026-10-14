@@ -1067,6 +1067,10 @@ private:
     std::array<SpriteSheet, kDecorationCount> decorationSprites_;
     std::array<SpriteSheet, kDecorationCount> decorationSnowSprites_;
     std::array<SpriteSheet, kDecorationCount> decorationGraySprites_;
+    // Tuberia en L en piezas de 16x16 (normal, nieve, gris), para la estirada.
+    // 0 normal, 1 nieve, 2 gris, 3 subterraneo, 4 castillo (Palettes.h).
+    std::array<SpriteSheet, 5> pipeSideSlices_;
+    const SpriteSheet& pipeSidePieces() const;
 
     // Buzzy Beetle de prueba (seccion 5.2, tercer enemigo): fisica y
     // caparazon identicos al Koopa verde caminando (se cae de los bordes,
@@ -1344,6 +1348,13 @@ private:
         float speed;    // grados/s
     };
     std::vector<Firebar> firebars_;
+    // Remolinos de los niveles de agua (entidad "whirlpool"): de x a x+length.
+    struct Whirlpool {
+        float x;
+        float length;
+    };
+    std::vector<Whirlpool> whirlpools_;
+    void updateWhirlpools(Mario& character, float dt);
     // Zonas de Cheep Cheep saltarinas, en px (inicio, fin).
     std::vector<std::pair<float, float>> cheepJumpZones_;
     // X donde el Lakitu del nivel se retira (-1: nunca).

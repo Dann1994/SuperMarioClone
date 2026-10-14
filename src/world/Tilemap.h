@@ -66,6 +66,10 @@ struct LevelDecoration {     // "decorations": escenografia de fondo
     int col = 0;             // esquina superior izquierda, en tiles
     int row = 0;
     bool front = false;      // se dibuja delante de los personajes (la tuberia en L: Mario se mete adentro)
+    // Tuberia en L: tramos horizontales de mas entre la boca y el codo
+    // (estirada en el editor). Boca en col, codo y tramo vertical en
+    // col + 2 + length.
+    int length = 0;
 };
 struct LevelPlatform {       // "platforms": plataformas moviles (ver MovingPlatform.h)
     int col = 0;             // esquina superior izquierda, en tiles
@@ -149,6 +153,12 @@ public:
     int introArea() const { return introArea_; }
     // Columna donde arranca el jugador (-1: la de siempre, kMarioSpawnX).
     int startCol() const { return startCol_; }
+    // Donde arranca el jugador ("start": {"col", "row", "facing"}, lo pone el
+    // editor): la columna, la fila donde apoya (los pies sobre el tope de
+    // row+1, como los enemigos) y para que lado mira. row < 0: no hay.
+    int startPointCol() const { return startPointCol_; }
+    int startPointRow() const { return startPointRow_; }
+    bool startFacingLeft() const { return startFacingLeft_; }
 
     // Solido invisible ('X'): bloquea como '#' pero no se dibuja (la parte
     // de una escenografia que tiene que frenar, como el tramo vertical de la
@@ -352,7 +362,15 @@ public:
     // vez, ver el comentario de isPipeTile) en vez del rectangulo plano del
     // terreno. Dibuja una sola vez por par de columnas (se salta la mitad
     // derecha, ya se dibujo junto con la izquierda).
-    void renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX = 0.0f) const;
+    // sidePieces: la tuberia en L en piezas de 16x16 (scenery_pipe_side.png,
+    // con la paleta del mundo) para las horizontales ('Y'): boca, cuerpo y
+    // el codo donde se juntan con una vertical.
+    void renderPipes(SDL_Renderer* renderer, const SpriteSheet& pipeSprite, int worldRow, float cameraX = 0.0f,
+                     const SpriteSheet* sidePieces = nullptr) const;
+    // Tuberia horizontal ('Y', de 2 filas de alto): solida; la boca va en la
+    // punta que no sigue (se entra empujando contra ella, ver los warps
+    // "dir": "right").
+    bool isHorizontalPipeTile(int col, int row) const;
 
     // Columna fija del frame "usado" en question_block.png (ver el
     // comentario de render()): las primeras kQuestionUsedFrame columnas son
@@ -376,6 +394,9 @@ private:
     std::vector<uint8_t> invisible_;     // row-major, 1 = solido invisible ('X')
     int introArea_ = -1;
     int startCol_ = -1;
+    int startPointCol_ = -1;
+    int startPointRow_ = -1;
+    bool startFacingLeft_ = false;
     std::vector<uint8_t> scenery_;       // row-major, el caracter ('t', 'K'...) o 0
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')
@@ -395,5 +416,6 @@ private:
     std::vector<uint8_t> dispenserUsed_; // row-major, 1 = ya lo golpearon la ultima vez que le tocaba
     std::vector<uint8_t> dispenserHits_; // row-major, cuantas veces lo golpearon hasta ahora
     std::vector<uint8_t> pipe_;          // row-major, 1 = tuberia ('T')
+    std::vector<uint8_t> hpipe_;         // row-major, 1 = tuberia horizontal ('Y')
     std::vector<uint8_t> flagpole_;      // row-major, 1 = mastil de la bandera ('F')
 };

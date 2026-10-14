@@ -5,6 +5,8 @@ nuestros. La ROM no va en el repositorio (.gitignore).
 Uso, parado en la raiz del proyecto:
   python tools/level_scripts/rom_build.py "Documentaciones/Super Mario Bros (E).nes" [carpeta]
 (carpeta por defecto: levels). Con --dump W-L imprime ese nivel en texto.
+Los niveles guardados con el editor (marca "edited": true) no se regeneran;
+--force los pisa igual.
 """
 import json
 import os
@@ -218,6 +220,11 @@ class AreaBuild:
             if k == 0:          # pozo
                 for j in range(8, 13):
                     self.put(col, j, '.', False)
+                # En el agua cada pozo es un remolino (Hole_Empty del
+                # original): desde un bloque antes del pozo hasta su borde
+                # derecho, L + 2 bloques.
+                if off == 0 and t == WATER:
+                    self.entities.append({"type": "whirlpool", "col": col - 1, "row": 13, "length": L + 2})
             elif k == 2:
                 self.put(col, 7, 'R')
             elif k == 3:
@@ -299,18 +306,22 @@ class AreaBuild:
             self.entities.append({"type": "spring", "col": col, "row": r + 1 + ROW_OFFSET})
 
     def l_pipe(self, col, top, kind):
-        """Tuberia en L: boca de 2x2 abajo a la izquierda y tramo vertical a la
-        derecha (en la de salida sigue hasta arriba de todo)."""
+        """Tuberia en L, con tiles: la horizontal ('Y', boca de 2x2 abajo a la
+        izquierda) y el tramo vertical ('T') a la derecha (en la de salida
+        sigue hasta arriba de todo). El juego dibuja el codo donde se juntan."""
+        for c in (col, col + 1):
+            for rr in (top + 2, top + 3):
+                if 0 <= c < self.width and 0 <= rr < ROWS:
+                    self.cols[c][rr] = 'Y'
         for c in (col + 2, col + 3):
             if not 0 <= c < self.width:
                 continue
             for rr in range(top, top + 4):
                 if 0 <= rr < ROWS:
-                    self.cols[c][rr] = 'X'
+                    self.cols[c][rr] = 'T'
             if kind == 'exit':
                 for rr in range(ROW_OFFSET, top):
                     self.cols[c][rr] = 'T'
-        self.decorations.append({"type": "pipe_side", "col": col, "row": top, "front": True})
         self.pipes.append((col, top + 2, 'side'))
 
     def make_scenery(self):
@@ -526,7 +537,9 @@ def build_level(rom, world, level):
         shared = len({ch.world for ch in a.changes}) > 1
         # (el area de agua que comparten el 5-2 y el 6-2 se usa entera).
         one_page = shared and a.type == UNDERGROUND and a.header["entrance"] in (0, 1)
-        end = start + 16 if one_page else a.width
+        # (17: la tuberia de salida del cuarto ocupa tambien la primera
+        # columna de la pagina siguiente).
+        end = start + 17 if one_page else a.width
         if one_page:
             room_pages.setdefault(a.pointer, set()).add(page)
         return start, min(end, a.width)
@@ -638,7 +651,7 @@ def build_level(rom, world, level):
         if len(pages) > 1:
             # Una camara por cuarto: la pagina de cada uno, sin las del medio.
             for pg in pages:
-                out["areas"].append(dict(area_out, start=g(ptr, pg * 16), end=g(ptr, pg * 16 + 15)))
+                out["areas"].append(dict(area_out, start=g(ptr, pg * 16), end=g(ptr, pg * 16 + 16)))
         else:
             out["areas"].append(area_out)
         for col, row, item, hits in a.blocks:
@@ -849,6 +862,16 @@ def main():
                     print(r)
                 continue
             path = os.path.join(out_dir, f"world{world + 1}", f"{name}.json")
+            # Los niveles retocados con el editor (marca "edited") no se pisan,
+            # salvo con --force.
+            if os.path.exists(path) and "--force" not in sys.argv:
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        if json.load(f).get("edited"):
+                            print(f"{path}: editado a mano, no se regenera (--force para pisarlo)")
+                            continue
+                except (OSError, ValueError):
+                    pass
             os.makedirs(os.path.dirname(path), exist_ok=True)
             text = json.dumps(lv, indent=2)
             # Objetos chicos en una sola linea, como los demas niveles.

@@ -13,8 +13,11 @@ una columna por pieza (ver Tilemap::renderScenery):
   19   bloque de nube (el piso de las areas de monedas en el cielo,
        de "Palette 2")
 
-Solo el canon cambia de paleta (sale de "Palette 1"); el resto es igual
-en las cuatro filas.
+Con la paleta de cada mundo (filas): la copa del arbol y el sombrero del
+hongo salen de "Palette 0" (en superficie el sombrero es el de "Mushrooms",
+la paleta de las zonas de hongos, donde aparecen), el tronco, el tallo del
+hongo y el canon de "Palette 1". El resto (puente, coral, agua, nube) es
+igual en las cuatro filas.
 
 Uso, parado en la raiz del proyecto (necesita Pillow):
   python tools/asset_scripts/gen_scenery_tiles.py
@@ -23,10 +26,11 @@ from PIL import Image
 
 T = 16
 
-# Esquina superior izquierda de cada pieza en "Assembled Structures".
+# Esquina superior izquierda de cada pieza en "Assembled Structures"
+# (None: va por paleta, ver BY_PALETTE).
 SHARED = [
-    (256, 696), (272, 696), (320, 696), (288, 728),   # arbol
-    (344, 728), (360, 728), (376, 728), (360, 744), (360, 760),  # hongo
+    None, None, None, None,                           # arbol (por paleta)
+    None, None, None, None, None,                     # hongo (por paleta)
     (40, 656), (40, 672),                             # puente de soga
     None, None, None,                                 # canon (por paleta)
     (312, 640), (312, 656),                           # coral
@@ -42,6 +46,40 @@ PALETTE1_ORIGIN = {
     2: (147, 16),     # Underground
     3: (0, 100),      # Castle
 }
+
+
+# "Palette 0" (copas y sombreros) por WorldType: origen de la seccion; las
+# piezas van de a 17 px (16 + la linea de la grilla).
+PALETTE0_ORIGIN = {
+    0: (0, 196),      # Overworld
+    1: (164, 280),    # Underwater
+    2: (164, 196),    # Underground
+    3: (0, 280),      # Castle
+}
+MUSHROOMS_ORIGIN = (0, 364)   # "Mushrooms": el sombrero de hongo en superficie
+
+# Pieza -> (paleta, columna, fila) dentro de la seccion.
+BY_PALETTE = {
+    0: (0, 0, 0), 1: (0, 1, 0), 2: (0, 2, 0),    # copa de arbol (izq, medio, der)
+    3: (1, 1, 1),                                # tronco
+    4: (0, 3, 0), 5: (0, 4, 0), 6: (0, 5, 0),    # sombrero de hongo
+    7: (1, 4, 2), 8: (1, 4, 3),                  # tallo (tope, cuerpo)
+}
+
+
+def piece_position(col, row):
+    """Donde esta la pieza `col` para el WorldType `row` (None: de SHARED)."""
+    if col in BY_PALETTE:
+        palette, c, r = BY_PALETTE[col]
+        if palette == 0:
+            ox, oy = MUSHROOMS_ORIGIN if (row == 0 and 4 <= col <= 6) else PALETTE0_ORIGIN[row]
+        else:
+            ox, oy = PALETTE1_ORIGIN[row]
+        return ox + c * 17, oy + r * 17
+    if 11 <= col <= 13:
+        ox, oy = PALETTE1_ORIGIN[row]
+        return ox + 7 * 17, oy + (col - 11) * 17
+    return SHARED[col]
 
 
 def is_background(rgb):
@@ -65,10 +103,8 @@ def main():
     sheet = Image.open("Documentaciones/Tiles.png").convert("RGB")
     out = Image.new("RGBA", (T * len(SHARED), T * 4), (0, 0, 0, 0))
     for row in range(4):
-        for col, pos in enumerate(SHARED):
-            if pos is None:
-                ox, oy = PALETTE1_ORIGIN[row]
-                pos = (ox + 7 * 17, oy + (col - 11) * 17)
+        for col in range(len(SHARED)):
+            pos = piece_position(col, row)
             copy_tile(sheet, out, pos[0], pos[1], col * T, row * T)
     out.save("assets/sprites/scenery_tiles.png")
 

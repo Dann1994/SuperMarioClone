@@ -399,11 +399,12 @@ void Mario::updateVertical(float dt, Input& input) {
         // Nado: cada apretada de saltar es una brazada hacia arriba, no hace
         // falta estar en el piso. Se hunde despacio si no se hace nada.
         if (input.consumePress(Action::Jump)) {
-            velY_ = kSwimStrokeImpulse;
+            velY_ = inWhirlpool_ ? kSwimStrokeImpulse / 2.0f : kSwimStrokeImpulse;
             swimStrokeBoostTimer_ = kSwimStrokeBoostDuration;
             swimStrokeSoundRequested_ = true;
         }
-        velY_ = std::clamp(velY_ + kSwimGravity * dt, kSwimMaxRiseSpeed, kSwimMaxSinkSpeed);
+        const float gravity = kSwimGravity + (inWhirlpool_ ? kWhirlpoolPull : 0.0f);
+        velY_ = std::clamp(velY_ + gravity * dt, kSwimMaxRiseSpeed, kSwimMaxSinkSpeed);
         return;
     }
 
