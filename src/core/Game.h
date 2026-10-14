@@ -252,6 +252,9 @@ enum class AppState {
     DemoEnd,
 };
 
+// Caja de choque enemigo-jugador del original (ver originalEnemyBox en Game.cpp).
+enum class EnemyBox { Normal, Small, HammerBro };
+
 class Game {
 public:
     bool init();
@@ -371,7 +374,8 @@ private:
     // (killFalling): estrella lo voltea, pisoton lo voltea con rebote,
     // si no lastima. Un contacto por encuentro (ver beginContact).
     template <typename T>
-    void resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce);
+    void resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce,
+                                 EnemyBox box = EnemyBox::Normal);
     // Contacto unico por encuentro (como el original): true solo el primer
     // cuadro en que se tocan; endContact cuando dejan de tocarse.
     bool beginContact(const void* enemy, const void* character);
@@ -740,9 +744,28 @@ private:
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
     // Vibracion leve al pisar un enemigo (si la vibracion esta activada).
     void stompRumble(const Mario& character);
-    static constexpr Uint16 kStompRumbleStrength = 0x3000;  // ~19% (lastimarse usa 0xC000)
-    static constexpr Uint32 kStompRumbleMs = 70;
-    void updateRumble();
+    // Vibraciones con ritmo (una secuencia de pulsos por jugador, la nueva
+    // reemplaza a la que estaba sonando): la de agarrar un item sigue las
+    // notas de powerup.wav / 1up.wav, la de ser golpeado las de
+    // pipepowerdown.wav; romper un ladrillo, fuerte; golpear uno que no se
+    // rompe (o cualquier bloque), leve.
+    struct RumbleStep {
+        float at;          // segundos desde que arranca
+        Uint16 strength;
+        Uint32 ms;
+    };
+    enum class RumbleKind { Item, OneUp, Hurt, Death, BrickBreak, BlockBump };
+    void startRumble(const Mario& character, RumbleKind kind);
+    std::array<std::vector<RumbleStep>, 2> rumbleSteps_{};
+    std::array<float, 2> rumbleClock_{};
+    std::array<size_t, 2> rumbleNext_{};
+    // Bajando por el mastil: vibra todo el deslizamiento (se renueva el
+    // pulso cada tanto mientras dure).
+    std::array<float, 2> flagRumbleTimer_{};
+    // ~50%: mas bajo muchos mandos no llegan a mover el motor.
+    static constexpr Uint16 kStompRumbleStrength = 0x8000;
+    static constexpr Uint32 kStompRumbleMs = 100;
+    void updateRumble(float dt);
     // Guarda el puntaje como record (TOP-) si lo supera.
     void saveTopScore();
 
@@ -1322,6 +1345,9 @@ private:
     // CONTINUAR: despues de un GAME OVER en la partida, se puede seguir desde
     // el primer nivel de ese mundo (0 = no hay partida para continuar).
     int continueWorld_ = 0;
+    // Desde que mundo sigue CONTINUAR: el GAME OVER de esta sesion o la
+    // partida guardada en settings.json (0 = nada).
+    int continueWorld() const;
     // 2 jugadores por turnos (el modo del original): un solo personaje en
     // pantalla; al morir pasa el turno al otro (si le quedan vidas), cada uno
     // con sus vidas, puntaje, monedas, nivel, checkpoint, tamano y su 1-UP

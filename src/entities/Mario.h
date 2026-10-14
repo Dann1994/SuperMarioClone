@@ -274,6 +274,7 @@ public:
                flagpolePhase_ == FlagpolePhase::Flip;
     }
     bool isWaitingAtFlagpoleBottom() const { return flagpolePhase_ == FlagpolePhase::Bottom; }
+    bool isSlidingFlagpole() const { return flagpolePhase_ == FlagpolePhase::Slide; }
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
 

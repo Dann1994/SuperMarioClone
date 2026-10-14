@@ -125,6 +125,31 @@ constexpr DecorationInfo kDecorations[] = {
     {"castle_wall", 16, 96},
 };
 
+// Cajas de choque enemigo-jugador del original (BoundBoxCtrl, tabla de
+// BoundingBoxCore), relativas a un objeto de 16 de ancho con los pies abajo:
+// - Normal (3): Koopas, Buzzy Beetle, Lakitu: 12x12, 2 px adentro de cada
+//   costado, de 15 a 3 px por encima de los pies.
+// - Small (9, SmallBBox): Goomba, Blooper, Cheep Cheep, Bill Bala, Spiny,
+//   Podoboo, Piranha Plant: 10x6, 3 px adentro, de 10 a 4 px sobre los pies.
+// - HammerBro (0xB): 8x24, 4 px adentro, de 20 px sobre los pies a 4 debajo.
+// Con el cuadro entero del sprite los choques de costado y en las esquinas
+// llegaban antes de tiempo.
+SDL_FRect originalEnemyBox(float x, float y, float w, float h, EnemyBox kind) {
+    const float feet = y + h;
+    const float left = x + (w - 16.0f) / 2.0f;
+    switch (kind) {
+        case EnemyBox::Small: return SDL_FRect{left + 3.0f, feet - 10.0f, 10.0f, 6.0f};
+        case EnemyBox::HammerBro: return SDL_FRect{left + 4.0f, feet - 20.0f, 8.0f, 24.0f};
+        case EnemyBox::Normal: break;
+    }
+    return SDL_FRect{left + 2.0f, feet - 15.0f, 12.0f, 12.0f};
+}
+
+bool overlapsBox(const Mario& character, const SDL_FRect& box) {
+    return character.x() < box.x + box.w && character.x() + static_cast<float>(character.width()) > box.x &&
+           character.y() < box.y + box.h && character.y() + static_cast<float>(character.height()) > box.y;
+}
+
 WorldType parseWorldType(const std::string& name, WorldType fallback) {
     if (name == "overworld") return WorldType::Overworld;
     if (name == "underground") return WorldType::Underground;
@@ -1253,6 +1278,7 @@ void Game::checkMushroomPickup(Mario& character) {
         spawnScorePopup(mushroom_.x(), mushroom_.y(), "1UP");
         mushroom_.collect();
         audio_.play(Sfx::OneUp);
+        startRumble(character, RumbleKind::OneUp);
         return;
     }
 
@@ -1262,6 +1288,7 @@ void Game::checkMushroomPickup(Mario& character) {
     spawnScorePopup(mushroom_.x(), mushroom_.y(), "1000");
     mushroom_.collect();
     audio_.play(Sfx::PowerUp);
+    startRumble(character, RumbleKind::Item);
 }
 
 void Game::checkFireFlowerPickup(Mario& character) {
@@ -1287,6 +1314,7 @@ void Game::checkFireFlowerPickup(Mario& character) {
     spawnScorePopup(fireFlower_.x(), fireFlower_.y(), "1000");
     fireFlower_.collect();
     audio_.play(Sfx::PowerUp);
+    startRumble(character, RumbleKind::Item);
 }
 
 void Game::checkStarPickup(Mario& character) {
@@ -1303,6 +1331,7 @@ void Game::checkStarPickup(Mario& character) {
     spawnScorePopup(star_.x(), star_.y(), "1000");
     star_.collect();
     audio_.play(Sfx::PowerUp);
+    startRumble(character, RumbleKind::Item);
 }
 
 void Game::checkCoinPickup(Mario& character) {
@@ -1345,9 +1374,11 @@ void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*
         return;
     }
 
-    const bool overlap =
-        character.x() < goomba.x() + Goomba::kSize && character.x() + character.width() > goomba.x() &&
-        character.y() < goomba.y() + Goomba::kSize && character.y() + character.height() > goomba.y();
+    // Caja de choque del original (12x12, ver Goomba::hitBox) contra el
+    // hitbox del personaje (que ya es el del original, Mario.h).
+    const SDL_FRect box = goomba.hitBox();
+    const bool overlap = character.x() < box.x + box.w && character.x() + character.width() > box.x &&
+                         character.y() < box.y + box.h && character.y() + character.height() > box.y;
     if (!overlap) {
         endContact(&goomba, &character);
         return;
@@ -1370,6 +1401,8 @@ void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*
         awardStompPoints(character, goomba.x(), goomba.y());
         return;
     }
+    // Lastima y queda mirando al jugador (ChkEnemyFaceRight / LInj).
+    if (!character.isHurtInvincible()) goomba.facePlayer(character.x() + character.width() / 2.0f);
     applyContactDamage(character);
 }
 
@@ -1401,10 +1434,9 @@ void Game::endContact(const void* enemy, const void* character) {
 }
 
 template <typename T>
-void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce) {
-    const bool overlap = character.x() < enemy.x() + enemy.width() && character.x() + character.width() > enemy.x() &&
-                         character.y() < enemy.y() + enemy.height() &&
-                         character.y() + character.height() > enemy.y();
+void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, float bounce, EnemyBox box) {
+    const bool overlap = overlapsBox(character, originalEnemyBox(enemy.x(), enemy.y(), static_cast<float>(enemy.width()),
+                                                                 static_cast<float>(enemy.height()), box));
     if (!overlap) {
         endContact(&enemy, &character);
         return;
@@ -1588,9 +1620,8 @@ void Game::checkBuzzyBeetleCollision(Mario& character, BuzzyBeetle& buzzy, float
 //   personaje rebota); si no, lo lastima. No importa la altura del contacto.
 template <typename Shell>
 void Game::resolveShellEnemyContact(Mario& character, Shell& enemy, bool shellIdle) {
-    const bool overlap =
-        character.x() < enemy.x() + enemy.width() && character.x() + character.width() > enemy.x() &&
-        character.y() < enemy.y() + enemy.height() && character.y() + character.height() > enemy.y();
+    const bool overlap = overlapsBox(character, originalEnemyBox(enemy.x(), enemy.y(), static_cast<float>(enemy.width()),
+                                                                 static_cast<float>(enemy.height()), EnemyBox::Normal));
     if (!overlap) {
         enemy.setTouching(&character, false);
         return;
@@ -1731,9 +1762,8 @@ void Game::checkPiranhaPlantCollision(Mario& character, PiranhaPlant& plant) {
     if (character.isInDeathSequence()) return;
     if (!plant.isDangerous()) return;
 
-    const bool overlap =
-        character.x() < plant.x() + plant.width() && character.x() + character.width() > plant.x() &&
-        character.y() < plant.y() + plant.height() && character.y() + character.height() > plant.y();
+    const bool overlap = overlapsBox(character, originalEnemyBox(plant.x(), plant.y(), static_cast<float>(plant.width()),
+                                                                 static_cast<float>(plant.height()), EnemyBox::Small));
     if (!overlap) return;
 
     if (character.isInvincible()) {
@@ -1784,7 +1814,7 @@ void Game::checkHammerBroCollision(Mario& character, HammerBro& bro, float /*pre
         endContact(&bro, &character);
         return;
     }
-    resolveStompableContact(character, bro, StompRule::Falling, kStompBounce);
+    resolveStompableContact(character, bro, StompRule::Falling, kStompBounce, EnemyBox::HammerBro);
 }
 
 void Game::checkFireballHammerBroCollision(Fireball& fireball, HammerBro& bro) {
@@ -1850,9 +1880,8 @@ void Game::checkSpinyCollision(Mario& character, Spiny& spiny) {
     if (character.isInDeathSequence()) return;
     if (!spiny.isDangerous()) return;
 
-    const bool overlap =
-        character.x() < spiny.x() + Spiny::kSize && character.x() + character.width() > spiny.x() &&
-        character.y() < spiny.y() + Spiny::kSize && character.y() + character.height() > spiny.y();
+    const bool overlap = overlapsBox(character, originalEnemyBox(spiny.x(), spiny.y(), static_cast<float>(Spiny::kSize),
+                                                                 static_cast<float>(Spiny::kSize), EnemyBox::Small));
     if (!overlap) return;
 
     if (character.isInvincible()) {
@@ -1915,7 +1944,7 @@ void Game::checkBlooperCollision(Mario& character, Blooper& blooper) {
     }
     // En el agua (donde vive) cualquier contacto lastima; fuera del agua se
     // puede pisar como el resto (handleUnderwaterContactDamage resuelve lo primero).
-    resolveStompableContact(character, blooper, StompRule::FallingOrBelow, kStompBounce);
+    resolveStompableContact(character, blooper, StompRule::FallingOrBelow, kStompBounce, EnemyBox::Small);
 }
 
 void Game::checkFireballBlooperCollision(Fireball& fireball, Blooper& blooper) {
@@ -1940,7 +1969,7 @@ void Game::checkCheepCheepCollision(Mario& character, CheepCheep& cheepCheep, fl
         endContact(&cheepCheep, &character);
         return;
     }
-    resolveStompableContact(character, cheepCheep, StompRule::FallingOrBelow, kStompBounce);
+    resolveStompableContact(character, cheepCheep, StompRule::FallingOrBelow, kStompBounce, EnemyBox::Small);
 }
 
 void Game::checkFireballCheepCheepCollision(Fireball& fireball, CheepCheep& cheepCheep) {
@@ -1992,7 +2021,7 @@ void Game::checkBulletBillCollision(Mario& character, BulletBill& bulletBill, fl
         endContact(&bulletBill, &character);
         return;
     }
-    resolveStompableContact(character, bulletBill, StompRule::FallingOrBelow, kStompBounce);
+    resolveStompableContact(character, bulletBill, StompRule::FallingOrBelow, kStompBounce, EnemyBox::Small);
 }
 
 void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bulletBill) {
@@ -2014,9 +2043,8 @@ void Game::checkPodobooCollision(Mario& character, Podoboo& podoboo) {
     if (character.isInDeathSequence()) return;
     if (!podoboo.isDangerous()) return;
 
-    const bool overlap =
-        character.x() < podoboo.x() + podoboo.width() && character.x() + character.width() > podoboo.x() &&
-        character.y() < podoboo.y() + podoboo.height() && character.y() + character.height() > podoboo.y();
+    const bool overlap = overlapsBox(character, originalEnemyBox(podoboo.x(), podoboo.y(), static_cast<float>(podoboo.width()),
+                                                                 static_cast<float>(podoboo.height()), EnemyBox::Small));
     if (!overlap) return;
 
     // Invencible de verdad (ver Podoboo.h): la estrella sigue protegiendo a
@@ -2356,6 +2384,7 @@ void Game::checkBrickBlockHit(Mario& character) {
     setScorer(character);
     int row = 0, col0 = 0, col1 = 0;
     if (!character.headBumpedThisFrame(row, col0, col1)) return;
+    startRumble(character, RumbleKind::BlockBump);
 
     for (int col = col0; col <= col1; ++col) {
         if (!level_.isBrickTile(col, row)) continue;
@@ -2369,6 +2398,7 @@ void Game::checkBrickBlockHit(Mario& character) {
             bumpBrickBlock(col, row);
         } else {
             breakBrickBlock(col, row);
+            startRumble(character, RumbleKind::BrickBreak);
         }
         collectTopCoinIfAny(col, row);
         return;
@@ -2972,7 +3002,7 @@ void Game::update(float dt) {
         return;
     }
     if (appState_ != AppState::Playing) return;
-    updateRumble();
+    updateRumble(dt);
     updateMusic(dt);
     if (pipeTransitionTimer_ > 0.0f) {
         // Intro: Mario se mete caminando en la tuberia y todo lo demas queda
@@ -3160,6 +3190,7 @@ void Game::update(float dt) {
 
     blockCoin_.update(dt);
 
+    Goomba::advanceWaddle(dt);
     for (Goomba& goomba : goombas_) {
         goomba.update(dt, level_, kWorldViewBottom);
         checkGoombaCollision(mario_, goomba, marioPrevY);
@@ -3960,8 +3991,9 @@ void Game::finishFinalEnding() {
     finalEnding_ = false;
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
-    if (campaign_ && !settings_.gameCompleted) {
+    if (campaign_) {
         settings_.gameCompleted = true;
+        settings_.saveWorld = 0;   // la partida termino: no queda nada para continuar
         settings_.save();
     }
     audio_.stopMusic();
@@ -4146,6 +4178,11 @@ bool Game::updateEndSequence(float dt) {
         seq.bursts[i].t += dt;
         if (seq.bursts[i].t >= 24.0f / 60.0f) {
             audio_.play(Sfx::BillFirework);
+            // Cada explosion: una vibracion corta y fuerte (en los dos mandos).
+            if (settings_.vibration) {
+                input1_.rumble(0xE000, 90);
+                if (twoPlayerMode_) input2_.rumble(0xE000, 90);
+            }
             scorer_ = levelFinisher_;
             addScore(500);
             seq.bursts.erase(seq.bursts.begin() + static_cast<long>(i));

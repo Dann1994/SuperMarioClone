@@ -38,6 +38,13 @@ bool Settings::load() {
     playerCollision = json.value("player_collision", playerCollision);
     topScore = json.value("top_score", topScore);
     gameCompleted = json.value("game_completed", gameCompleted);
+    if (json.contains("save") && json["save"].is_object()) {
+        const auto& save = json["save"];
+        saveWorld = std::clamp(save.value("world", 0), 0, 8);
+        saveMode = save.value("mode", std::string("solo"));
+        saveLuigi = save.value("luigi", false);
+        saveSecondQuest = save.value("second_quest", false);
+    }
     if (json.contains("keys")) {
         try {
             // Tolerante con el largo: las versiones viejas guardaban 5
@@ -68,6 +75,7 @@ bool Settings::save() const {
         {"player_collision", playerCollision},
         {"top_score", topScore},
         {"game_completed", gameCompleted},
+        {"save", {{"world", saveWorld}, {"mode", saveMode}, {"luigi", saveLuigi}, {"second_quest", saveSecondQuest}}},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},
         {"pad_run_button", padRunButton},

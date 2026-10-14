@@ -250,6 +250,11 @@ std::vector<bool> titleDisabled(bool canContinue) {
 
 }  // namespace
 
+int Game::continueWorld() const {
+    // El GAME OVER de esta sesion manda; si no, la partida guardada.
+    return continueWorld_ > 0 ? continueWorld_ : settings_.saveWorld;
+}
+
 void Game::handleTitleInput(MenuInput input) {
     if (confirmingQuit_) {
         // "Esta seguro que quiere cerrar el juego?": SI / NO (arranca en NO).
@@ -411,7 +416,8 @@ void Game::handleTitleInput(MenuInput input) {
     }
     // Submenu JUGAR.
     if (input == MenuInput::Up || input == MenuInput::Down) {
-        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled(continueWorld_ > 0));
+        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount,
+                                        titleDisabled(continueWorld() > 0));
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -433,10 +439,22 @@ void Game::handleTitleInput(MenuInput input) {
             twoModeChoice_ = 0;
             break;
         case kTitleContinue:
-            if (continueWorld_ <= 0) break;
-            startWorld_ = continueWorld_;
+            if (continueWorld() <= 0) break;
             startLevel_ = 1;
-            startCampaign(continueTwoPlayers_, continueAsLuigi_);
+            if (continueWorld_ > 0) {
+                // Despues de un GAME OVER en esta sesion.
+                startWorld_ = continueWorld_;
+                startCampaign(continueTwoPlayers_, continueAsLuigi_);
+            } else {
+                // La partida guardada (al completar un mundo).
+                startWorld_ = settings_.saveWorld;
+                secondQuestNext_ = settings_.saveSecondQuest;
+                if (settings_.saveMode == "turns") {
+                    startTurnCampaign();
+                } else {
+                    startCampaign(settings_.saveMode == "coop", settings_.saveLuigi);
+                }
+            }
             break;
         case kTitleExtras:
             titleMenu_ = kMenuExtras;
@@ -619,15 +637,88 @@ void Game::stompRumble(const Mario& character) {
     (&character == &luigi_ ? input2_ : input1_).rumble(kStompRumbleStrength, kStompRumbleMs);
 }
 
-void Game::updateRumble() {
+void Game::startRumble(const Mario& character, RumbleKind kind) {
+    if (!settings_.vibration) return;
+    std::vector<RumbleStep> steps;
+    switch (kind) {
+        case RumbleKind::Item: {
+            // powerup.wav: tres subidas de notas (0.03-0.26, 0.26-0.60,
+            // 0.60-0.90 s); un pulso cada 40 ms que crece en cada subida.
+            const float sweeps[4] = {0.03f, 0.26f, 0.60f, 0.90f};
+            for (int s = 0; s < 3; ++s) {
+                for (float t = sweeps[s]; t < sweeps[s + 1] - 0.01f; t += 0.04f) {
+                    const float k = (t - sweeps[s]) / (sweeps[s + 1] - sweeps[s]);
+                    steps.push_back({t, static_cast<Uint16>(0x1800 + k * 0x5800), 45});
+                }
+            }
+            break;
+        }
+        case RumbleKind::OneUp: {
+            // 1up.wav: seis notas.
+            const float notes[6] = {0.04f, 0.16f, 0.30f, 0.42f, 0.56f, 0.70f};
+            for (int i = 0; i < 6; ++i) steps.push_back({notes[i], static_cast<Uint16>(0x2800 + i * 0x0A00), 90});
+            break;
+        }
+        case RumbleKind::Hurt:
+            // pipepowerdown.wav: tres golpes que se apagan.
+            for (float t : {0.01f, 0.28f, 0.55f}) {
+                steps.push_back({t, 0xB000, 60});
+                steps.push_back({t + 0.06f, 0x5000, 120});
+            }
+            break;
+        case RumbleKind::Death:
+            steps.push_back({0.0f, 0xC000, 500});
+            break;
+        case RumbleKind::BrickBreak:
+            steps.push_back({0.0f, 0xD000, 140});
+            break;
+        case RumbleKind::BlockBump:
+            steps.push_back({0.0f, 0x7000, 90});
+            break;
+    }
+    const size_t p = &character == &luigi_ ? 1 : 0;
+    rumbleSteps_[p] = std::move(steps);
+    rumbleClock_[p] = 0.0f;
+    rumbleNext_[p] = 0;
+}
+
+void Game::updateRumble(float dt) {
+    // Golpeado o muerto: arranca el patron una vez, al empezar.
     const bool marioHurt = mario_.isInDamageSequence() || mario_.isInDeathSequence();
     const bool luigiHurt = twoPlayerMode_ && (luigi_.isInDamageSequence() || luigi_.isInDeathSequence());
-    if (settings_.vibration) {
-        if (marioHurt && !marioWasHurt_) input1_.rumble(0xC000, mario_.isInDeathSequence() ? 500 : 250);
-        if (luigiHurt && !luigiWasHurt_) input2_.rumble(0xC000, luigi_.isInDeathSequence() ? 500 : 250);
+    if (marioHurt && !marioWasHurt_) {
+        startRumble(mario_, mario_.isInDeathSequence() ? RumbleKind::Death : RumbleKind::Hurt);
+    }
+    if (luigiHurt && !luigiWasHurt_) {
+        startRumble(luigi_, luigi_.isInDeathSequence() ? RumbleKind::Death : RumbleKind::Hurt);
     }
     marioWasHurt_ = marioHurt;
     luigiWasHurt_ = luigiHurt;
+    // Deslizandose por el mastil: vibracion pareja mientras baja.
+    for (size_t p = 0; p < 2; ++p) {
+        const Mario& character = p == 1 ? luigi_ : mario_;
+        if (p == 1 && !twoPlayerMode_) continue;
+        if (!character.isSlidingFlagpole()) {
+            flagRumbleTimer_[p] = 0.0f;
+            continue;
+        }
+        flagRumbleTimer_[p] -= dt;
+        if (flagRumbleTimer_[p] <= 0.0f) {
+            flagRumbleTimer_[p] = 0.1f;
+            if (settings_.vibration) (p == 1 ? input2_ : input1_).rumble(0x7000, 200);
+        }
+    }
+    // Los pulsos de cada jugador, a su tiempo.
+    for (size_t p = 0; p < 2; ++p) {
+        auto& steps = rumbleSteps_[p];
+        if (rumbleNext_[p] >= steps.size()) continue;
+        rumbleClock_[p] += dt;
+        Input& input = p == 1 ? input2_ : input1_;
+        while (rumbleNext_[p] < steps.size() && steps[rumbleNext_[p]].at <= rumbleClock_[p]) {
+            const RumbleStep& step = steps[rumbleNext_[p]++];
+            if (settings_.vibration) input.rumble(step.strength, step.ms);
+        }
+    }
 }
 
 // ============================================================ partida
@@ -703,11 +794,22 @@ void Game::onLevelCleared() {
         level = 1;
     }
     const std::string next = campaignLevelPath(world, level);
+    // Termino el castillo de un mundo (x-4): se guarda la partida para
+    // seguir desde el mundo siguiente (CONTINUAR, tambien despues de cerrar
+    // el juego).
+    if (level == 1 && std::filesystem::exists(next)) {
+        settings_.saveWorld = world;
+        settings_.saveMode = turnMode_ ? "turns" : twoPlayerMode_ ? "coop" : "solo";
+        settings_.saveLuigi = playAsLuigi_;
+        settings_.saveSecondQuest = secondQuestNext_;
+        settings_.save();
+    }
     if (!std::filesystem::exists(next)) {
         // Despues del 8-4 (WorldSelectEnableFlag del original): queda
         // desbloqueado lo de EXTRAS (PARTIDA + es la segunda vuelta).
-        if (campaignWorld_ >= 8 && !settings_.gameCompleted) {
+        if (campaignWorld_ >= 8) {
             settings_.gameCompleted = true;
+            settings_.saveWorld = 0;
             settings_.save();
         }
         appState_ = AppState::DemoEnd;
@@ -801,7 +903,7 @@ void Game::renderTitle() {
         int selection = 0;
         if (titleMenu_ == kMenuPlay) {
             ids = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::Extras};
-            disabled = titleDisabled(continueWorld_ > 0);
+            disabled = titleDisabled(continueWorld() > 0);
             selection = titleSelection_;
         } else if (titleMenu_ == kMenuExtras) {
             ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
@@ -816,14 +918,21 @@ void Game::renderTitle() {
             disabled.assign(ids.size(), false);
             selection = mainSelection_;
         }
+        // CONTINUAR dice desde donde sigue (ej. "CONTINUAR 3-1").
+        std::vector<std::string> labels;
+        for (Txt id : ids) {
+            std::string label = tr(id);
+            if (id == Txt::Continue && continueWorld() > 0) label += " " + std::to_string(continueWorld()) + "-1";
+            labels.push_back(label);
+        }
         int widest = 0;
-        for (Txt id : ids) widest = std::max(widest, static_cast<int>(std::string(tr(id)).size()) * 8);
+        for (const std::string& label : labels) widest = std::max(widest, static_cast<int>(label.size()) * 8);
         const int x = (gLogicalWidth - widest) / 2;
         const int step = 14;
         for (int i = 0; i < static_cast<int>(ids.size()); ++i) {
             const int y = 134 + i * step;
             if (i == selection) titleCursorSprite_.draw(renderer_, 0, 0, x - 12, y, false);
-            DebugFont::drawText(renderer_, x, y, tr(ids[static_cast<size_t>(i)]), 2,
+            DebugFont::drawText(renderer_, x, y, labels[static_cast<size_t>(i)], 2,
                                 disabled[static_cast<size_t>(i)] ? kMenuGray : kMenuWhite);
         }
     }

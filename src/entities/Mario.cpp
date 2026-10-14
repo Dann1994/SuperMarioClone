@@ -452,138 +452,114 @@ constexpr float kEdgeEpsilon = 0.01f;
 }  // namespace
 
 void Mario::moveAndCollide(float dt, const Tilemap& level) {
+    // Choque con el escenario como PlayerBGCollision del original (sin
+    // copiar codigo): primero se mueve en los dos ejes y despues se prueba
+    // el mapa en puntos fijos de la caja de 16x32 del jugador (la "de
+    // objeto": los pies en el borde de abajo), no con la caja entera:
+    // - Cabeza: UN punto en el centro (x+8; y+4 grande, y+2 grande nadando,
+    //   y+18 chico o agachado). Subiendo, si ese punto esta en un bloque
+    //   (al menos 4 px adentro de su fila) choca: empieza a caer a 1 px por
+    //   cuadro, sin acomodar la posicion. Rozar un bloque con el costado de
+    //   la cabeza no frena (se pasa de largo, como el original).
+    // - Pies: dos puntos (x+3 y x+12, justo debajo de los pies). Cayendo o
+    //   quieto, si alguno pisa un bloque: hundido menos de 5 px, se apoya
+    //   arriba (asi corriendo se cruzan los pozos de un bloque y se sube a un
+    //   escalon si apenas se hunde); 5 o mas, cuenta como pared.
+    // - Costados: x+2 (izquierda) y x+13 (derecha), a 8 y 24 px de arriba
+    //   (chico o agachado, solo a 24). Si toca, frena y lo corre 1 px por
+    //   cuadro hacia afuera (ImpedePlayerMove).
     const int ts = level.tileSize();
-
     const int width = currentWidth();
-
-    // --- Eje X ---
-    float newX = x_ + velX_ * dt;
-    // Corriendo sobre pozos de un bloque (8-1): pasa de largo sin caer,
-    // como el original, que al tocar el borde del bloque siguiente con los
-    // pies apenas hundidos lo sube arriba en vez de frenarlo. Caminando se
-    // hunde mas y si cae.
-    auto tryStepUp = [&](int col) {
-        if (velY_ < 0.0f || std::abs(velX_) <= kMaxWalkSpeed + 1.0f) return false;
-        const float feet = y_ + static_cast<float>(currentHeight());
-        int topRow = -1;
-        const int r0 = static_cast<int>(std::floor(y_ / ts));
-        const int r1 = static_cast<int>(std::floor((feet - kEdgeEpsilon) / ts));
-        for (int row = r0; row <= r1; ++row) {
-            if (level.isSolidTile(col, row)) {
-                topRow = row;
-                break;
-            }
-        }
-        if (topRow < 0) return false;
-        const float step = feet - static_cast<float>(topRow * ts);
-        constexpr float kMaxStep = 6.0f;
-        if (step <= 0.0f || step > kMaxStep) return false;
-        const float raisedY = static_cast<float>(topRow * ts) - static_cast<float>(currentHeight());
-        const int c0 = static_cast<int>(std::floor(newX / ts));
-        const int c1 = static_cast<int>(std::floor((newX + width - kEdgeEpsilon) / ts));
-        const int rr0 = static_cast<int>(std::floor(raisedY / ts));
-        for (int c = c0; c <= c1; ++c) {
-            for (int row = rr0; row < topRow; ++row) {
-                if (level.isSolidTile(c, row)) return false;
-            }
-        }
-        y_ = raisedY;
-        velY_ = 0.0f;
-        return true;
-    };
-    {
-        float left = newX;
-        float right = newX + width;
-        int row0 = static_cast<int>(std::floor(y_ / ts));
-        int row1 = static_cast<int>(std::floor((y_ + currentHeight() - kEdgeEpsilon) / ts));
-        int col0 = static_cast<int>(std::floor(left / ts));
-        int col1 = static_cast<int>(std::floor((right - kEdgeEpsilon) / ts));
-
-        if (velX_ > 0.0f) {
-            for (int col = col0; col <= col1; ++col) {
-                bool blocked = false;
-                for (int row = row0; row <= row1; ++row) {
-                    if (level.isSolidTile(col, row)) { blocked = true; break; }
-                }
-                if (blocked && tryStepUp(col)) break;
-                if (blocked) {
-                    newX = static_cast<float>(col * ts - width);
-                    velX_ = 0.0f;
-                    break;
-                }
-            }
-        } else if (velX_ < 0.0f) {
-            for (int col = col1; col >= col0; --col) {
-                bool blocked = false;
-                for (int row = row0; row <= row1; ++row) {
-                    if (level.isSolidTile(col, row)) { blocked = true; break; }
-                }
-                if (blocked && tryStepUp(col)) break;
-                if (blocked) {
-                    newX = static_cast<float>((col + 1) * ts);
-                    velX_ = 0.0f;
-                    break;
-                }
-            }
-        }
-    }
-    x_ = newX;
-
-    // --- Eje Y ---
     const int height = currentHeight();
+    const float oldY = y_;
+
+    x_ += velX_ * dt;
     float newY = y_ + velY_ * dt;
     grounded_ = false;
     headBumped_ = false;
-    {
-        float top = newY;
-        float bottom = newY + height;
-        int col0 = static_cast<int>(std::floor(x_ / ts));
-        int col1 = static_cast<int>(std::floor((x_ + width - kEdgeEpsilon) / ts));
-        int row0 = static_cast<int>(std::floor(top / ts));
-        int row1 = static_cast<int>(std::floor((bottom - kEdgeEpsilon) / ts));
 
-        if (velY_ > 0.0f) {
-            for (int row = row0; row <= row1; ++row) {
-                bool blocked = false;
-                for (int col = col0; col <= col1; ++col) {
-                    if (level.isSolidTile(col, row)) { blocked = true; break; }
-                }
-                if (blocked) {
-                    newY = static_cast<float>(row * ts - height);
-                    velY_ = 0.0f;
-                    grounded_ = true;
-                    break;
-                }
-            }
-        } else if (velY_ < 0.0f) {
-            for (int row = row1; row >= row0; --row) {
-                bool blocked = false;
-                for (int col = col0; col <= col1; ++col) {
-                    if (level.isSolidTile(col, row)) { blocked = true; break; }
-                    // Bloque invisible: solo frena si la cabeza viene de
-                    // abajo (estaba entero por debajo del tile antes de
-                    // moverse); saltando de costado se lo atraviesa.
-                    if (level.isHiddenBlockTile(col, row) &&
-                        static_cast<float>((row + 1) * ts) <= y_ + kEdgeEpsilon) {
-                        blocked = true;
-                        break;
-                    }
-                }
-                if (blocked) {
-                    newY = static_cast<float>((row + 1) * ts);
-                    velY_ = 0.0f;
-                    // Choco de cabeza saltando: Game.cpp chequea si alguna
-                    // de estas columnas era un ladrillo rompible (ver
-                    // headBumpedThisFrame() y Game::checkBrickBlockHit).
-                    headBumped_ = true;
-                    headBumpRow_ = row;
-                    headBumpCol0_ = col0;
-                    headBumpCol1_ = col1;
-                    break;
-                }
-            }
+    const auto cellOf = [ts](float px) { return static_cast<int>(std::floor(px / static_cast<float>(ts))); };
+    const auto inCell = [ts](float py) {
+        const float m = std::fmod(py, static_cast<float>(ts));
+        return m < 0.0f ? m + static_cast<float>(ts) : m;
+    };
+    const auto solidAt = [&](float px, float py) { return level.isSolidTile(cellOf(px), cellOf(py)); };
+
+    const bool smallBox = size_ == MarioSize::Small || isDucking_;
+    const bool swimming = worldType_ == WorldType::Underwater;
+    // La caja de objeto de 16 de ancho: el hitbox (10 u 12) va adentro.
+    const float inset = size_ == MarioSize::Small ? 3.0f : 2.0f;
+    const auto objX = [&] { return x_ - inset; };
+    const auto objY = [&] { return newY + static_cast<float>(height) - 32.0f; };
+
+    // Frena contra la pared de ese lado y queda pegado a ella. El original
+    // lo corre 1 px por cuadro (ImpedePlayerMove) y empujando la pared
+    // tiembla un pixel para un lado y para el otro; aca se lo deja justo al
+    // ras (probeX: el punto de costado que toco), sin temblor.
+    const auto impede = [&](bool right, float probeX) {
+        if (right ? velX_ >= 0.0f : velX_ <= 0.0f) {
+            velX_ = 0.0f;
+            const float wall = static_cast<float>(cellOf(probeX) * ts);
+            x_ += right ? (wall - 0.01f) - probeX : (wall + static_cast<float>(ts)) - probeX;
+        }
+    };
+
+    // --- Cabeza ---
+    if (velY_ < 0.0f) {
+        const float hx = objX() + 8.0f;
+        const float hy = objY() + (smallBox ? 18.0f : swimming ? 2.0f : 4.0f);
+        const int col = cellOf(hx);
+        const int row = cellOf(hy);
+        const bool hit = level.isSolidTile(col, row) || level.isHiddenBlockTile(col, row);
+        if (hit && inCell(hy) >= 4.0f) {
+            velY_ = 60.0f;   // 1 px por cuadro hacia abajo
+            headBumped_ = true;
+            headBumpRow_ = row;
+            headBumpCol0_ = col;
+            headBumpCol1_ = col;
         }
     }
+
+    // --- Pies ---
+    if (velY_ >= 0.0f) {
+        const float fy = objY() + 32.0f;
+        const bool leftFoot = solidAt(objX() + 3.0f, fy);
+        const bool rightFoot = solidAt(objX() + 12.0f, fy);
+        if (leftFoot || rightFoot) {
+            // El original suma la gravedad despues de moverse: en el cuadro
+            // del contacto esta hundido un paso de caida menos que aca. Sobre
+            // un tope de verdad (aire arriba) se descuenta ese paso, asi
+            // corriendo se cruzan los pozos de un bloque igual que alla; en
+            // una pared continua no (no se apoya adentro de la pared).
+            const float footX = leftFoot ? objX() + 3.0f : objX() + 12.0f;
+            const bool surface = !solidAt(footX, fy - static_cast<float>(ts));
+            const float lag = surface ? std::max(0.0f, velY_ * dt) : 0.0f;
+            if (inCell(fy) - lag >= 5.0f) {
+                // Muy hundido: es una pared (hacia donde se mueve o mira).
+                const bool right = velX_ != 0.0f ? velX_ > 0.0f : facingRight_;
+                impede(right, right ? objX() + 13.0f : objX() + 2.0f);
+                y_ = newY;
+                return;
+            }
+            newY = static_cast<float>(cellOf(fy) * ts - height);
+            velY_ = 0.0f;
+            grounded_ = true;
+        }
+    }
+
+    // --- Costados (el primero que toca, como el original) ---
+    {
+        const float upper = objY() + (smallBox ? 24.0f : 8.0f);
+        const float lower = objY() + 24.0f;
+        const float left = objX() + 2.0f;
+        const float right = objX() + 13.0f;
+        if (solidAt(left, upper) || solidAt(left, lower)) {
+            impede(false, left);
+        } else if (solidAt(right, upper) || solidAt(right, lower)) {
+            impede(true, right);
+        }
+    }
+    (void)width;
 
     // Plataformas moviles: solo cayendo (o quieto encima) y si los pies
     // estaban por encima del tope antes de moverse (el que va montado ya
@@ -591,7 +567,7 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
     platformIndex_ = -1;
     if (!grounded_ && velY_ >= 0.0f && platforms_ != nullptr) {
         constexpr float kPlatformSnapPx = 3.0f;
-        const float oldBottom = y_ + static_cast<float>(height);
+        const float oldBottom = oldY + static_cast<float>(height);
         const float newBottom = newY + static_cast<float>(height);
         for (size_t i = 0; i < platforms_->size(); ++i) {
             const SDL_FRect& platform = (*platforms_)[i];
@@ -674,7 +650,10 @@ void Mario::updateAnimation(float dt, const Input& input) {
         animState_ = MarioAnim::Jump;
     } else if (skidding) {
         animState_ = MarioAnim::Skid;
-    } else if (std::fabs(velX_) > 1.0f) {
+    } else if (std::fabs(velX_) > 1.0f || (pressingLeft != pressingRight)) {
+        // Apretando una direccion camina aunque no avance (contra una
+        // pared): el ciclo lento y constante del original, no un temblor
+        // entre parado y caminando.
         animState_ = MarioAnim::Walk;
     } else {
         animState_ = MarioAnim::Idle;

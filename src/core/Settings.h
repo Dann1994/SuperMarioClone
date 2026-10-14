@@ -22,6 +22,14 @@ struct Settings {
     int topScore = 0;
     // Se termino el juego (el 8-4) al menos una vez: desbloquea EXTRAS.
     bool gameCompleted = false;
+    // Partida guardada (seccion 6 de la especificacion: se guarda al
+    // completar un mundo entero): CONTINUAR arranca en el primer nivel de
+    // saveWorld (0 = no hay). saveMode: "solo", "coop" (2 a la vez) o
+    // "turns" (2 por turnos).
+    int saveWorld = 0;
+    std::string saveMode = "solo";
+    bool saveLuigi = false;
+    bool saveSecondQuest = false;
 
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);
     // -1 = la de fabrica. Botones del mando para saltar y correr (los dos

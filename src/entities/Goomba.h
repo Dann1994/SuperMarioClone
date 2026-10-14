@@ -5,60 +5,58 @@
 #include "../render/SpriteSheet.h"
 #include "../world/Tilemap.h"
 
-// Goomba (seccion 5.2): camina en linea recta a velocidad constante, rebota
-// al chocar una pared (invierte direccion) y cae por gravedad sin miedo a
-// los bordes -- misma fisica que el Mushroom (Mushroom.h), que es el modelo
-// mas parecido que ya existia en el proyecto.
+// Goomba (seccion 5.2), reescrito sobre el original (SMB-Vanilla:
+// InitNormalEnemy, MoveNormalEnemy, EnemyToBGCollisionDet,
+// PlayerEnemyCollision, SetStun2 y el dibujo de A_GOOMBA; sin copiar codigo,
+// solo los valores y las reglas):
 //
-// Al ser pisado se achata (spritesheet trae un frame "squished" por tipo de
-// mundo) y queda inofensivo unos instantes antes de desaparecer, en vez de
-// desaparecer de golpe -- asi el pisoton se lee visualmente, como en el
-// original.
-//
-// Muerte distinta si lo mata un Mario/Luigi con estrella o una bola de fuego
-// (Game::checkGoombaCollision / checkFireballGoombaCollision): en vez de
-// achatarse se da vuelta (sprite dibujado boca abajo) y sale disparado en
-// parabola -- empuje horizontal constante hacia el lado contrario de donde
-// vino el golpe, mas un salto inicial que la gravedad va frenando y
-// revirtiendo, como una "U" invertida -- sin colisionar con nada (ni
-// paredes ni piso) hasta salir de la pantalla, momento en el que recien
-// desaparece.
+// - Camina a 8/16 px por cuadro (30 px/s; mas rapido en el modo dificil),
+//   no le teme a los bordes (cae) y da la vuelta al chocar una pared.
+// - Caja de choque con el jugador: InitGoomba llama a SmallBBox
+//   (BoundBoxCtrl 9) = 10x6, 3 px adentro de cada costado y de 6 a 12 px
+//   desde arriba del sprite (no el cuadro entero de 16x16: con el cuadro
+//   entero lastimaba de costado antes de tiempo y en las esquinas).
+// - Pisado (estado STOMPED): queda achatado unos instantes y desaparece.
+// - Estrella o fuego (SetStun2): se da vuelta, salta 3 px por cuadro hacia
+//   arriba con 1 px por cuadro hacia el lado contrario al golpe y cae sin
+//   chocar con nada hasta salir de la pantalla.
+// - Al lastimar al jugador se gira para mirarlo (ChkEnemyFaceRight / LInj).
+// - Bamboleo: todos los Goombas espejan el sprite juntos cada 8 cuadros
+//   (FrameCounter & 8), por eso el reloj es compartido (advanceWaddle).
 class Goomba {
 public:
+    // Reloj comun del bamboleo: Game lo avanza una vez por cuadro (y no en
+    // pausa), como el FrameCounter del original.
+    static void advanceWaddle(float dt);
+
     void spawn(float x, float y, bool movingRight);
-    // Lo desactiva sin ninguna animacion de muerte (a diferencia de squish()/
-    // killFalling()): para cuando se cambia de escenario de prueba y este no
-    // tiene que seguir vivo, no porque lo hayan matado.
-    void reset() { alive_ = false; squished_ = false; falling_ = false; }
-    // screenHeight: alto visible en pantalla (no el alto del nivel, que
-    // puede ser mas grande) -- de ahi sale cuando se considera "fuera de
-    // campo de vision" mientras cae volteado, ver killFalling().
+    // Lo desactiva sin animacion de muerte (cambio de escenario, no muerte).
+    void reset() { state_ = State::Inactive; }
+    // screenHeight: alto visible (cayendo muerto desaparece al pasarlo).
     void update(float dt, const Tilemap& level, int screenHeight);
-    // worldRow selecciona la variante de color segun el tipo de mundo (el
-    // sheet trae una fila por WorldType, mismo criterio que Mushroom/Star).
-    // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
+    // worldRow: fila del sheet por tipo de mundo.
     void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
 
-    bool isAlive() const { return alive_; }
-    bool isSquished() const { return squished_; }
-    bool isFalling() const { return falling_; }
-    // Solo puede dañar al pisarlo o de costado (o morir) mientras esta vivo
-    // y no esta ya en alguna de las dos animaciones de muerte.
-    bool isDangerous() const { return alive_ && !squished_ && !falling_; }
-    // Pisoton: lo achata y arranca la cuenta regresiva para que desaparezca.
+    bool isAlive() const { return state_ != State::Inactive; }
+    bool isSquished() const { return state_ == State::Stomped; }
+    bool isFalling() const { return state_ == State::Defeated; }
+    // Puede pisarse o lastimar solo caminando (o cayendo de un borde).
+    bool isDangerous() const { return state_ == State::Walking; }
+
+    // Pisoton: achatado y despues desaparece.
     void squish();
-    // Al cruzarse con otro enemigo (Game::checkGoombaKoopaBounce y similares
-    // para los que se agreguen despues): mismo efecto que chocar una pared,
-    // invierte direccion, mas un empuje pushX para separarlos y que no
-    // quede rebotando en el mismo lugar frame a frame.
+    // Estrella o fuego: sale despedido hacia flyRight, sin colision.
+    bool killFalling(bool flyRight);
+    // Choque con otro enemigo: invierte la direccion y se separa pushX.
     void bounceOffEnemy(float pushX) {
         x_ += pushX;
         velX_ = -velX_;
     }
-    // Estrella o fuego: se da vuelta y sale disparado en parabola hacia
-    // flyRight (true = derecha, false = izquierda -- el lado contrario de
-    // donde vino el golpe), sin colision, hasta salir de pantalla.
-    bool killFalling(bool flyRight);
+    // Lastimo al jugador: queda mirando hacia el (centerX del jugador).
+    void facePlayer(float playerCenterX);
+
+    // Caja de choque con el jugador (ver arriba).
+    SDL_FRect hitBox() const { return SDL_FRect{x_ + 3.0f, y_ + 6.0f, 10.0f, 6.0f}; }
 
     float x() const { return x_; }
     float y() const { return y_; }
@@ -67,23 +65,26 @@ public:
     static constexpr int kSize = 16;
 
 private:
-    static constexpr float kSpeed = 30.0f;              // px/s horizontal, constante
-    static constexpr float kGravity = 858.0f;  // px/s^2, original: 0x3d/256 px/cuadro^2
-    static constexpr float kMaxFallSpeed = 180.0f;  // px/s, original: 3 px/cuadro
-    static constexpr float kEdgeEpsilon = 0.01f;
-    static constexpr float kWalkFrameDuration = 0.25f;  // s por frame de caminata
-    static constexpr float kSquishDuration = 0.5f;      // s achatado antes de desaparecer
-    static constexpr float kFallKillHopImpulse = -180.0f;      // px/s, saltito al darse vuelta, antes de caer
-    static constexpr float kFallKillHorizontalSpeed = 60.0f;   // px/s, empuje horizontal constante de la parabola
+    enum class State { Inactive, Walking, Stomped, Defeated };
 
+    static constexpr float kSpeed = 30.0f;                 // 8/16 px por cuadro
+    static constexpr float kGravity = 858.0f;              // 0x3d/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;         // 3 px por cuadro
+    static constexpr float kStompedDuration = 0.6f;        // ~2 tics de 21 cuadros
+    static constexpr float kDefeatHop = -180.0f;           // -3 px por cuadro
+    static constexpr float kDefeatSpeedX = 60.0f;          // 1 px por cuadro
+    static constexpr float kWaddleInterval = 8.0f / 60.0f; // FrameCounter & 8
+    static constexpr float kEdgeEpsilon = 0.01f;
+
+    static inline float sWaddleClock = 0.0f;
+
+    void moveHorizontally(float dt, const Tilemap& level);
+    void moveVertically(float dt, const Tilemap& level);
+
+    State state_ = State::Inactive;
     float x_ = 0.0f;
     float y_ = 0.0f;
     float velX_ = 0.0f;
     float velY_ = 0.0f;
-    bool alive_ = false;
-    bool squished_ = false;
-    float squishTimer_ = 0.0f;
-    bool falling_ = false;
-    float walkAnimTimer_ = 0.0f;
-    int walkFrame_ = 0;
+    float stompedTimer_ = 0.0f;
 };
