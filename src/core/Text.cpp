@@ -85,6 +85,18 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"MUNDO", "WORLD"},
     {"TIEMPO", "TIME"},
     {"CHOQUE ENTRE JUGADORES", "PLAYERS BUMP"},
+    {"JUGAR", "PLAY"},
+    {"VOLVER", "BACK"},
+    {"EXTRAS", "EXTRAS"},
+    {"EDITOR DE NIVELES", "LEVEL EDITOR"},
+    {"CREAR", "CREATE"},
+    {"SELECCIONAR", "SELECT"},
+    {"PARTIDA +", "NEW GAME +"},
+    {"OPCIONES EXTRA", "EXTRA OPTIONS"},
+    {"ESTA SEGURO QUE QUIERE", "ARE YOU SURE YOU WANT"},
+    {"CERRAR EL JUEGO?", "TO QUIT THE GAME?"},
+    {"SI", "YES"},
+    {"NO", "NO"},
 }};
 
 }  // namespace

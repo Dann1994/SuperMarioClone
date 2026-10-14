@@ -816,7 +816,14 @@ private:
     bool menuStickHeldX_ = false;
 
     Settings settings_;
-    int titleSelection_ = 0;
+    int titleSelection_ = 0;      // submenu JUGAR
+    int mainSelection_ = 0;       // menu principal
+    int extrasSelection_ = 0;     // submenu EXTRAS
+    int editorSelection_ = 0;     // submenu EDITOR DE NIVELES
+    int titleMenu_ = 0;           // 0 principal, 1 JUGAR, 2 EXTRAS, 3 EDITOR DE NIVELES
+    bool editorLaunched_ = false; // el editor abierto desde el menu (ventana minimizada)
+    bool confirmingQuit_ = false; // cartel "esta seguro que quiere cerrar el juego?"
+    int quitChoice_ = 1;          // 0 SI, 1 NO
     int pauseSelection_ = 0;
     int settingsSelection_ = 0;
     int controlsSelection_ = 0;

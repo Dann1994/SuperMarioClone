@@ -1,3 +1,5 @@
+#include <string>
+
 #include "LevelEditor.h"
 
 // Editor de niveles (seccion 7): mario_editor.exe [archivo.json]
@@ -9,7 +11,13 @@ int main(int argc, char** argv) {
     if (!editor.init()) {
         return 1;
     }
-    if (argc > 1) editor.openFile(argv[1]);
+    // --abrir: arranca en la lista de niveles (EXTRAS > EDITOR DE NIVELES >
+    // SELECCIONAR del juego).
+    if (argc > 1 && std::string(argv[1]) == "--abrir") {
+        editor.openPicker();
+    } else if (argc > 1) {
+        editor.openFile(argv[1]);
+    }
     editor.run();
     editor.shutdown();
     return 0;

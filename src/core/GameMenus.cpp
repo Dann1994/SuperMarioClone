@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "../render/DebugFont.h"
+#include "EditorLauncher.h"
 #include "Game.h"
 
 #include "../entities/Difficulty.h"
@@ -22,8 +23,27 @@ const SDL_Color kMenuGray{120, 120, 140, 255};
 const SDL_Color kMenuDim{180, 180, 200, 255};
 
 // Opciones del menu principal, en orden.
-enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleContinue, kTitleWorldSelect, kTitleOptions,
-                 kTitleTestMode, kTitleCredits, kTitleQuit, kTitleCount };
+// Menu principal (anidado): JUGAR abre el submenu de partidas.
+enum MainItem { kMainPlay, kMainSettings, kMainCredits, kMainQuit, kMainCount };
+// Submenu JUGAR.
+enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleContinue, kTitleExtras, kTitleCount };
+// Submenu EXTRAS.
+enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasOptions, kExtrasCount };
+
+// Que se puede elegir en EXTRAS: todo se desbloquea al terminar el juego una
+// vez, salvo ELEGIR MUNDO (abierto mientras estamos en pruebas). OPCIONES
+// EXTRA todavia no tiene nada adentro.
+std::vector<bool> extrasDisabled(bool completed, bool editorAvailable) {
+    std::vector<bool> disabled(kExtrasCount, false);
+    disabled[kExtrasNewGamePlus] = !completed;
+    disabled[kExtrasEditor] = !completed || !editorAvailable;
+    disabled[kExtrasOptions] = true;
+    return disabled;
+}
+// Submenu EDITOR DE NIVELES.
+enum EditorItem { kEditorCreate, kEditorSelect, kEditorCount };
+// Que menu del titulo se ve (titleMenu_).
+enum TitleMenu { kMenuMain, kMenuPlay, kMenuExtras, kMenuEditor };
 // Opciones del menu de pausa.
 enum PauseItem { kPauseResume, kPauseRestart, kPauseOptions, kPauseQuit, kPauseCount };
 // Opciones del menu de configuracion.
@@ -78,6 +98,8 @@ void Game::openTitle() {
     choosingCharacter_ = false;
     choosingLevel_ = false;
     choosingTwoMode_ = false;
+    confirmingQuit_ = false;
+    titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
     cutscene_ = false;
@@ -229,6 +251,25 @@ std::vector<bool> titleDisabled(bool canContinue) {
 }  // namespace
 
 void Game::handleTitleInput(MenuInput input) {
+    if (confirmingQuit_) {
+        // "Esta seguro que quiere cerrar el juego?": SI / NO (arranca en NO).
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            quitChoice_ = 1 - quitChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm) {
+            if (quitChoice_ == 0) {
+                running_ = false;
+            } else {
+                confirmingQuit_ = false;
+                audio_.play(Sfx::Bump);
+            }
+        } else if (input == MenuInput::Back) {
+            confirmingQuit_ = false;
+            audio_.play(Sfx::Bump);
+        }
+        return;
+    }
     if (choosingTwoMode_) {
         // 2 jugadores: a la vez (los dos en pantalla) o por turnos (el original).
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
@@ -287,17 +328,90 @@ void Game::handleTitleInput(MenuInput input) {
         }
         return;
     }
-    if (input == MenuInput::Up || input == MenuInput::Down) {
-        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled(continueWorld_ > 0));
-        audio_.play(Sfx::TimeTally);
+    // Atras: al menu de arriba (en el principal no hace nada).
+    if (input == MenuInput::Back) {
+        if (titleMenu_ == kMenuMain) return;
+        titleMenu_ = titleMenu_ == kMenuEditor ? kMenuExtras : titleMenu_ == kMenuExtras ? kMenuPlay : kMenuMain;
+        audio_.play(Sfx::Bump);
         return;
     }
-    if (input == MenuInput::Left || input == MenuInput::Right) {
-        // Cambia de columna (misma fila); si esa opcion esta deshabilitada,
-        // la proxima habilitada.
-        const std::vector<bool> disabled = titleDisabled(continueWorld_ > 0);
-        const int target = (titleSelection_ + 4) % kTitleCount;
-        titleSelection_ = disabled[target] ? stepSelection(target, 1, kTitleCount, disabled) : target;
+    if (titleMenu_ == kMenuMain) {
+        // Menu principal: JUGAR, CONFIGURACION, CREDITOS, SALIR.
+        if (input == MenuInput::Up || input == MenuInput::Down) {
+            mainSelection_ = (mainSelection_ + (input == MenuInput::Up ? kMainCount - 1 : 1)) % kMainCount;
+            audio_.play(Sfx::TimeTally);
+            return;
+        }
+        if (input != MenuInput::Confirm) return;
+        audio_.play(Sfx::Coin);
+        switch (mainSelection_) {
+            case kMainPlay:
+                titleMenu_ = kMenuPlay;
+                titleSelection_ = kTitleOnePlayer;
+                break;
+            case kMainSettings: openSettings(AppState::Title); break;
+            case kMainCredits: appState_ = AppState::Credits; break;
+            case kMainQuit:
+                confirmingQuit_ = true;
+                quitChoice_ = 1;   // NO: que no se cierre sin querer
+                break;
+            default: break;
+        }
+        return;
+    }
+    if (titleMenu_ == kMenuExtras) {
+        // EXTRAS: ELEGIR MUNDO, EDITOR DE NIVELES (gris si no hay editor).
+        if (input == MenuInput::Up || input == MenuInput::Down) {
+            extrasSelection_ = stepSelection(extrasSelection_, input == MenuInput::Up ? -1 : 1, kExtrasCount,
+                                             extrasDisabled(settings_.gameCompleted, EditorLauncher::available()));
+            audio_.play(Sfx::TimeTally);
+            return;
+        }
+        if (input != MenuInput::Confirm) return;
+        if (extrasDisabled(settings_.gameCompleted, EditorLauncher::available())[extrasSelection_]) return;
+        audio_.play(Sfx::Coin);
+        switch (extrasSelection_) {
+            case kExtrasWorldSelect:
+                secondQuestNext_ = false;
+                choosingLevel_ = true;
+                break;
+            case kExtrasNewGamePlus:
+                // La segunda vuelta del original: los niveles mas dificiles.
+                secondQuestNext_ = true;
+                startWorld_ = 1;
+                startLevel_ = 1;
+                choosingCharacter_ = true;
+                characterChoice_ = playAsLuigi_ ? 1 : 0;
+                break;
+            case kExtrasEditor:
+                titleMenu_ = kMenuEditor;
+                editorSelection_ = kEditorCreate;
+                break;
+            default: break;
+        }
+        return;
+    }
+    if (titleMenu_ == kMenuEditor) {
+        // EDITOR DE NIVELES: CREAR (nivel nuevo) o SELECCIONAR (la lista).
+        if (input == MenuInput::Up || input == MenuInput::Down) {
+            editorSelection_ = (editorSelection_ + 1) % kEditorCount;
+            audio_.play(Sfx::TimeTally);
+            return;
+        }
+        if (input != MenuInput::Confirm) return;
+        if (EditorLauncher::launch(editorSelection_ == kEditorSelect)) {
+            audio_.play(Sfx::Coin);
+            // El juego se minimiza mientras se edita y vuelve al cerrar el editor.
+            editorLaunched_ = true;
+            SDL_MinimizeWindow(window_);
+        } else {
+            audio_.play(Sfx::Bump);
+        }
+        return;
+    }
+    // Submenu JUGAR.
+    if (input == MenuInput::Up || input == MenuInput::Down) {
+        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount, titleDisabled(continueWorld_ > 0));
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -305,28 +419,29 @@ void Game::handleTitleInput(MenuInput input) {
     audio_.play(Sfx::Coin);
     switch (titleSelection_) {
         case kTitleOnePlayer:
+            secondQuestNext_ = false;
             startWorld_ = 1;
             startLevel_ = 1;
             choosingCharacter_ = true;
             characterChoice_ = playAsLuigi_ ? 1 : 0;
             break;
         case kTitleTwoPlayers:
+            secondQuestNext_ = false;
             startWorld_ = 1;
             startLevel_ = 1;
             choosingTwoMode_ = true;
             twoModeChoice_ = 0;
             break;
-        case kTitleWorldSelect: choosingLevel_ = true; break;
         case kTitleContinue:
             if (continueWorld_ <= 0) break;
             startWorld_ = continueWorld_;
             startLevel_ = 1;
             startCampaign(continueTwoPlayers_, continueAsLuigi_);
             break;
-        case kTitleOptions: openSettings(AppState::Title); break;
-        case kTitleTestMode: openScenarioSelect(); break;
-        case kTitleCredits: appState_ = AppState::Credits; break;
-        case kTitleQuit: running_ = false; break;
+        case kTitleExtras:
+            titleMenu_ = kMenuExtras;
+            extrasSelection_ = kExtrasWorldSelect;
+            break;
         default: break;
     }
 }
@@ -589,9 +704,12 @@ void Game::onLevelCleared() {
     }
     const std::string next = campaignLevelPath(world, level);
     if (!std::filesystem::exists(next)) {
-        // Despues del 8-4 (WorldSelectEnableFlag): la proxima partida es la
-        // segunda vuelta.
-        if (campaignWorld_ >= 8) secondQuestNext_ = true;
+        // Despues del 8-4 (WorldSelectEnableFlag del original): queda
+        // desbloqueado lo de EXTRAS (PARTIDA + es la segunda vuelta).
+        if (campaignWorld_ >= 8 && !settings_.gameCompleted) {
+            settings_.gameCompleted = true;
+            settings_.save();
+        }
         appState_ = AppState::DemoEnd;
         audio_.playMusic(Music::Ending, false);
         return;
@@ -675,15 +793,39 @@ void Game::renderTitle() {
     const SDL_Color pink{252, 188, 176, 255};
     DebugFont::drawText(renderer_, logoX + 176 - 14 * 8, 122, "@1985 NINTENDO", 2, pink);
 
-    // Ocho opciones en dos columnas de cuatro (el original tiene dos).
-    std::vector<bool> disabled = titleDisabled(continueWorld_ > 0);
-    const Txt ids[kTitleCount] = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::WorldSelect,
-                                  Txt::Options,   Txt::TestMode,   Txt::Credits,  Txt::Quit};
-    for (int i = 0; i < kTitleCount; ++i) {
-        const int x = gLogicalWidth / 2 + (i < 4 ? -108 : 20);
-        const int y = 138 + (i % 4) * 14;
-        if (i == titleSelection_) titleCursorSprite_.draw(renderer_, 0, 0, x - 12, y, false);
-        DebugFont::drawText(renderer_, x, y, tr(ids[i]), 2, disabled[i] ? kMenuGray : kMenuWhite);
+    // Menu anidado en una columna: el principal (JUGAR, CONFIGURACION,
+    // CREDITOS, SALIR), JUGAR, EXTRAS o EDITOR DE NIVELES.
+    {
+        std::vector<Txt> ids;
+        std::vector<bool> disabled;
+        int selection = 0;
+        if (titleMenu_ == kMenuPlay) {
+            ids = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::Extras};
+            disabled = titleDisabled(continueWorld_ > 0);
+            selection = titleSelection_;
+        } else if (titleMenu_ == kMenuExtras) {
+            ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
+            disabled = extrasDisabled(settings_.gameCompleted, EditorLauncher::available());
+            selection = extrasSelection_;
+        } else if (titleMenu_ == kMenuEditor) {
+            ids = {Txt::EditorCreate, Txt::EditorSelect};
+            disabled.assign(ids.size(), false);
+            selection = editorSelection_;
+        } else {
+            ids = {Txt::Play, Txt::Options, Txt::Credits, Txt::Quit};
+            disabled.assign(ids.size(), false);
+            selection = mainSelection_;
+        }
+        int widest = 0;
+        for (Txt id : ids) widest = std::max(widest, static_cast<int>(std::string(tr(id)).size()) * 8);
+        const int x = (gLogicalWidth - widest) / 2;
+        const int step = 14;
+        for (int i = 0; i < static_cast<int>(ids.size()); ++i) {
+            const int y = 134 + i * step;
+            if (i == selection) titleCursorSprite_.draw(renderer_, 0, 0, x - 12, y, false);
+            DebugFont::drawText(renderer_, x, y, tr(ids[static_cast<size_t>(i)]), 2,
+                                disabled[static_cast<size_t>(i)] ? kMenuGray : kMenuWhite);
+        }
     }
 
     if (secondQuestNext_) {
@@ -702,7 +844,9 @@ void Game::renderTitle() {
         (characterChoice_ == 1 ? introLuigiSprite_ : introMarioSprite_).draw(renderer_, 0, 0, heroX, heroY, false);
     } else {
         introMarioSprite_.draw(renderer_, 0, 0, heroX, heroY, false);
-        if (titleSelection_ == kTitleTwoPlayers) introLuigiSprite_.draw(renderer_, 0, 0, heroX + 20, heroY, false);
+        if (titleMenu_ == kMenuPlay && titleSelection_ == kTitleTwoPlayers) {
+            introLuigiSprite_.draw(renderer_, 0, 0, heroX + 20, heroY, false);
+        }
     }
 
     if (choosingTwoMode_) {
@@ -730,6 +874,22 @@ void Game::renderTitle() {
         char label[16];
         std::snprintf(label, sizeof(label), "< %d-%d >", startWorld_, startLevel_);
         drawCentered(162, label, 2, kMenuWhite);
+    }
+
+    if (confirmingQuit_) {
+        const int boxW = 200;
+        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 128, boxW, 66};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 230);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(136, tr(Txt::QuitConfirm1), 2, kMenuWhite);
+        drawCentered(148, tr(Txt::QuitConfirm2), 2, kMenuWhite);
+        const int yesX = gLogicalWidth / 2 - 48;
+        const int noX = gLogicalWidth / 2 + 24;
+        DebugFont::drawText(renderer_, yesX, 172, tr(Txt::Yes), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, noX, 172, tr(Txt::No), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, (quitChoice_ == 0 ? yesX : noX) - 12, 172, false);
     }
 
     if (choosingCharacter_) {
@@ -867,23 +1027,29 @@ void Game::renderControls() {
 void Game::renderCredits() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderFillRect(renderer_, nullptr);
-    drawCentered(20, "SUPER MARIO CLONE", 2, kMenuWhite);
+    // Con la fuente del juego (escala 2, 8 px por letra): renglones de
+    // hasta 30 letras para que entren tambien en la pantalla clasica.
+    drawCentered(16, "SUPER MARIO CLONE", 2, kMenuWhite);
     const char* const lines[] = {
-        "CLON EXPERIMENTAL DE SUPER MARIO BROS.",
-        "(NINTENDO, 1985), SIN FINES DE LUCRO",
+        "CLON EXPERIMENTAL DE",
+        "SUPER MARIO BROS. (NINTENDO,",
+        "1985), SIN FINES DE LUCRO",
         "",
-        "DISENO Y DESARROLLO: DANIEL VERGARA",
-        "PROGRAMACION ASISTIDA POR CLAUDE (ANTHROPIC)",
+        "DISENO Y DESARROLLO",
+        "DANIEL VERGARA",
         "",
-        "SPRITES: HOJAS DE REFERENCIA DE SUPERJUSTINBROS",
-        "SONIDOS: EFECTOS ORIGINALES DE SUPER MARIO BROS.",
+        "PROGRAMACION ASISTIDA POR",
+        "CLAUDE (ANTHROPIC)",
+        "",
+        "SPRITES: SUPERJUSTINBROS",
+        "SONIDOS: SUPER MARIO BROS.",
         "",
         "C++ / SDL2",
     };
-    int y = 60;
+    int y = 40;
     for (const char* line : lines) {
-        drawCentered(y, line, 1, kMenuYellow);
-        y += 11;
+        drawCentered(y, line, 2, kMenuYellow);
+        y += 12;
     }
     drawCentered(220, tr(Txt::MenuHint), 1, kMenuDim);
 }

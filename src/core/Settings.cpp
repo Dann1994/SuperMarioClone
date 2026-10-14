@@ -37,6 +37,7 @@ bool Settings::load() {
     vibration = json.value("vibration", vibration);
     playerCollision = json.value("player_collision", playerCollision);
     topScore = json.value("top_score", topScore);
+    gameCompleted = json.value("game_completed", gameCompleted);
     if (json.contains("keys")) {
         try {
             // Tolerante con el largo: las versiones viejas guardaban 5
@@ -66,6 +67,7 @@ bool Settings::save() const {
         {"vibration", vibration},
         {"player_collision", playerCollision},
         {"top_score", topScore},
+        {"game_completed", gameCompleted},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},
         {"pad_run_button", padRunButton},

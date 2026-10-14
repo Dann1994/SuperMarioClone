@@ -35,6 +35,8 @@ public:
     bool init();
     // Abre este archivo al arrancar (si no, arranca con un nivel nuevo).
     void openFile(const std::string& path);
+    // Arranca con la lista de niveles para elegir cual editar.
+    void openPicker() { listLevelFiles(); }
     void run();
     void shutdown();
 

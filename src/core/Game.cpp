@@ -1,4 +1,6 @@
 #include "Game.h"
+
+#include "EditorLauncher.h"
 #include "../entities/Difficulty.h"
 
 #include <SDL_image.h>
@@ -2924,6 +2926,12 @@ bool Game::isAreaFree(float x, float y, int width, int height) const {
 }
 
 void Game::update(float dt) {
+    // Se cerro el editor abierto desde el menu: el juego vuelve a la vista.
+    if (editorLaunched_ && !EditorLauncher::running()) {
+        editorLaunched_ = false;
+        SDL_RestoreWindow(window_);
+        SDL_RaiseWindow(window_);
+    }
     if (appState_ == AppState::Title) return;
     if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
         appStateTimer_ -= dt;

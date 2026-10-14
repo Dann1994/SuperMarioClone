@@ -20,6 +20,8 @@ struct Settings {
     bool playerCollision = true;  // Mario y Luigi chocan entre si (2P a la vez)
     // Mejor puntaje (el "TOP-" de la pantalla de titulo).
     int topScore = 0;
+    // Se termino el juego (el 8-4) al menos una vez: desbloquea EXTRAS.
+    bool gameCompleted = false;
 
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);
     // -1 = la de fabrica. Botones del mando para saltar y correr (los dos
