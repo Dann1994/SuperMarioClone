@@ -59,7 +59,7 @@
   "platforms": [
     {"col": 263, "row": 7, "width": 3, "mode": "lift_down", "speed": 60},
     {"col": 269, "row": 13, "width": 3, "mode": "lift_down", "speed": 60},
-    {"col": 354, "row": 11, "width": 3, "mode": "horizontal", "range": 4, "period": 4}
+    {"col": 354, "row": 11, "width": 3, "mode": "right"}
   ],
   "decorations": [
     {"type": "castle_small", "col": 0, "row": 9},

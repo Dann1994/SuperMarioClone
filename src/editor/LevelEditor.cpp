@@ -339,6 +339,7 @@ bool LevelEditor::initResources() {
     tools_.push_back({ToolKind::Platform, Tab::Objects, 0, "lift_up", "", 1, "ELEVADOR QUE SUBE"});
     tools_.push_back({ToolKind::Platform, Tab::Objects, 0, "lift_down", "", 1, "ELEVADOR QUE BAJA"});
     tools_.push_back({ToolKind::Platform, Tab::Objects, 0, "fall", "", 1, "PLATAF. QUE CAE"});
+    tools_.push_back({ToolKind::Platform, Tab::Objects, 0, "right", "", 1, "PLATAF. A LA DERECHA (CIELO)"});
     tools_.push_back({ToolKind::Checkpoint, Tab::Objects, 0, "", "", 1, "CHECKPOINT"});
     tools_.push_back({ToolKind::Entity, Tab::Objects, 0, "whirlpool", "", 1, "REMOLINO (AGUA, + / - ANCHO)"});
     tools_.push_back({ToolKind::Start, Tab::Objects, 0, "", "", 1, "INICIO DE MARIO (CLIC DE NUEVO: GIRA)"});
@@ -2372,7 +2373,7 @@ void LevelEditor::renderOverlays() {
         for (int offset = 0; offset < width; offset += 8) liftSprite_.draw(renderer_, 0, 0, x + offset, y, false);
         const std::string mode = platform.value("mode", std::string("vertical"));
         const char* label = mode == "horizontal" ? "<>" : mode == "lift_up" ? "SUBE" : mode == "lift_down" ? "BAJA"
-                          : mode == "fall" ? "CAE" : mode == "balance" ? "BAL" : "V";
+                          : mode == "fall" ? "CAE" : mode == "balance" ? "BAL" : mode == "right" ? ">>" : "V";
         drawText(x + 1, y + 10, label, kYellow);
     }
 
@@ -2701,7 +2702,7 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
         case ToolKind::Platform: {
             for (int i = 0; i < 3; ++i) liftSprite_.drawScaled(renderer_, 0, 0, {icon.x - 4 + i * 8, icon.y + 4, 8, 8});
             const char* label = tool.type == "horizontal" ? "<>" : tool.type == "lift_up" ? "S"
-                              : tool.type == "lift_down" ? "B" : tool.type == "fall" ? "!" : "V";
+                              : tool.type == "lift_down" ? "B" : tool.type == "fall" ? "!" : tool.type == "right" ? ">>" : "V";
             drawText(icon.x + 5, icon.y + 14, label, kYellow);
             break;
         }

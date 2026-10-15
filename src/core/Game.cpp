@@ -779,6 +779,7 @@ void Game::loadScenario(TestScenario scenario) {
                                       : data.mode == "lift_down" ? PlatformMode::LiftDown
                                       : data.mode == "fall"      ? PlatformMode::Fall
                                       : data.mode == "balance"   ? PlatformMode::Balance
+                                      : data.mode == "right"     ? PlatformMode::Right
                                                                  : PlatformMode::Vertical;
             // Las balanzas vienen de a dos seguidas en la lista.
             if (mode == PlatformMode::Balance) {

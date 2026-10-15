@@ -21,6 +21,9 @@
 //  - LiftUp / LiftDown: elevador que sube/baja siempre a velocidad fija y al
 //    salir por un borde de la pantalla vuelve a entrar por el otro.
 //  - Fall: quieta hasta que alguien la pisa, ahi se cae acelerando.
+//  - Right: la de las zonas del cielo (RightPlatform del original, objeto
+//    0x2A): quieta hasta que alguien la pisa; desde ahi avanza a la derecha
+//    a 1 px por cuadro y no para mas.
 //  - Balance: una de las dos de una balanza; la mueve Game (driveY), ver
 //    Game::updateBalances.
 //
@@ -33,6 +36,7 @@ enum class PlatformMode {
     LiftDown,
     Fall,
     Balance,
+    Right,
 };
 
 class MovingPlatform {
@@ -80,6 +84,8 @@ private:
     float phase_ = 0.0f;
     float fallVelocity_ = 0.0f;
     bool falling_ = false;
+    bool movingRight_ = false;   // Right: ya la pisaron
+    static constexpr float kRightSpeed = 60.0f;   // 0x10 = 1 px por cuadro
     float dx_ = 0.0f;
     float dy_ = 0.0f;
     float pendingDy_ = 0.0f;

@@ -454,7 +454,7 @@ class AreaBuild:
             ent = {"type": "firebar", "col": col, "row": top, "length": 12 if i == 0x1F else 6, "speed": speeds[i]}
         elif 0x24 <= i <= 0x2C:
             modes = {0x24: ("vertical", 3), 0x25: ("vertical", 3), 0x26: ("lift_up", 3), 0x27: ("lift_down", 3),
-                     0x28: ("horizontal", 3), 0x29: ("fall", 3), 0x2A: ("horizontal", 3),
+                     0x28: ("horizontal", 3), 0x29: ("fall", 3), 0x2A: ("right", 3),
                      0x2B: ("lift_up", 2), 0x2C: ("lift_down", 2)}
             mode, width = modes[i]
             # Las plataformas grandes (6 sprites) en los castillos y en el modo

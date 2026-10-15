@@ -725,9 +725,7 @@
   "platforms": [
     {
       "col": 275,
-      "mode": "horizontal",
-      "period": 4,
-      "range": 4,
+      "mode": "right",
       "row": 11,
       "width": 3
     }

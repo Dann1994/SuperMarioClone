@@ -10,6 +10,7 @@ constexpr int kSegmentWidth = 8;
 }  // namespace
 
 void MovingPlatform::spawn(float x, float y, int widthPx, PlatformMode mode, float range, float period, float speed) {
+    movingRight_ = false;
     x_ = x;
     y_ = y;
     baseX_ = x;
@@ -39,6 +40,7 @@ void MovingPlatform::spawn(float x, float y, int widthPx, PlatformMode mode, flo
 
 void MovingPlatform::onStoodOn() {
     if (mode_ == PlatformMode::Fall) falling_ = true;
+    if (mode_ == PlatformMode::Right) movingRight_ = true;
 }
 
 void MovingPlatform::update(float dt, int levelHeight) {
@@ -89,6 +91,9 @@ void MovingPlatform::update(float dt, int levelHeight) {
             fallVelocity_ = std::min(fallVelocity_ + kFallGravity * dt, kMaxFallSpeed);
             y_ += fallVelocity_ * dt;
             if (y_ > static_cast<float>(levelHeight)) active_ = false;
+            break;
+        case PlatformMode::Right:
+            if (movingRight_) x_ += kRightSpeed * dt;
             break;
         case PlatformMode::Balance:
             y_ += pendingDy_;
