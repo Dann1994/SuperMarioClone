@@ -102,6 +102,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"ESTA PARTIDA?", "THIS FILE?"},
     {"2 A LA VEZ", "2 TOGETHER"},
     {"2 POR TURNOS", "2 TAKING TURNS"},
+    {"BORRAR", "DELETE"},
     {"ESTA SEGURO QUE QUIERE", "ARE YOU SURE YOU WANT"},
     {"CERRAR EL JUEGO?", "TO QUIT THE GAME?"},
     {"SI", "YES"},

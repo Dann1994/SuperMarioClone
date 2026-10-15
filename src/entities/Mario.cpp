@@ -64,7 +64,11 @@ bool Mario::loadPaletteSprites(SDL_Renderer* renderer, WorldType type, const std
 
 void Mario::setWorldType(WorldType type) {
     worldType_ = type;
-    const int wanted = paletteLoaded_[static_cast<size_t>(type)] ? static_cast<int>(type) : 0;
+    // Paleta por tipo de mundo (subterraneo, castillo, agua): desactivada por
+    // ahora (sWorldPalettes, ver setWorldPalettesEnabled); el tipo de mundo
+    // sigue mandando en la fisica (nado) igual.
+    const int wanted =
+        sWorldPalettes && paletteLoaded_[static_cast<size_t>(type)] ? static_cast<int>(type) : 0;
     if (wanted == activePalette_) return;
     // Devuelve la activa a su lugar y trae la nueva.
     std::array<SpriteSheet, 3>& current = paletteSprites_[static_cast<size_t>(activePalette_)];

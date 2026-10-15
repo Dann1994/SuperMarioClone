@@ -446,6 +446,7 @@ bool Game::init() {
     // Configuracion guardada (seccion 10.2): la proporcion define el ancho
     // logico, y tiene que estar antes de crear la ventana.
     settings_.load();
+    Mario::setWorldPalettesEnabled(settings_.playerWorldPalettes);
     gLogicalWidth = settings_.widescreen ? kWideLogicalWidth : kClassicWidth;
     setEnglish(settings_.english);
 
@@ -3591,7 +3592,32 @@ void Game::render() {
     // El que esta entrando/saliendo de una tuberia va detras del escenario
     // (como el original, que le baja la prioridad al sprite): la tuberia y
     // el piso lo tapan mientras se hunde o sale.
-    if (pipeAnim_.active && pipeAnim_.character) pipeAnim_.character->render(renderer_, cameraX_);
+    if (pipeAnim_.active && pipeAnim_.character) {
+        if (pipeAnim_.warp.side && !pipeAnim_.exiting) {
+            // Entrando de costado: las piezas del cuerpo de la tuberia
+            // horizontal tienen la fila de arriba y la de abajo
+            // transparentes, y Mario grande (32 px, lo mismo que la
+            // tuberia) asomaba por ahi la gorra y los pies. En la NES no
+            // pasa porque los sprites se ven 1 px mas abajo de su posicion.
+            // Aca: lo que ya paso la boca se recorta al interior de la
+            // tuberia.
+            const int ts = level_.tileSize();
+            const int mouthX = pipeAnim_.warp.col * ts - static_cast<int>(std::lround(cameraX_));
+            const int pipeTop = pipeAnim_.warp.row * ts;
+            SDL_Rect previousClip;
+            SDL_RenderGetClipRect(renderer_, &previousClip);
+            const bool hadClip = SDL_RenderIsClipEnabled(renderer_) == SDL_TRUE;
+            const SDL_Rect outside{0, 0, std::max(0, mouthX), kWorldViewBottom};
+            SDL_RenderSetClipRect(renderer_, &outside);
+            pipeAnim_.character->render(renderer_, cameraX_);
+            const SDL_Rect inside{mouthX, pipeTop + 1, std::max(0, gLogicalWidth - mouthX), 2 * ts - 2};
+            SDL_RenderSetClipRect(renderer_, &inside);
+            pipeAnim_.character->render(renderer_, cameraX_);
+            SDL_RenderSetClipRect(renderer_, hadClip ? &previousClip : nullptr);
+        } else {
+            pipeAnim_.character->render(renderer_, cameraX_);
+        }
+    }
     level_.renderTerrain(renderer_, skyColor(), gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : worldRow,
                          gLogicalWidth, cameraX_, false);
     level_.renderScenery(renderer_, gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_,

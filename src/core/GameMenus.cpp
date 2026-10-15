@@ -132,6 +132,8 @@ void Game::openTitle() {
     confirmingQuit_ = false;
     choosingSlot_ = false;
     confirmingOverwrite_ = false;
+    slotActions_ = false;
+    confirmingDelete_ = false;
     worldSelectFlow_ = false;
     titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
@@ -338,6 +340,61 @@ void Game::writeCurrentSlot(int world, int level) {
 }
 
 void Game::handleTitleInput(MenuInput input) {
+    if (confirmingDelete_) {
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            deleteChoice_ = 1 - deleteChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm && deleteChoice_ == 0) {
+            // Borrada: el espacio queda vacio.
+            confirmingDelete_ = false;
+            slotActions_ = false;
+            settings_.saves[static_cast<size_t>(slotChoice_)] = Settings::SaveSlot{};
+            settings_.save();
+            if (currentSlot_ == slotChoice_) currentSlot_ = -1;
+            audio_.play(Sfx::Bump);
+            if (!anySaveSlot()) {
+                choosingSlot_ = false;   // no queda nada para continuar
+            } else {
+                openContinueSlots();
+            }
+        } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
+            confirmingDelete_ = false;
+            audio_.play(Sfx::Bump);
+        }
+        return;
+    }
+    if (slotActions_) {
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            slotActionChoice_ = 1 - slotActionChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Back) {
+            slotActions_ = false;
+            audio_.play(Sfx::Bump);
+        } else if (input == MenuInput::Confirm) {
+            if (slotActionChoice_ == 1) {
+                confirmingDelete_ = true;
+                deleteChoice_ = 1;   // NO: que no se borre sin querer
+                audio_.play(Sfx::TimeTally);
+                return;
+            }
+            slotActions_ = false;
+            const Settings::SaveSlot slot = settings_.saves[static_cast<size_t>(slotChoice_)];
+            choosingSlot_ = false;
+            audio_.play(Sfx::Coin);
+            currentSlot_ = slotChoice_;
+            startWorld_ = slot.world;
+            startLevel_ = slot.level;
+            secondQuestNext_ = slot.secondQuest;
+            if (slot.mode == "turns") {
+                startTurnCampaign();
+            } else {
+                startCampaign(slot.mode == "coop", slot.luigi);
+            }
+        }
+        return;
+    }
     if (confirmingOverwrite_) {
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
             input == MenuInput::Down) {
@@ -374,18 +431,10 @@ void Game::handleTitleInput(MenuInput input) {
         } else if (input == MenuInput::Confirm) {
             if (slotForContinue_) {
                 if (!filled(slotChoice_)) return;
-                const Settings::SaveSlot slot = settings_.saves[static_cast<size_t>(slotChoice_)];
-                choosingSlot_ = false;
-                audio_.play(Sfx::Coin);
-                currentSlot_ = slotChoice_;
-                startWorld_ = slot.world;
-                startLevel_ = slot.level;
-                secondQuestNext_ = slot.secondQuest;
-                if (slot.mode == "turns") {
-                    startTurnCampaign();
-                } else {
-                    startCampaign(slot.mode == "coop", slot.luigi);
-                }
+                // CONTINUAR o BORRAR esta partida.
+                slotActions_ = true;
+                slotActionChoice_ = 0;
+                audio_.play(Sfx::TimeTally);
             } else if (filled(slotChoice_)) {
                 confirmingOverwrite_ = true;   // ya tiene una partida: preguntar
                 overwriteChoice_ = 1;
@@ -1086,6 +1135,32 @@ void Game::renderSlotPicker() {
         if (slot.mode == "solo" && slot.luigi) line = "LUIGI";
         DebugFont::drawText(renderer_, tx, y + 34, line, 2, text);
         if (slot.secondQuest) DebugFont::drawText(renderer_, tx, y + 48, tr(Txt::NewGamePlus), 2, kMenuYellow);
+    }
+    if (slotActions_ && !confirmingDelete_) {
+        const SDL_Rect box{(gLogicalWidth - 200) / 2, 96, 200, 44};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        const int continueX = gLogicalWidth / 2 - 84;
+        const int deleteX = gLogicalWidth / 2 + 24;
+        DebugFont::drawText(renderer_, continueX, 114, tr(Txt::Continue), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, deleteX, 114, tr(Txt::DeleteOption), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, (slotActionChoice_ == 0 ? continueX : deleteX) - 12, 114, false);
+    }
+    if (confirmingDelete_) {
+        const SDL_Rect box{(gLogicalWidth - 200) / 2, 90, 200, 62};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(98, tr(Txt::DeleteOption), 2, kMenuWhite);
+        drawCentered(110, tr(Txt::Overwrite2), 2, kMenuWhite);
+        const int yesX = gLogicalWidth / 2 - 48;
+        const int noX = gLogicalWidth / 2 + 24;
+        DebugFont::drawText(renderer_, yesX, 132, tr(Txt::Yes), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, noX, 132, tr(Txt::No), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, (deleteChoice_ == 0 ? yesX : noX) - 12, 132, false);
     }
     if (confirmingOverwrite_) {
         const SDL_Rect box{(gLogicalWidth - 200) / 2, 90, 200, 62};

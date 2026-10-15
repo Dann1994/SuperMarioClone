@@ -1371,6 +1371,12 @@ private:
     int slotChoice_ = 0;
     bool confirmingOverwrite_ = false;
     int overwriteChoice_ = 1;            // 0 SI, 1 NO
+    // CONTINUAR: al elegir un espacio, CONTINUAR o BORRAR (y el SI/NO de
+    // borrar).
+    bool slotActions_ = false;
+    int slotActionChoice_ = 0;           // 0 CONTINUAR, 1 BORRAR
+    bool confirmingDelete_ = false;
+    int deleteChoice_ = 1;               // 0 SI, 1 NO
     std::function<void()> pendingStart_; // la partida que arranca al elegir espacio
     int currentSlot_ = -1;               // donde se guarda la partida en curso (-1: no se guarda)
     bool worldSelectFlow_ = false;       // ELEGIR MUNDO: no usa espacio

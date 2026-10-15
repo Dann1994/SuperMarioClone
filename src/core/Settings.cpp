@@ -38,6 +38,7 @@ bool Settings::load() {
     playerCollision = json.value("player_collision", playerCollision);
     topScore = json.value("top_score", topScore);
     gameCompleted = json.value("game_completed", gameCompleted);
+    playerWorldPalettes = json.value("player_world_palettes", playerWorldPalettes);
     const auto readSlot = [](const nlohmann::json& entry) {
         SaveSlot slot;
         if (!entry.is_object()) return slot;
@@ -92,6 +93,7 @@ bool Settings::save() const {
         {"player_collision", playerCollision},
         {"top_score", topScore},
         {"game_completed", gameCompleted},
+        {"player_world_palettes", playerWorldPalettes},
         {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

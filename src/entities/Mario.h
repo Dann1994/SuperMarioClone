@@ -191,6 +191,10 @@ public:
     bool loadPaletteSprites(SDL_Renderer* renderer, WorldType type, const std::string& smallPath,
                             const std::string& bigPath, const std::string& firePath);
     WorldType worldType() const { return worldType_; }
+    // Cambio de paleta de Mario/Luigi segun el tipo de mundo (las hojas
+    // *_underground/_castle/_underwater.png): guardado pero apagado por
+    // ahora (settings.json "player_world_palettes", sin opcion en el menu).
+    static void setWorldPalettesEnabled(bool on) { sWorldPalettes = on; }
 
     // Danio: si esta grande/fuego, arranca la secuencia clasica (se congela
     // el juego, parpadea achicandose, vuelve a chico e invulnerable un rato
@@ -492,4 +496,5 @@ private:
     static constexpr float kClimbFrameInterval = 0.08f;   // s entre los 2 frames de trepar al bajar
     static constexpr float kFlagpoleFlipDuration = 0.4f;  // s del otro lado del palo antes de bajarse
     static constexpr float kFlagpoleWalkMaxDuration = 4.0f; // s maximos caminando hacia el castillo
+    static inline bool sWorldPalettes = false;
 };
