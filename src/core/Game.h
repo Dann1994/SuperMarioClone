@@ -1380,7 +1380,7 @@ private:
     void openContinueSlots();
     void refreshSlotPreviews();
     SDL_Texture* renderLevelPreview(const std::string& path);
-    void writeCurrentSlot(int world);
+    void writeCurrentSlot(int world, int level);
     void renderSlotPicker();
     // 2 jugadores por turnos (el modo del original): un solo personaje en
     // pantalla; al morir pasa el turno al otro (si le quedan vidas), cada uno

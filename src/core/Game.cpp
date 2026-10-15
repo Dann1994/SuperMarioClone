@@ -2988,6 +2988,9 @@ void Game::update(float dt) {
                 return;
             }
             if (campaign_) {
+                // Sin vidas: se reinicia desde el principio del mundo (seccion
+                // 6), tambien en el espacio de guardado.
+                writeCurrentSlot(campaignWorld_, 1);
                 continueWorld_ = turnMode_ ? 0 : campaignWorld_;
                 continueTwoPlayers_ = twoPlayerMode_;
                 continueAsLuigi_ = playAsLuigi_;

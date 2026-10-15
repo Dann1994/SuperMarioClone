@@ -42,6 +42,7 @@ bool Settings::load() {
         SaveSlot slot;
         if (!entry.is_object()) return slot;
         slot.world = std::clamp(entry.value("world", 0), 0, 8);
+        slot.level = std::clamp(entry.value("level", 1), 1, 4);
         slot.mode = entry.value("mode", std::string("solo"));
         slot.luigi = entry.value("luigi", false);
         slot.secondQuest = entry.value("second_quest", false);
@@ -71,7 +72,7 @@ bool Settings::load() {
 nlohmann::json Settings::savesJson() const {
     nlohmann::json list = nlohmann::json::array();
     for (const SaveSlot& slot : saves) {
-        list.push_back({{"world", slot.world}, {"mode", slot.mode}, {"luigi", slot.luigi},
+        list.push_back({{"world", slot.world}, {"level", slot.level}, {"mode", slot.mode}, {"luigi", slot.luigi},
                         {"second_quest", slot.secondQuest}});
     }
     return list;

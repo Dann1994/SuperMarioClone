@@ -1,122 +1,465 @@
 {
-  "tile_size": 16,
-  "name": "4-2",
-  "time": 400,
-  "world": "underground",
-  "intro": {"area": 0},
-  "start_col": 8,
+  "areas": [
+    {
+      "end": 27,
+      "start": 0,
+      "world": "overworld"
+    },
+    {
+      "end": 284,
+      "start": 29,
+      "world": "underground"
+    },
+    {
+      "end": 302,
+      "start": 286,
+      "world": "underground"
+    },
+    {
+      "end": 367,
+      "start": 304,
+      "world": "overworld"
+    },
+    {
+      "end": 464,
+      "palette": "mushroom",
+      "start": 369,
+      "world": "overworld"
+    }
+  ],
+  "blocks": [
+    {
+      "col": 57,
+      "item": "powerup",
+      "row": 10
+    },
+    {
+      "col": 72,
+      "hits": 10,
+      "item": "coin",
+      "row": 5
+    },
+    {
+      "col": 84,
+      "item": "powerup",
+      "row": 10
+    },
+    {
+      "col": 92,
+      "item": "coin",
+      "row": 9
+    },
+    {
+      "col": 93,
+      "dest_col": 373,
+      "dest_row": 14,
+      "item": "vine",
+      "row": 6
+    },
+    {
+      "col": 93,
+      "item": "coin",
+      "row": 8
+    },
+    {
+      "col": 94,
+      "item": "coin",
+      "row": 9
+    },
+    {
+      "col": 95,
+      "item": "coin",
+      "row": 10
+    },
+    {
+      "col": 106,
+      "hits": 10,
+      "item": "coin",
+      "row": 10
+    },
+    {
+      "col": 110,
+      "item": "star",
+      "row": 10
+    },
+    {
+      "col": 149,
+      "item": "powerup",
+      "row": 6
+    },
+    {
+      "col": 190,
+      "item": "powerup",
+      "row": 10
+    },
+    {
+      "col": 300,
+      "hits": 10,
+      "item": "coin",
+      "row": 8
+    }
+  ],
   "checkpoints": [
     125
   ],
-  "areas": [
-    {"start": 0, "end": 27, "world": "overworld"},
-    {"start": 29, "end": 284, "world": "underground"},
-    {"start": 286, "end": 302, "world": "underground"},
-    {"start": 304, "end": 367, "world": "overworld"},
-    {"start": 369, "end": 464, "world": "overworld", "palette": "mushroom"}
-  ],
-  "blocks": [
-    {"col": 57, "row": 10, "item": "powerup"},
-    {"col": 72, "row": 5, "item": "coin", "hits": 10},
-    {"col": 84, "row": 10, "item": "powerup"},
-    {"col": 92, "row": 9, "item": "coin"},
-    {"col": 93, "row": 6, "item": "vine", "dest_col": 373, "dest_row": 14},
-    {"col": 93, "row": 8, "item": "coin"},
-    {"col": 94, "row": 9, "item": "coin"},
-    {"col": 95, "row": 10, "item": "coin"},
-    {"col": 106, "row": 10, "item": "coin", "hits": 10},
-    {"col": 110, "row": 10, "item": "star"},
-    {"col": 149, "row": 6, "item": "powerup"},
-    {"col": 190, "row": 10, "item": "powerup"},
-    {"col": 300, "row": 8, "item": "coin", "hits": 10}
-  ],
-  "warps": [
-    {"col": 16, "row": 12, "dest_col": 31, "dest_row": 4, "dir": "right"},
-    {"col": 113, "row": 11, "dest_col": 288, "dest_row": 4},
-    {"col": 216, "row": 9, "dest_col": 307, "dest_row": 10, "dir": "right"},
-    {"col": 243, "row": 11, "dest_col": 2, "dest_row": 12, "level": "5-1"},
-    {"col": 299, "row": 12, "dest_col": 160, "dest_row": 10, "dir": "right"},
-    {"col": 419, "row": 11, "dest_col": 2, "dest_row": 12, "level": "8-1"},
-    {"col": 423, "row": 11, "dest_col": 2, "dest_row": 12, "level": "7-1"},
-    {"col": 427, "row": 11, "dest_col": 2, "dest_row": 12, "level": "6-1"}
-  ],
-  "entities": [
-    {"type": "goomba", "col": 75, "row": 9, "x_offset": 0},
-    {"type": "goomba", "col": 75, "row": 9, "x_offset": 24},
-    {"type": "goomba", "col": 75, "row": 9, "x_offset": 48},
-    {"type": "piranha", "col": 101, "row": 11},
-    {"type": "koopa", "col": 106, "row": 13},
-    {"type": "piranha", "col": 107, "row": 7},
-    {"type": "buzzy", "col": 112, "row": 13},
-    {"type": "piranha", "col": 113, "row": 11},
-    {"type": "buzzy", "col": 117, "row": 13},
-    {"type": "piranha", "col": 118, "row": 11},
-    {"type": "koopa", "col": 132, "row": 13, "x_offset": 0},
-    {"type": "koopa", "col": 132, "row": 13, "x_offset": 24},
-    {"type": "piranha", "col": 136, "row": 10},
-    {"type": "piranha", "col": 160, "row": 12},
-    {"type": "koopa", "col": 166, "row": 13},
-    {"type": "piranha", "col": 167, "row": 11},
-    {"type": "piranha", "col": 171, "row": 10},
-    {"type": "buzzy", "col": 183, "row": 10},
-    {"type": "koopa", "col": 200, "row": 13, "x_offset": 0},
-    {"type": "koopa", "col": 200, "row": 13, "x_offset": 24},
-    {"type": "buzzy", "col": 208, "row": 13},
-    {"type": "piranha", "col": 209, "row": 7},
-    {"type": "piranha", "col": 243, "row": 11},
-    {"type": "warp_zone", "col": 259, "row": 13, "end_col": 243},
-    {"type": "goomba", "col": 305, "row": 13, "x_offset": 0},
-    {"type": "goomba", "col": 305, "row": 13, "x_offset": 24},
-    {"type": "piranha", "col": 307, "row": 12},
-    {"type": "piranha", "col": 419, "row": 11},
-    {"type": "piranha", "col": 423, "row": 11},
-    {"type": "piranha", "col": 427, "row": 11},
-    {"type": "warp_zone", "col": 439, "row": 13, "end_col": 419}
-  ],
-  "platforms": [
-    {"col": 87, "row": 6, "width": 3, "mode": "lift_down", "speed": 60},
-    {"col": 143, "row": 6, "width": 3, "mode": "lift_down", "speed": 60},
-    {"col": 143, "row": 13, "width": 3, "mode": "lift_down", "speed": 60},
-    {"col": 152, "row": 3, "width": 3, "mode": "lift_up", "speed": 60},
-    {"col": 152, "row": 10, "width": 3, "mode": "lift_up", "speed": 60},
-    {"col": 184, "row": 6, "width": 3, "mode": "lift_down", "speed": 60},
-    {"col": 184, "row": 13, "width": 3, "mode": "lift_down", "speed": 60}
-  ],
   "decorations": [
-    {"type": "castle_small", "col": 6, "row": 9},
-    {"type": "cloud_big", "col": 9, "row": 4},
-    {"type": "cloud_small", "col": 15, "row": 8},
-    {"type": "castle_small", "col": 330, "row": 9},
-    {"type": "cloud_big", "col": 308, "row": 3},
-    {"type": "bush_big", "col": 313, "row": 13},
-    {"type": "hill_big", "col": 320, "row": 11},
-    {"type": "cloud_small", "col": 328, "row": 4},
-    {"type": "hill_small", "col": 336, "row": 12},
-    {"type": "cloud_small", "col": 339, "row": 3},
-    {"type": "bush_small", "col": 343, "row": 13},
-    {"type": "cloud_big", "col": 347, "row": 4},
-    {"type": "cloud_big", "col": 356, "row": 3},
-    {"type": "bush_big", "col": 361, "row": 13},
-    {"type": "cloud_small", "col": 369, "row": 12},
-    {"type": "cloud_big", "col": 372, "row": 4},
-    {"type": "cloud_small", "col": 378, "row": 8},
-    {"type": "cloud_big", "col": 387, "row": 3},
-    {"type": "cloud_small", "col": 397, "row": 12},
-    {"type": "cloud_small", "col": 404, "row": 8},
-    {"type": "cloud_small", "col": 407, "row": 7},
-    {"type": "cloud_small", "col": 415, "row": 12},
-    {"type": "cloud_big", "col": 420, "row": 4},
-    {"type": "cloud_small", "col": 426, "row": 8},
-    {"type": "cloud_big", "col": 435, "row": 3},
-    {"type": "cloud_small", "col": 445, "row": 12},
-    {"type": "cloud_small", "col": 452, "row": 8},
-    {"type": "cloud_small", "col": 455, "row": 7},
-    {"type": "cloud_small", "col": 463, "row": 12}
+    {
+      "col": 6,
+      "row": 9,
+      "type": "castle_small"
+    },
+    {
+      "col": 9,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 15,
+      "row": 8,
+      "type": "cloud_small"
+    },
+    {
+      "col": 330,
+      "row": 9,
+      "type": "castle_small"
+    },
+    {
+      "col": 308,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 313,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 320,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 328,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 336,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 339,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 343,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 347,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 356,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 361,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 369,
+      "row": 12,
+      "type": "cloud_small"
+    },
+    {
+      "col": 372,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 378,
+      "row": 8,
+      "type": "cloud_small"
+    },
+    {
+      "col": 387,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 397,
+      "row": 12,
+      "type": "cloud_small"
+    },
+    {
+      "col": 404,
+      "row": 8,
+      "type": "cloud_small"
+    },
+    {
+      "col": 407,
+      "row": 7,
+      "type": "cloud_small"
+    },
+    {
+      "col": 415,
+      "row": 12,
+      "type": "cloud_small"
+    },
+    {
+      "col": 420,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 426,
+      "row": 8,
+      "type": "cloud_small"
+    },
+    {
+      "col": 435,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 445,
+      "row": 12,
+      "type": "cloud_small"
+    },
+    {
+      "col": 452,
+      "row": 8,
+      "type": "cloud_small"
+    },
+    {
+      "col": 455,
+      "row": 7,
+      "type": "cloud_small"
+    },
+    {
+      "col": 463,
+      "row": 12,
+      "type": "cloud_small"
+    }
+  ],
+  "edited": true,
+  "entities": [
+    {
+      "col": 101,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 106,
+      "row": 13,
+      "type": "koopa"
+    },
+    {
+      "col": 107,
+      "row": 7,
+      "type": "piranha"
+    },
+    {
+      "col": 112,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 113,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 117,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 118,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 132,
+      "row": 13,
+      "type": "koopa",
+      "x_offset": 0
+    },
+    {
+      "col": 132,
+      "row": 13,
+      "type": "koopa",
+      "x_offset": 24
+    },
+    {
+      "col": 136,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 160,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 166,
+      "row": 13,
+      "type": "koopa"
+    },
+    {
+      "col": 167,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 171,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 183,
+      "row": 10,
+      "type": "buzzy"
+    },
+    {
+      "col": 208,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 209,
+      "row": 7,
+      "type": "piranha"
+    },
+    {
+      "col": 243,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 259,
+      "end_col": 243,
+      "row": 13,
+      "type": "warp_zone"
+    },
+    {
+      "col": 307,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 419,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 423,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 427,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 439,
+      "end_col": 419,
+      "row": 13,
+      "type": "warp_zone"
+    },
+    {
+      "col": 76,
+      "row": 9,
+      "type": "goomba"
+    },
+    {
+      "col": 74,
+      "row": 9,
+      "type": "goomba"
+    },
+    {
+      "col": 72,
+      "row": 9,
+      "type": "goomba"
+    },
+    {
+      "col": 201,
+      "row": 13,
+      "type": "koopa"
+    },
+    {
+      "col": 199,
+      "row": 13,
+      "type": "koopa"
+    }
+  ],
+  "intro": {
+    "area": 0
+  },
+  "name": "4-2",
+  "platforms": [
+    {
+      "col": 87,
+      "mode": "lift_down",
+      "row": 6,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 143,
+      "mode": "lift_down",
+      "row": 6,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 143,
+      "mode": "lift_down",
+      "row": 13,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 152,
+      "mode": "lift_up",
+      "row": 3,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 152,
+      "mode": "lift_up",
+      "row": 10,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 184,
+      "mode": "lift_down",
+      "row": 6,
+      "speed": 60,
+      "width": 3
+    },
+    {
+      "col": 184,
+      "mode": "lift_down",
+      "row": 13,
+      "speed": 60,
+      "width": 3
+    }
   ],
   "rows": [
-    "............................#................................................................................................................................................................................................................................................................#.................#................................................................#................................................................................................",
-    "............................#................................................................................................................................................................................................................................................................#.................#................................................................#................................................................................................",
-    "............................#................................................................................................................................................................................................................................................................#.................#................................................................#................................................................................................",
+    "............................#................................................................................................................................................................................................................................................................#.................#................................................................#..............................................................SS................................",
+    "............................#................................................................................................................................................................................................................................................................#...............TT#................................................................#..............................................................SS................................",
+    "............................#................................................................................................................................................................................................................................................................#...............TT#................................................................#..............................................................SS................................",
     "............................#B.....BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB..........BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB.......BBBB.....BBBBBBBBBBBBBBBBBBBBBBBBBBB.....BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB...BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#B...BBBBBBB....TT#......................F.........................................#..............................................................SS................................",
     "............................#B...................BBBBBBBBBBBBBBBBBBBBBBBBBBBB................................................................................................................BBBBBBBBBBBBBBBB.............TTBBBBBBBBBBBBBBBBBB.............BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#B.........B....TT#......................F.........................................#..............................ooooo...........................SS................................",
     "............................#B...................BBBBBBBBBBBBBBBBBBBBBBBDBBBB................................................................................................................BBBBBBBBBBBBBBBB.............TTBBBBBBBBBBBBBBBBBB.............BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#B.........B....TT#......................F.........................................#................ooo...ooo.....mmmmm.............SSSSSSSSSSSS..SS................................",
@@ -130,5 +473,66 @@
     "................YYTT........#B..........................oooBBBBBBBBBBBBBBBBBB........................TT....TT....TT...TT............SS..TT..SS..................TT.....TT..TT........SSS..................SSSS...TT...BBBBBBBBBBBBBBBBBBBBBBBB.....TT......BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB#B............YYTT#...TTSSSSSSSSS........S.........................................#.............n...n.n...nn..n....n.n.....SSSSSSSSS.TT..TT..TT..SS................................",
     "########################################..##..#...####################################......##########################################..##..##......####......###############..#########.....#######################..###############################################################################################################################################################.########n###n#n###nn##n####n#n#############################################################",
     "########################################..##..#...####################################......##########################################..##..##......####......###############..#########.....#######################..###############################################################################################################################################################.########n###n#n###nn##n####n#n#############################################################"
-  ]
+  ],
+  "start_col": 8,
+  "tile_size": 16,
+  "time": 400,
+  "warps": [
+    {
+      "col": 16,
+      "dest_col": 31,
+      "dest_row": 4,
+      "dir": "right",
+      "row": 12
+    },
+    {
+      "col": 113,
+      "dest_col": 288,
+      "dest_row": 4,
+      "row": 11
+    },
+    {
+      "col": 216,
+      "dest_col": 307,
+      "dest_row": 10,
+      "dir": "right",
+      "row": 9
+    },
+    {
+      "col": 243,
+      "dest_col": 2,
+      "dest_row": 12,
+      "level": "5-1",
+      "row": 11
+    },
+    {
+      "col": 299,
+      "dest_col": 160,
+      "dest_row": 10,
+      "dir": "right",
+      "row": 12
+    },
+    {
+      "col": 419,
+      "dest_col": 2,
+      "dest_row": 12,
+      "level": "8-1",
+      "row": 11
+    },
+    {
+      "col": 423,
+      "dest_col": 2,
+      "dest_row": 12,
+      "level": "7-1",
+      "row": 11
+    },
+    {
+      "col": 427,
+      "dest_col": 2,
+      "dest_row": 12,
+      "level": "6-1",
+      "row": 11
+    }
+  ],
+  "world": "underground"
 }

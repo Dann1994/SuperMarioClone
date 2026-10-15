@@ -1,145 +1,609 @@
 {
-  "tile_size": 16,
-  "name": "6-2",
-  "time": 400,
-  "world": "overworld",
+  "areas": [
+    {
+      "end": 255,
+      "palette": "night",
+      "start": 0,
+      "world": "overworld"
+    },
+    {
+      "end": 273,
+      "start": 257,
+      "world": "underground"
+    },
+    {
+      "end": 305,
+      "start": 289,
+      "world": "underground"
+    },
+    {
+      "end": 402,
+      "start": 307,
+      "world": "underwater"
+    },
+    {
+      "cloud": true,
+      "end": 531,
+      "fall_col": 162,
+      "fall_row": 2,
+      "palette": "night_snow",
+      "start": 404,
+      "world": "overworld"
+    }
+  ],
+  "blocks": [
+    {
+      "col": 24,
+      "hits": 10,
+      "item": "coin",
+      "row": 6
+    },
+    {
+      "col": 24,
+      "item": "coin",
+      "row": 10
+    },
+    {
+      "col": 52,
+      "item": "powerup",
+      "row": 10
+    },
+    {
+      "col": 81,
+      "dest_col": 408,
+      "dest_row": 14,
+      "item": "vine",
+      "row": 6
+    },
+    {
+      "col": 82,
+      "item": "coin",
+      "row": 10
+    },
+    {
+      "col": 140,
+      "item": "star",
+      "row": 6
+    },
+    {
+      "col": 270,
+      "item": "powerup",
+      "row": 10
+    },
+    {
+      "col": 303,
+      "hits": 10,
+      "item": "coin",
+      "row": 8
+    }
+  ],
   "checkpoints": [
     96
   ],
-  "areas": [
-    {"start": 0, "end": 255, "world": "overworld", "palette": "night"},
-    {"start": 257, "end": 273, "world": "underground"},
-    {"start": 289, "end": 305, "world": "underground"},
-    {"start": 307, "end": 402, "world": "underwater"},
-    {"start": 404, "end": 531, "world": "overworld", "palette": "night_snow", "cloud": true, "fall_col": 162, "fall_row": 2}
-  ],
-  "blocks": [
-    {"col": 24, "row": 6, "item": "coin", "hits": 10},
-    {"col": 24, "row": 10, "item": "coin"},
-    {"col": 52, "row": 10, "item": "powerup"},
-    {"col": 81, "row": 6, "item": "vine", "dest_col": 408, "dest_row": 14},
-    {"col": 82, "row": 10, "item": "coin"},
-    {"col": 140, "row": 6, "item": "star"},
-    {"col": 270, "row": 10, "item": "powerup"},
-    {"col": 303, "row": 8, "item": "coin", "hits": 10}
-  ],
-  "warps": [
-    {"col": 19, "row": 10, "dest_col": 291, "dest_row": 4},
-    {"col": 56, "row": 9, "dest_col": 309, "dest_row": 5},
-    {"col": 153, "row": 11, "dest_col": 259, "dest_row": 4},
-    {"col": 270, "row": 12, "dest_col": 179, "dest_row": 10, "dir": "right"},
-    {"col": 302, "row": 12, "dest_col": 32, "dest_row": 5, "dir": "right"},
-    {"col": 369, "row": 8, "dest_col": 115, "dest_row": 10, "dir": "right"}
-  ],
-  "entities": [
-    {"type": "piranha", "col": 19, "row": 10},
-    {"type": "koopa", "col": 26, "row": 13},
-    {"type": "piranha", "col": 28, "row": 10},
-    {"type": "piranha", "col": 32, "row": 7},
-    {"type": "piranha", "col": 35, "row": 12},
-    {"type": "piranha", "col": 37, "row": 12},
-    {"type": "koopa", "col": 43, "row": 13, "state": "jumping"},
-    {"type": "piranha", "col": 46, "row": 10},
-    {"type": "buzzy", "col": 54, "row": 13},
-    {"type": "piranha", "col": 56, "row": 9},
-    {"type": "piranha", "col": 62, "row": 8},
-    {"type": "piranha", "col": 67, "row": 12},
-    {"type": "goomba", "col": 67, "row": 5},
-    {"type": "goomba", "col": 68, "row": 5},
-    {"type": "piranha", "col": 74, "row": 12},
-    {"type": "piranha", "col": 80, "row": 11},
-    {"type": "piranha", "col": 84, "row": 12},
-    {"type": "piranha", "col": 87, "row": 8},
-    {"type": "buzzy", "col": 92, "row": 13},
-    {"type": "piranha", "col": 94, "row": 11},
-    {"type": "piranha", "col": 102, "row": 10},
-    {"type": "piranha", "col": 105, "row": 12},
-    {"type": "piranha", "col": 111, "row": 7},
-    {"type": "piranha", "col": 115, "row": 12},
-    {"type": "buzzy", "col": 120, "row": 5},
-    {"type": "piranha", "col": 131, "row": 12},
-    {"type": "piranha", "col": 135, "row": 12},
-    {"type": "piranha", "col": 153, "row": 11},
-    {"type": "buzzy", "col": 163, "row": 13},
-    {"type": "piranha", "col": 167, "row": 7},
-    {"type": "goomba", "col": 172, "row": 13, "x_offset": 0},
-    {"type": "goomba", "col": 172, "row": 13, "x_offset": 24},
-    {"type": "piranha", "col": 174, "row": 10},
-    {"type": "piranha", "col": 179, "row": 12},
-    {"type": "piranha", "col": 181, "row": 11},
-    {"type": "piranha", "col": 183, "row": 10},
-    {"type": "piranha", "col": 189, "row": 11},
-    {"type": "piranha", "col": 201, "row": 10},
-    {"type": "koopa", "col": 206, "row": 5, "state": "jumping"},
-    {"type": "blooper", "col": 326, "row": 12, "y_offset": 8},
-    {"type": "whirlpool", "col": 328, "row": 13, "length": 5},
-    {"type": "whirlpool", "col": 334, "row": 13, "length": 5},
-    {"type": "cheep_frenzy", "col": 339, "row": 13, "end_col": 378},
-    {"type": "blooper", "col": 342, "row": 12, "y_offset": 8},
-    {"type": "whirlpool", "col": 344, "row": 13, "length": 3},
-    {"type": "whirlpool", "col": 348, "row": 13, "length": 3},
-    {"type": "blooper", "col": 352, "row": 12, "y_offset": 8}
-  ],
-  "platforms": [
-    {"col": 329, "row": 7, "width": 2, "mode": "lift_down", "speed": 60},
-    {"col": 335, "row": 13, "width": 2, "mode": "lift_down", "speed": 60},
-    {"col": 420, "row": 11, "width": 2, "mode": "horizontal", "range": 4, "period": 4}
-  ],
   "decorations": [
-    {"type": "castle_small", "col": 0, "row": 9},
-    {"type": "castle_small", "col": 220, "row": 9},
-    {"type": "cloud_small", "col": 8, "row": 4},
-    {"type": "bush_big", "col": 11, "row": 13},
-    {"type": "hill_small", "col": 16, "row": 12},
-    {"type": "cloud_small", "col": 19, "row": 3},
-    {"type": "bush_small", "col": 23, "row": 13},
-    {"type": "cloud_big", "col": 27, "row": 4},
-    {"type": "cloud_big", "col": 36, "row": 3},
-    {"type": "bush_big", "col": 41, "row": 13},
-    {"type": "hill_big", "col": 48, "row": 11},
-    {"type": "cloud_small", "col": 56, "row": 4},
-    {"type": "bush_big", "col": 59, "row": 13},
-    {"type": "hill_small", "col": 64, "row": 12},
-    {"type": "cloud_small", "col": 67, "row": 3},
-    {"type": "bush_small", "col": 71, "row": 13},
-    {"type": "cloud_big", "col": 75, "row": 4},
-    {"type": "cloud_big", "col": 84, "row": 3},
-    {"type": "bush_big", "col": 89, "row": 13},
-    {"type": "hill_big", "col": 96, "row": 11},
-    {"type": "cloud_small", "col": 104, "row": 4},
-    {"type": "bush_big", "col": 107, "row": 13},
-    {"type": "hill_small", "col": 112, "row": 12},
-    {"type": "cloud_small", "col": 115, "row": 3},
-    {"type": "bush_small", "col": 119, "row": 13},
-    {"type": "cloud_big", "col": 123, "row": 4},
-    {"type": "cloud_big", "col": 132, "row": 3},
-    {"type": "bush_big", "col": 137, "row": 13},
-    {"type": "hill_big", "col": 144, "row": 11},
-    {"type": "cloud_small", "col": 152, "row": 4},
-    {"type": "bush_big", "col": 155, "row": 13},
-    {"type": "hill_small", "col": 160, "row": 12},
-    {"type": "cloud_small", "col": 163, "row": 3},
-    {"type": "bush_small", "col": 167, "row": 13},
-    {"type": "cloud_big", "col": 171, "row": 4},
-    {"type": "cloud_big", "col": 180, "row": 3},
-    {"type": "bush_big", "col": 185, "row": 13},
-    {"type": "hill_big", "col": 192, "row": 11},
-    {"type": "cloud_small", "col": 200, "row": 4},
-    {"type": "bush_big", "col": 203, "row": 13},
-    {"type": "hill_small", "col": 208, "row": 12},
-    {"type": "cloud_small", "col": 211, "row": 3},
-    {"type": "bush_small", "col": 215, "row": 13},
-    {"type": "cloud_big", "col": 219, "row": 4},
-    {"type": "cloud_big", "col": 228, "row": 3},
-    {"type": "bush_big", "col": 233, "row": 13},
-    {"type": "hill_big", "col": 240, "row": 11},
-    {"type": "cloud_small", "col": 248, "row": 4},
-    {"type": "bush_big", "col": 251, "row": 13}
+    {
+      "col": 0,
+      "row": 9,
+      "type": "castle_small"
+    },
+    {
+      "col": 220,
+      "row": 9,
+      "type": "castle_small"
+    },
+    {
+      "col": 8,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 11,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 16,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 19,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 23,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 27,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 36,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 41,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 48,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 56,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 59,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 64,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 67,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 71,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 75,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 84,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 89,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 96,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 104,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 107,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 112,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 115,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 119,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 123,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 132,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 137,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 144,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 152,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 155,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 160,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 163,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 167,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 171,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 180,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 185,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 192,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 200,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 203,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 208,
+      "row": 12,
+      "type": "hill_small"
+    },
+    {
+      "col": 211,
+      "row": 3,
+      "type": "cloud_small"
+    },
+    {
+      "col": 215,
+      "row": 13,
+      "type": "bush_small"
+    },
+    {
+      "col": 219,
+      "row": 4,
+      "type": "cloud_big"
+    },
+    {
+      "col": 228,
+      "row": 3,
+      "type": "cloud_big"
+    },
+    {
+      "col": 233,
+      "row": 13,
+      "type": "bush_big"
+    },
+    {
+      "col": 240,
+      "row": 11,
+      "type": "hill_big"
+    },
+    {
+      "col": 248,
+      "row": 4,
+      "type": "cloud_small"
+    },
+    {
+      "col": 251,
+      "row": 13,
+      "type": "bush_big"
+    }
+  ],
+  "edited": true,
+  "entities": [
+    {
+      "col": 19,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 26,
+      "row": 13,
+      "type": "koopa"
+    },
+    {
+      "col": 28,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 32,
+      "row": 7,
+      "type": "piranha"
+    },
+    {
+      "col": 35,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 37,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 43,
+      "row": 13,
+      "state": "jumping",
+      "type": "koopa"
+    },
+    {
+      "col": 46,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 54,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 56,
+      "row": 9,
+      "type": "piranha"
+    },
+    {
+      "col": 62,
+      "row": 8,
+      "type": "piranha"
+    },
+    {
+      "col": 67,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 67,
+      "row": 5,
+      "type": "goomba"
+    },
+    {
+      "col": 68,
+      "row": 5,
+      "type": "goomba"
+    },
+    {
+      "col": 74,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 80,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 84,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 87,
+      "row": 8,
+      "type": "piranha"
+    },
+    {
+      "col": 92,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 94,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 102,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 105,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 111,
+      "row": 7,
+      "type": "piranha"
+    },
+    {
+      "col": 115,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 120,
+      "row": 5,
+      "type": "buzzy"
+    },
+    {
+      "col": 131,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 135,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 153,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 163,
+      "row": 13,
+      "type": "buzzy"
+    },
+    {
+      "col": 167,
+      "row": 7,
+      "type": "piranha"
+    },
+    {
+      "col": 174,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 179,
+      "row": 12,
+      "type": "piranha"
+    },
+    {
+      "col": 181,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 183,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 189,
+      "row": 11,
+      "type": "piranha"
+    },
+    {
+      "col": 201,
+      "row": 10,
+      "type": "piranha"
+    },
+    {
+      "col": 206,
+      "row": 5,
+      "state": "jumping",
+      "type": "koopa"
+    },
+    {
+      "col": 326,
+      "row": 12,
+      "type": "blooper",
+      "y_offset": 8
+    },
+    {
+      "col": 328,
+      "length": 5,
+      "row": 13,
+      "type": "whirlpool"
+    },
+    {
+      "col": 334,
+      "length": 5,
+      "row": 13,
+      "type": "whirlpool"
+    },
+    {
+      "col": 339,
+      "end_col": 378,
+      "row": 13,
+      "type": "cheep_frenzy"
+    },
+    {
+      "col": 342,
+      "row": 12,
+      "type": "blooper",
+      "y_offset": 8
+    },
+    {
+      "col": 344,
+      "length": 3,
+      "row": 13,
+      "type": "whirlpool"
+    },
+    {
+      "col": 348,
+      "length": 3,
+      "row": 13,
+      "type": "whirlpool"
+    },
+    {
+      "col": 352,
+      "row": 12,
+      "type": "blooper",
+      "y_offset": 8
+    },
+    {
+      "col": 173,
+      "row": 13,
+      "type": "goomba"
+    },
+    {
+      "col": 171,
+      "row": 13,
+      "type": "goomba"
+    }
+  ],
+  "name": "6-2",
+  "platforms": [
+    {
+      "col": 329,
+      "mode": "lift_down",
+      "row": 7,
+      "speed": 60,
+      "width": 2
+    },
+    {
+      "col": 335,
+      "mode": "lift_down",
+      "row": 13,
+      "speed": 60,
+      "width": 2
+    },
+    {
+      "col": 420,
+      "mode": "horizontal",
+      "period": 4,
+      "range": 4,
+      "row": 11,
+      "width": 2
+    }
   ],
   "rows": [
     "................................................................................................................................................................................................................................................................#.................................................#................................................................................................#................................................................................................................................",
-    "................................................................................................................................................................................................................................................................#.................................................#................................................................................................#................................................................................................................................",
-    "................................................................................................................................................................................................................................................................#.................................................#XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX#................................................................................................................................",
+    "................................................................................................................................................................................................................................................................#...............................................TT#................................................................................................#................................................................................................................................",
+    "................................................................................................................................................................................................................................................................#...............................................TT#XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX#................................................................................................................................",
     "........................................................................................................................................................................................................................F.......................................#B..BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB...BBBBBBB....TT#wwwwwwwwwwwwwwwwwwwwwwwwww##wwww##wwwwwwwwwwwwwwwwwwwwwwwwwww####################################................................................................................................................................",
     "........................................................................................................................................................................................................................F.......................................#B..............TT...............B.........B....TT#..........................##....##...........................####################################................................................................................................................................",
     "........................................................................................................................................................................................................................F.......................................#B..............TT...............B.........B....TT#...............c..........##....##....######.................####################################................................................................................................................................",
@@ -153,5 +617,49 @@
     "...................TT.......TT.....TTTT.......TT........TT.........TT.....TT....TT..TT.TT.....TT......TT.TT........TT..............TT..TT............SSS.TT.SS................TT...TTTTTT....TT........SSTTSSSSS........S.......................................#B..ooooooooooYYTT...............B............YYTT#............c.......c.....##....##......oo....c............######################################................................................................................................................................",
     "###########################################################################################################################......############.#.########.################################################################################################################################################################################....##....######..##..#####################################################NNNN.NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN.............................................",
     "###########################################################################################################################......############.#.########.################################################################################################################################################################################....##....######..##..#####################################################................................................................................................................................"
-  ]
+  ],
+  "tile_size": 16,
+  "time": 400,
+  "warps": [
+    {
+      "col": 19,
+      "dest_col": 291,
+      "dest_row": 4,
+      "row": 10
+    },
+    {
+      "col": 56,
+      "dest_col": 309,
+      "dest_row": 5,
+      "row": 9
+    },
+    {
+      "col": 153,
+      "dest_col": 259,
+      "dest_row": 4,
+      "row": 11
+    },
+    {
+      "col": 270,
+      "dest_col": 179,
+      "dest_row": 10,
+      "dir": "right",
+      "row": 12
+    },
+    {
+      "col": 302,
+      "dest_col": 32,
+      "dest_row": 5,
+      "dir": "right",
+      "row": 12
+    },
+    {
+      "col": 369,
+      "dest_col": 115,
+      "dest_row": 10,
+      "dir": "right",
+      "row": 8
+    }
+  ],
+  "world": "overworld"
 }

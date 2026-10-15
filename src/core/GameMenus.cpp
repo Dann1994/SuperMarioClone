@@ -326,10 +326,11 @@ void Game::openContinueSlots() {
     refreshSlotPreviews();
 }
 
-void Game::writeCurrentSlot(int world) {
+void Game::writeCurrentSlot(int world, int level) {
     if (currentSlot_ < 0 || currentSlot_ >= Settings::kSaveSlots) return;
     Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
     slot.world = world;
+    slot.level = level;
     slot.mode = turnMode_ ? "turns" : twoPlayerMode_ ? "coop" : "solo";
     slot.luigi = playAsLuigi_;
     slot.secondQuest = secondQuestNext_;
@@ -348,7 +349,7 @@ void Game::handleTitleInput(MenuInput input) {
             audio_.play(Sfx::Coin);
             currentSlot_ = slotChoice_;
             if (pendingStart_) pendingStart_();
-            writeCurrentSlot(startWorld_);
+            writeCurrentSlot(startWorld_, startLevel_);
         } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
             confirmingOverwrite_ = false;
             audio_.play(Sfx::Bump);
@@ -378,7 +379,7 @@ void Game::handleTitleInput(MenuInput input) {
                 audio_.play(Sfx::Coin);
                 currentSlot_ = slotChoice_;
                 startWorld_ = slot.world;
-                startLevel_ = 1;
+                startLevel_ = slot.level;
                 secondQuestNext_ = slot.secondQuest;
                 if (slot.mode == "turns") {
                     startTurnCampaign();
@@ -394,7 +395,7 @@ void Game::handleTitleInput(MenuInput input) {
                 audio_.play(Sfx::Coin);
                 currentSlot_ = slotChoice_;
                 if (pendingStart_) pendingStart_();
-                writeCurrentSlot(startWorld_);
+                writeCurrentSlot(startWorld_, startLevel_);
             }
         }
         return;
@@ -959,7 +960,8 @@ void Game::onLevelCleared() {
     // Termino el castillo de un mundo (x-4): se guarda la partida para
     // seguir desde el mundo siguiente (CONTINUAR, tambien despues de cerrar
     // el juego).
-    if (level == 1 && std::filesystem::exists(next)) writeCurrentSlot(world);
+    // Paso el nivel: se guarda desde el siguiente.
+    if (std::filesystem::exists(next)) writeCurrentSlot(world, level);
     if (!std::filesystem::exists(next)) {
         // Despues del 8-4 (WorldSelectEnableFlag del original): queda
         // desbloqueado lo de EXTRAS (PARTIDA + es la segunda vuelta).
@@ -1035,7 +1037,7 @@ void Game::refreshSlotPreviews() {
         if (slotPreviews_[i]) SDL_DestroyTexture(slotPreviews_[i]);
         slotPreviews_[i] = nullptr;
         const int world = settings_.saves[i].world;
-        if (world > 0) slotPreviews_[i] = renderLevelPreview(campaignLevelPath(world, 1));
+        if (world > 0) slotPreviews_[i] = renderLevelPreview(campaignLevelPath(world, settings_.saves[i].level));
     }
 }
 
@@ -1077,7 +1079,7 @@ void Game::renderSlotPicker() {
             DebugFont::drawText(renderer_, tx, y + 24, tr(Txt::SlotEmpty), 2, text);
             continue;
         }
-        DebugFont::drawText(renderer_, tx, y + 20, std::string(tr(Txt::HudWorld)) + " " + std::to_string(slot.world) + "-1",
+        DebugFont::drawText(renderer_, tx, y + 20, std::string(tr(Txt::HudWorld)) + " " + std::to_string(slot.world) + "-" + std::to_string(slot.level),
                             2, text);
         const Txt mode = slot.mode == "coop" ? Txt::ModeCoop : slot.mode == "turns" ? Txt::ModeTurns : Txt::OnePlayer;
         std::string line = tr(mode);

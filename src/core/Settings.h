@@ -24,12 +24,12 @@ struct Settings {
     int topScore = 0;
     // Se termino el juego (el 8-4) al menos una vez: desbloquea EXTRAS.
     bool gameCompleted = false;
-    // Partidas guardadas (seccion 6 de la especificacion: se guarda al
-    // completar un mundo entero), hasta 3 espacios. world: el mundo desde
-    // el que sigue CONTINUAR (0 = espacio vacio). mode: "solo", "coop" (2 a
-    // la vez) o "turns" (2 por turnos).
+    // Partidas guardadas, hasta 3 espacios: se guarda al pasar cada nivel.
+    // world-level: desde donde sigue CONTINUAR (world 0 = espacio vacio).
+    // mode: "solo", "coop" (2 a la vez) o "turns" (2 por turnos).
     struct SaveSlot {
         int world = 0;
+        int level = 1;
         std::string mode = "solo";
         bool luigi = false;
         bool secondQuest = false;
