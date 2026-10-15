@@ -6,3 +6,6 @@ build/
 
 # ROMs del juego original: solo para uso local, nunca al repositorio
 *.nes
+
+build-release/
+dist/
