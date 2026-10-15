@@ -1,6 +1,16 @@
 """Arma assets/sprites/mario_hammer.png (Mario con el traje de Hammer Bro,
-como en Mario 3) y hammer_flower.png (la flor martillo) desde la hoja que
-paso el usuario, Documentaciones/Mario-Hammer.png.
+como en Mario 3), luigi_hammer.png y hammer_flower.png (la flor martillo)
+desde la hoja que paso el usuario, Documentaciones/Mario-Hammer.png.
+
+Colores (pedido del usuario): todo lo blanco de la hoja, en Mario rojizo
+muy claro y en Luigi verde muy claro.
+
+Estrella: mario_hammer_star.png y luigi_hammer_star.png, con las mismas 12
+paletas que la estrella de Mario y Luigi (3 por tipo de mundo, en el orden
+que espera Mario::render): lo claro del traje toma el color de la ropa (o el
+del pelo/camisa si la ropa es negra, para no perderse contra el contorno), la
+piel el de la piel, y lo negro (rayas, overol, contorno) queda negro: el
+traje tiene contorno y Mario no.
 
 La hoja trae cuadros de 16x34 (el casco lo hace 2 px mas alto que Mario
 grande) separados por lineas de fondo violeta; cada cuadro tiene el fondo
@@ -16,6 +26,9 @@ from PIL import Image
 
 SOURCE = "Documentaciones/Mario-Hammer.png"
 OUT = "assets/sprites/mario_hammer.png"
+LUIGI_OUT = "assets/sprites/luigi_hammer.png"
+MARIO_PINK = (255, 206, 197)     # rojizo muy claro (0x36 del NES)
+LUIGI_GREEN = (189, 247, 173)    # verde muy claro (0x3A del NES)
 FLOWER_OUT = "assets/sprites/hammer_flower.png"
 W, H = 16, 34
 BACKGROUNDS = {(146, 144, 255), (83, 0, 149)}
@@ -55,6 +68,64 @@ def clean(cell):
     return cell
 
 
+def is_white(c):
+    return c[3] and c[0] >= 240 and c[1] >= 240 and c[2] >= 240
+
+
+def recolor(sheet, color):
+    """Todo lo blanco de la hoja, en `color`."""
+    out = sheet.copy()
+    for fy in range(0, sheet.height, H):
+        for fx in range(0, sheet.width, W):
+            frame = sheet.crop((fx, fy, fx + W, fy + H))
+            for y in range(H):
+                for x in range(W):
+                    c = frame.getpixel((x, y))
+                    if is_white(c):
+                        out.putpixel((fx + x, fy + y), color + (c[3],))
+    return out
+
+
+# Las 12 paletas de estrella de Mario/Luigi (mario_big_star.png): por
+# bloque, (ropa, piel, pelo/camisa).
+STAR_PALETTES = [
+    ((12, 147, 0), (255, 254, 255), (234, 158, 34)),
+    ((181, 49, 32), (255, 254, 255), (234, 158, 34)),
+    ((0, 0, 0), (254, 204, 197), (153, 78, 0)),
+    ((173, 173, 173), (255, 254, 255), (234, 158, 34)),
+    ((181, 49, 32), (255, 254, 255), (234, 158, 34)),
+    ((0, 0, 0), (255, 254, 255), (173, 173, 173)),
+    ((0, 0, 0), (0, 124, 141), (153, 78, 0)),
+    ((0, 0, 0), (181, 49, 32), (234, 158, 34)),
+    ((0, 0, 0), (0, 64, 77), (0, 124, 141)),
+    ((153, 78, 0), (0, 124, 141), (0, 0, 0)),
+    ((234, 158, 34), (181, 49, 32), (0, 0, 0)),
+    ((173, 173, 173), (102, 102, 102), (0, 0, 0)),
+]
+SKIN = (252, 152, 56)
+
+
+def star_sheet(sheet, suit_color):
+    """Los 12 bloques de la estrella: cada pixel va al color de su papel
+    (traje claro, piel o negro) en esa paleta."""
+    roles = {"suit": suit_color, "skin": SKIN, "dark": (0, 0, 0)}
+
+    def role_of(rgb):
+        return min(roles, key=lambda r: sum((a - b) ** 2 for a, b in zip(rgb, roles[r])))
+
+    out = Image.new("RGBA", (sheet.width, sheet.height * len(STAR_PALETTES)), (0, 0, 0, 0))
+    src = sheet.load()
+    for block, (clothes, skin, hair) in enumerate(STAR_PALETTES):
+        suit = hair if clothes == (0, 0, 0) else clothes
+        colors = {"suit": suit, "skin": skin, "dark": (0, 0, 0)}
+        for y in range(sheet.height):
+            for x in range(sheet.width):
+                r, g, b, a = src[x, y]
+                if a:
+                    out.putpixel((x, block * sheet.height + y), colors[role_of((r, g, b))] + (a,))
+    return out
+
+
 def main():
     sheet = Image.open(SOURCE).convert("RGBA")
     out = Image.new("RGBA", (W * 5, H * 8), (0, 0, 0, 0))
@@ -63,7 +134,12 @@ def main():
             xs = COL_X_SHIFTED.get(src_row, COL_X)
             x0, y0 = xs[src_col], ROW_Y[src_row]
             out.paste(clean(sheet.crop((x0, y0, x0 + W, y0 + H))), (col * W, row * H))
-    out.save(OUT)
+    mario = recolor(out, MARIO_PINK)
+    luigi = recolor(out, LUIGI_GREEN)
+    mario.save(OUT)
+    luigi.save(LUIGI_OUT)
+    star_sheet(mario, MARIO_PINK).save(OUT.replace(".png", "_star.png"))
+    star_sheet(luigi, LUIGI_GREEN).save(LUIGI_OUT.replace(".png", "_star.png"))
 
     # La flor martillo: arriba a la derecha, recortada a su contenido y
     # centrada abajo en un cuadro de 16x16 si entra (si no, su alto).

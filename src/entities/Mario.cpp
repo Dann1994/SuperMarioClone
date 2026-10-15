@@ -31,7 +31,8 @@ bool Mario::loadStarSprite(SDL_Renderer* renderer, const std::string& smallStarP
     return true;
 }
 
-bool Mario::loadHammerSprite(SDL_Renderer* renderer, const std::string& path) {
+bool Mario::loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath) {
+    if (!starPath.empty()) spriteHammerStar_.loadFromFile(renderer, starPath, kSpriteFrameWidth, kHammerHeight);
     return spriteHammer_.loadFromFile(renderer, path, kSpriteFrameWidth, kHammerHeight);
 }
 
@@ -98,6 +99,7 @@ void Mario::swapAppearance(Mario& other) {
     spriteBig_.swap(other.spriteBig_);
     spriteFire_.swap(other.spriteFire_);
     spriteHammer_.swap(other.spriteHammer_);
+    spriteHammerStar_.swap(other.spriteHammerStar_);
     spriteSmallStar_.swap(other.spriteSmallStar_);
     spriteBigStar_.swap(other.spriteBigStar_);
     spriteFireStar_.swap(other.spriteFireStar_);

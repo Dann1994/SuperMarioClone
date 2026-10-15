@@ -502,9 +502,10 @@ bool Game::init() {
         return false;
     }
     if (!loadLuigiSprites()) return false;
-    // Traje de Hammer Bro (gen_mario_hammer.py): opcional.
-    mario_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png");
-    luigi_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png");
+    // Traje de Hammer Bro (gen_mario_hammer.py): opcional. Lo blanco va en
+    // rojizo muy claro (Mario) o verde muy claro (Luigi).
+    mario_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png", "assets/sprites/mario_hammer_star.png");
+    luigi_.loadHammerSprite(renderer_, "assets/sprites/luigi_hammer.png", "assets/sprites/luigi_hammer_star.png");
     hammerFlowerSprite_.loadFromFile(renderer_, "assets/sprites/hammer_flower.png", 16, 20);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
@@ -3846,8 +3847,6 @@ void Game::render() {
             drawCentered(100, tr(Txt::PrincessElsewhere1), 2, white);
             drawCentered(120, tr(Txt::PrincessElsewhere2), 2, white);
         }
-    } else if (levelClearTimer_ > 0.0f) {
-        drawCentered(100, tr(Txt::CourseClear), 2, SDL_Color{255, 255, 255, 255});
     }
 
     renderOutsideAreaMask();

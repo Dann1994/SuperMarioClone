@@ -282,8 +282,9 @@ public:
     }
     bool isWaitingAtFlagpoleBottom() const { return flagpolePhase_ == FlagpolePhase::Bottom; }
     bool isSlidingFlagpole() const { return flagpolePhase_ == FlagpolePhase::Slide; }
-    // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34).
-    bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path);
+    // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34) y la
+    // de la estrella (las 12 paletas, ver gen_mario_hammer.py).
+    bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
     // Agachado con el traje de Hammer Bro: el caparazon lo cubre del fuego.
     bool isHammerShell() const { return size_ == MarioSize::Hammer && isDucking_; }
     // Ya entro al castillo (no se dibuja mas).
@@ -436,7 +437,7 @@ private:
     SpriteSheet spriteBig_;
     SpriteSheet spriteFire_;
     SpriteSheet spriteHammer_;
-    SpriteSheet spriteHammerStar_;   // sin cargar: la estrella no cambia sus colores
+    SpriteSheet spriteHammerStar_;
     // Paletas por tipo de mundo: la activa vive en spriteSmall_/Big_/Fire_ y
     // su lugar aca queda vacio; cambiar de paleta es intercambiar texturas.
     std::array<std::array<SpriteSheet, 3>, 4> paletteSprites_;

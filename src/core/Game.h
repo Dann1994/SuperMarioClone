@@ -834,7 +834,7 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     bool running_ = false;
-    bool showDebugOverlay_ = true;
+    bool showDebugOverlay_ = false;   // F3: FPS, camara, musica (para probar)
     int currentFps_ = 0;
     AppState appState_ = AppState::Title;
     TestScenario scenario_ = TestScenario::Items;
