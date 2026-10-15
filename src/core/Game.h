@@ -1373,6 +1373,15 @@ private:
     int overwriteChoice_ = 1;            // 0 SI, 1 NO
     // CONTINUAR: al elegir un espacio, CONTINUAR o BORRAR (y el SI/NO de
     // borrar).
+    // CONTENIDO EXTRA (EXTRAS): la lista de lo desbloqueable.
+    bool extraContentOpen_ = false;
+    int extraContentSelection_ = 0;
+    void renderExtraContent();
+    // Logros: la partida en curso va desde el 1-1 sin recibir dano.
+    bool campaignNoDamage_ = false;
+    // ... y sin saltearse niveles (sin zonas de warp).
+    bool campaignNoSkip_ = false;
+    void unlockExtra(const std::string& id);
     bool slotActions_ = false;
     int slotActionChoice_ = 0;           // 0 CONTINUAR, 1 BORRAR
     bool confirmingDelete_ = false;

@@ -39,6 +39,11 @@ bool Settings::load() {
     topScore = json.value("top_score", topScore);
     gameCompleted = json.value("game_completed", gameCompleted);
     playerWorldPalettes = json.value("player_world_palettes", playerWorldPalettes);
+    try {
+        unlockedExtras = json.value("unlocked_extras", std::vector<std::string>{});
+        enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
+    } catch (const std::exception&) {
+    }
     const auto readSlot = [](const nlohmann::json& entry) {
         SaveSlot slot;
         if (!entry.is_object()) return slot;
@@ -47,6 +52,8 @@ bool Settings::load() {
         slot.mode = entry.value("mode", std::string("solo"));
         slot.luigi = entry.value("luigi", false);
         slot.secondQuest = entry.value("second_quest", false);
+        slot.noDamage = entry.value("no_damage", false);
+        slot.noSkip = entry.value("no_skip", false);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -70,11 +77,20 @@ bool Settings::load() {
     return true;
 }
 
+bool Settings::extraUnlocked(const std::string& id) const {
+    return std::find(unlockedExtras.begin(), unlockedExtras.end(), id) != unlockedExtras.end();
+}
+
+bool Settings::extraEnabled(const std::string& id) const {
+    return std::find(enabledExtras.begin(), enabledExtras.end(), id) != enabledExtras.end();
+}
+
 nlohmann::json Settings::savesJson() const {
     nlohmann::json list = nlohmann::json::array();
     for (const SaveSlot& slot : saves) {
         list.push_back({{"world", slot.world}, {"level", slot.level}, {"mode", slot.mode}, {"luigi", slot.luigi},
-                        {"second_quest", slot.secondQuest}});
+                        {"second_quest", slot.secondQuest}, {"no_damage", slot.noDamage},
+                        {"no_skip", slot.noSkip}});
     }
     return list;
 }
@@ -94,6 +110,8 @@ bool Settings::save() const {
         {"top_score", topScore},
         {"game_completed", gameCompleted},
         {"player_world_palettes", playerWorldPalettes},
+        {"unlocked_extras", unlockedExtras},
+        {"enabled_extras", enabledExtras},
         {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

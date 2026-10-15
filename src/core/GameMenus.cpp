@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 
 #include "../render/DebugFont.h"
 #include "Game.h"
@@ -30,15 +31,56 @@ enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleContinue, kTitleExtras
 // Submenu EXTRAS.
 enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasOptions, kExtrasCount };
 
-// Que se puede elegir en EXTRAS: todo se desbloquea al terminar el juego una
-// vez, salvo ELEGIR MUNDO (abierto mientras estamos en pruebas). OPCIONES
-// EXTRA todavia no tiene nada adentro.
-std::vector<bool> extrasDisabled(bool completed, bool editorAvailable) {
+// Que se puede elegir en EXTRAS: PARTIDA + y el editor, cuando se
+// desbloquean en CONTENIDO EXTRA; ELEGIR MUNDO (abierto mientras estamos en
+// pruebas) y CONTENIDO EXTRA, desde el principio.
+std::vector<bool> extrasDisabled(const Settings& settings) {
     std::vector<bool> disabled(kExtrasCount, false);
-    disabled[kExtrasNewGamePlus] = !completed;
-    disabled[kExtrasEditor] = !completed || !editorAvailable;
-    disabled[kExtrasOptions] = true;
+    disabled[kExtrasNewGamePlus] = !settings.extraUnlocked("new_game_plus");
+    disabled[kExtrasEditor] = !settings.extraUnlocked("level_editor");
     return disabled;
+}
+
+// CONTENIDO EXTRA: cada elemento se desbloquea cumpliendo su logro (hasta
+// entonces se ve "?????" y abajo la condicion). Se van agregando aca.
+// menuOption: al desbloquearse habilita una opcion del menu EXTRAS (no se
+// activa ni desactiva: queda disponible).
+struct ExtraContent {
+    const char* id;
+    const char* nameEs;
+    const char* nameEn;
+    const char* conditionEs;
+    const char* conditionEn;
+    bool menuOption = false;
+};
+constexpr ExtraContent kExtraContent[] = {
+    {"new_game_plus", "PARTIDA +", "NEW GAME +", "COMPLETA EL JUEGO AL MENOS UNA VEZ",
+     "BEAT THE GAME AT LEAST ONCE", true},
+    {"level_editor", "EDITOR DE NIVELES", "LEVEL EDITOR", "COMPLETA EL JUEGO SIN SALTEARTE NIVELES",
+     "BEAT THE GAME WITHOUT SKIPPING LEVELS", true},
+    {"star_trick", "TRUCO: ESTRELLA", "CHEAT: STAR", "TERMINA EL JUEGO SIN RECIBIR DANO",
+     "BEAT THE GAME WITHOUT TAKING DAMAGE"},
+};
+constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
+
+// Parte un texto en renglones de hasta maxChars letras (por palabras).
+std::vector<std::string> wrapText(const std::string& text, size_t maxChars) {
+    std::vector<std::string> lines;
+    std::string line;
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find(' ', start);
+        if (end == std::string::npos) end = text.size();
+        const std::string word = text.substr(start, end - start);
+        if (!line.empty() && line.size() + 1 + word.size() > maxChars) {
+            lines.push_back(line);
+            line.clear();
+        }
+        line += (line.empty() ? "" : " ") + word;
+        start = end + 1;
+    }
+    if (!line.empty()) lines.push_back(line);
+    return lines;
 }
 // Submenu EDITOR DE NIVELES.
 enum EditorItem { kEditorCreate, kEditorSelect, kEditorCount };
@@ -135,6 +177,7 @@ void Game::openTitle() {
     slotActions_ = false;
     confirmingDelete_ = false;
     worldSelectFlow_ = false;
+    extraContentOpen_ = false;
     titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
@@ -328,6 +371,12 @@ void Game::openContinueSlots() {
     refreshSlotPreviews();
 }
 
+void Game::unlockExtra(const std::string& id) {
+    if (settings_.extraUnlocked(id)) return;
+    settings_.unlockedExtras.push_back(id);
+    settings_.save();
+}
+
 void Game::writeCurrentSlot(int world, int level) {
     if (currentSlot_ < 0 || currentSlot_ >= Settings::kSaveSlots) return;
     Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
@@ -336,10 +385,40 @@ void Game::writeCurrentSlot(int world, int level) {
     slot.mode = turnMode_ ? "turns" : twoPlayerMode_ ? "coop" : "solo";
     slot.luigi = playAsLuigi_;
     slot.secondQuest = secondQuestNext_;
+    slot.noDamage = campaignNoDamage_;
+    slot.noSkip = campaignNoSkip_;
     settings_.save();
 }
 
 void Game::handleTitleInput(MenuInput input) {
+    if (extraContentOpen_) {
+        // CONTENIDO EXTRA: arriba/abajo recorre la lista; en uno
+        // desbloqueado, confirmar lo activa o desactiva.
+        if (input == MenuInput::Back) {
+            extraContentOpen_ = false;
+            audio_.play(Sfx::Bump);
+        } else if ((input == MenuInput::Up || input == MenuInput::Down) && kExtraContentCount > 0) {
+            const int delta = input == MenuInput::Up ? kExtraContentCount - 1 : 1;
+            extraContentSelection_ = (extraContentSelection_ + delta) % kExtraContentCount;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm && kExtraContentCount > 0) {
+            const std::string id = kExtraContent[extraContentSelection_].id;
+            if (!settings_.extraUnlocked(id) || kExtraContent[extraContentSelection_].menuOption) {
+                audio_.play(Sfx::Bump);
+                return;
+            }
+            auto& enabled = settings_.enabledExtras;
+            const auto it = std::find(enabled.begin(), enabled.end(), id);
+            if (it != enabled.end()) {
+                enabled.erase(it);
+            } else {
+                enabled.push_back(id);
+            }
+            settings_.save();
+            audio_.play(Sfx::Coin);
+        }
+        return;
+    }
     if (confirmingDelete_) {
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
             input == MenuInput::Down) {
@@ -392,6 +471,8 @@ void Game::handleTitleInput(MenuInput input) {
             } else {
                 startCampaign(slot.mode == "coop", slot.luigi);
             }
+            campaignNoDamage_ = slot.noDamage;
+            campaignNoSkip_ = slot.noSkip;
         }
         return;
     }
@@ -530,6 +611,8 @@ void Game::handleTitleInput(MenuInput input) {
                 worldSelectFlow_ = false;
                 currentSlot_ = -1;
                 startCampaign(false, luigi);
+                campaignNoDamage_ = false;   // ELEGIR MUNDO no cuenta para logros
+                campaignNoSkip_ = false;
             } else {
                 askSlotThen([this, luigi] { startCampaign(false, luigi); });
             }
@@ -576,12 +659,12 @@ void Game::handleTitleInput(MenuInput input) {
         // EXTRAS: ELEGIR MUNDO, EDITOR DE NIVELES (gris si no hay editor).
         if (input == MenuInput::Up || input == MenuInput::Down) {
             extrasSelection_ = stepSelection(extrasSelection_, input == MenuInput::Up ? -1 : 1, kExtrasCount,
-                                             extrasDisabled(settings_.gameCompleted, true));
+                                             extrasDisabled(settings_));
             audio_.play(Sfx::TimeTally);
             return;
         }
         if (input != MenuInput::Confirm) return;
-        if (extrasDisabled(settings_.gameCompleted, true)[extrasSelection_]) return;
+        if (extrasDisabled(settings_)[extrasSelection_]) return;
         audio_.play(Sfx::Coin);
         switch (extrasSelection_) {
             case kExtrasWorldSelect:
@@ -597,6 +680,10 @@ void Game::handleTitleInput(MenuInput input) {
             case kExtrasEditor:
                 titleMenu_ = kMenuEditor;
                 editorSelection_ = kEditorCreate;
+                break;
+            case kExtrasOptions:
+                extraContentOpen_ = true;
+                extraContentSelection_ = 0;
                 break;
             default: break;
         }
@@ -898,6 +985,7 @@ void Game::updateRumble(float dt) {
     // Golpeado o muerto: arranca el patron una vez, al empezar.
     const bool marioHurt = mario_.isInDamageSequence() || mario_.isInDeathSequence();
     const bool luigiHurt = twoPlayerMode_ && (luigi_.isInDamageSequence() || luigi_.isInDeathSequence());
+    if ((marioHurt && !marioWasHurt_) || (luigiHurt && !luigiWasHurt_)) campaignNoDamage_ = false;
     if (marioHurt && !marioWasHurt_) {
         startRumble(mario_, mario_.isInDeathSequence() ? RumbleKind::Death : RumbleKind::Hurt);
     }
@@ -968,6 +1056,10 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     }
     gPrimaryHardMode = secondQuestNext_;
     hidden1UpFlag_ = true;
+    // Logro "sin recibir dano": solo una partida que arranca en el 1-1 (no
+    // ELEGIR MUNDO); continuando un espacio, lo que traia ese espacio.
+    campaignNoDamage_ = startWorld_ == 1 && startLevel_ == 1 && !worldSelectFlow_;
+    campaignNoSkip_ = campaignNoDamage_;
     continueWorld_ = 0;   // una partida nueva (o la continuada) gasta el CONTINUAR
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
@@ -1015,6 +1107,9 @@ void Game::onLevelCleared() {
         // Despues del 8-4 (WorldSelectEnableFlag del original): queda
         // desbloqueado lo de EXTRAS (PARTIDA + es la segunda vuelta).
         if (campaignWorld_ >= 8) {
+            unlockExtra("new_game_plus");
+            if (campaignNoSkip_) unlockExtra("level_editor");
+            if (campaignNoDamage_) unlockExtra("star_trick");
             settings_.gameCompleted = true;
             if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();
@@ -1088,6 +1183,52 @@ void Game::refreshSlotPreviews() {
         const int world = settings_.saves[i].world;
         if (world > 0) slotPreviews_[i] = renderLevelPreview(campaignLevelPath(world, settings_.saves[i].level));
     }
+}
+
+void Game::renderExtraContent() {
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+    SDL_RenderFillRect(renderer_, nullptr);
+    drawCentered(10, tr(Txt::ExtraOptions), 2, kMenuWhite);
+    const int listX = gLogicalWidth / 2 - 100;
+    if (kExtraContentCount == 0) {
+        drawCentered(100, tr(Txt::ExtrasEmpty), 2, kMenuGray);
+        return;
+    }
+    // Lista (de a 9 renglones, se desplaza con la seleccion).
+    constexpr int kVisible = 9;
+    const int first = std::clamp(extraContentSelection_ - kVisible / 2, 0, std::max(0, kExtraContentCount - kVisible));
+    for (int i = first; i < std::min(kExtraContentCount, first + kVisible); ++i) {
+        const ExtraContent& item = kExtraContent[i];
+        const bool unlocked = settings_.extraUnlocked(item.id);
+        const int y = 32 + (i - first) * 14;
+        if (i == extraContentSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 12, y, false);
+        if (!unlocked) {
+            DebugFont::drawText(renderer_, listX, y, "?????", 2, kMenuGray);
+            continue;
+        }
+        DebugFont::drawText(renderer_, listX, y, isEnglish() ? item.nameEn : item.nameEs, 2, kMenuWhite);
+    }
+    // Cuadro de abajo: la condicion (bloqueado) o el estado (desbloqueado).
+    const SDL_Rect box{(gLogicalWidth - 240) / 2, 166, 240, 48};
+    SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
+    SDL_RenderFillRect(renderer_, &box);
+    SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer_, &box);
+    const ExtraContent& item = kExtraContent[extraContentSelection_];
+    if (settings_.extraUnlocked(item.id) && item.menuOption) {
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ExtrasInMenu1), 2, kMenuYellow);
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 19, tr(Txt::ExtrasInMenu2), 2, kMenuWhite);
+    } else if (settings_.extraUnlocked(item.id)) {
+        const bool on = settings_.extraEnabled(item.id);
+        drawCentered(184, tr(on ? Txt::ExtrasOn : Txt::ExtrasOff), 2, on ? kMenuYellow : kMenuGray);
+    } else {
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ExtrasLocked), 2, kMenuYellow);
+        const auto lines = wrapText(isEnglish() ? item.conditionEn : item.conditionEs, 28);
+        for (size_t l = 0; l < lines.size() && l < 2; ++l) {
+            DebugFont::drawText(renderer_, box.x + 6, box.y + 19 + static_cast<int>(l) * 12, lines[l], 2, kMenuWhite);
+        }
+    }
+    drawCentered(222, tr(Txt::ExtrasHowTo), 1, kMenuDim);
 }
 
 void Game::renderSlotPicker() {
@@ -1211,7 +1352,7 @@ void Game::renderTitle() {
             selection = titleSelection_;
         } else if (titleMenu_ == kMenuExtras) {
             ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
-            disabled = extrasDisabled(settings_.gameCompleted, true);
+            disabled = extrasDisabled(settings_);
             selection = extrasSelection_;
         } else if (titleMenu_ == kMenuPlus) {
             ids = {Txt::OnePlayer, Txt::TwoPlayers};
@@ -1327,6 +1468,7 @@ void Game::renderTitle() {
         titleCursorSprite_.draw(renderer_, 0, 0, (characterChoice_ == 0 ? marioX : luigiX) - 12, 178, false);
     }
     if (choosingSlot_) renderSlotPicker();
+    if (extraContentOpen_) renderExtraContent();
 }
 
 void Game::renderPauseMenu() {

@@ -447,6 +447,9 @@ bool Game::init() {
     // logico, y tiene que estar antes de crear la ventana.
     settings_.load();
     Mario::setWorldPalettesEnabled(settings_.playerWorldPalettes);
+    if (settings_.gameCompleted && !settings_.extraUnlocked("new_game_plus")) {
+        settings_.unlockedExtras.push_back("new_game_plus");
+    }
     gLogicalWidth = settings_.widescreen ? kWideLogicalWidth : kClassicWidth;
     setEnglish(settings_.english);
 
@@ -2294,7 +2297,8 @@ void Game::updatePipeAnim(float dt) {
         return;
     }
     if (!pipeAnim_.warp.level.empty()) {
-        // Warp zone: al principio de otro nivel ("4-1").
+        // Warp zone: al principio de otro nivel ("4-1"). Saltea niveles.
+        campaignNoSkip_ = false;
         const std::string target = pipeAnim_.warp.level;
         pipeAnim_ = PipeAnim{};
         const int world = target[0] - '0';
@@ -4031,6 +4035,9 @@ void Game::finishFinalEnding() {
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
     if (campaign_) {
+        unlockExtra("new_game_plus");
+        if (campaignNoSkip_) unlockExtra("level_editor");
+        if (campaignNoDamage_) unlockExtra("star_trick");
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;

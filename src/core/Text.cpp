@@ -92,7 +92,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"CREAR", "CREATE"},
     {"SELECCIONAR", "SELECT"},
     {"PARTIDA +", "NEW GAME +"},
-    {"OPCIONES EXTRA", "EXTRA OPTIONS"},
+    {"CONTENIDO EXTRA", "EXTRA CONTENT"},
     {"APRETA EL BOTON B", "PUSH BUTTON B"},
     {"PARA ELEGIR UN MUNDO", "TO SELECT A WORLD"},
     {"ELEGIR PARTIDA", "CHOOSE A FILE"},
@@ -103,6 +103,13 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"2 A LA VEZ", "2 TOGETHER"},
     {"2 POR TURNOS", "2 TAKING TURNS"},
     {"BORRAR", "DELETE"},
+    {"PARA DESBLOQUEARLO:", "TO UNLOCK IT:"},
+    {"ACTIVADO", "ON"},
+    {"DESACTIVADO", "OFF"},
+    {"TODAVIA NO HAY CONTENIDO", "NO CONTENT YET"},
+    {"ENTER / A: ACTIVAR    ESC / B: VOLVER", "ENTER / A: TOGGLE    ESC / B: BACK"},
+    {"DESBLOQUEADO:", "UNLOCKED:"},
+    {"YA ESTA EN EL MENU EXTRAS", "NOW IN THE EXTRAS MENU"},
     {"ESTA SEGURO QUE QUIERE", "ARE YOU SURE YOU WANT"},
     {"CERRAR EL JUEGO?", "TO QUIT THE GAME?"},
     {"SI", "YES"},
@@ -112,6 +119,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
 }  // namespace
 
 void setEnglish(bool english) { gEnglish = english; }
+bool isEnglish() { return gEnglish; }
 
 const char* tr(Txt id) {
     const Entry& entry = kTexts[static_cast<size_t>(id)];

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -26,6 +27,13 @@ struct Settings {
     bool gameCompleted = false;
     // Paleta de Mario/Luigi segun el tipo de mundo: apagada por ahora.
     bool playerWorldPalettes = false;
+    // CONTENIDO EXTRA: logros cumplidos (desbloquean su elemento) y los
+    // elementos desbloqueados que estan activados (por id, ver kExtraContent
+    // en GameMenus.cpp).
+    std::vector<std::string> unlockedExtras;
+    std::vector<std::string> enabledExtras;
+    bool extraUnlocked(const std::string& id) const;
+    bool extraEnabled(const std::string& id) const;
     // Partidas guardadas, hasta 3 espacios: se guarda al pasar cada nivel.
     // world-level: desde donde sigue CONTINUAR (world 0 = espacio vacio).
     // mode: "solo", "coop" (2 a la vez) o "turns" (2 por turnos).
@@ -35,6 +43,8 @@ struct Settings {
         std::string mode = "solo";
         bool luigi = false;
         bool secondQuest = false;
+        bool noDamage = false;   // desde el 1-1 sin recibir dano (logro)
+        bool noSkip = false;     // desde el 1-1 sin zonas de warp (logro)
     };
     static constexpr int kSaveSlots = 3;
     std::array<SaveSlot, kSaveSlots> saves{};
