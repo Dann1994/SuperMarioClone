@@ -38,12 +38,19 @@ bool Settings::load() {
     playerCollision = json.value("player_collision", playerCollision);
     topScore = json.value("top_score", topScore);
     gameCompleted = json.value("game_completed", gameCompleted);
-    if (json.contains("save") && json["save"].is_object()) {
-        const auto& save = json["save"];
-        saveWorld = std::clamp(save.value("world", 0), 0, 8);
-        saveMode = save.value("mode", std::string("solo"));
-        saveLuigi = save.value("luigi", false);
-        saveSecondQuest = save.value("second_quest", false);
+    const auto readSlot = [](const nlohmann::json& entry) {
+        SaveSlot slot;
+        if (!entry.is_object()) return slot;
+        slot.world = std::clamp(entry.value("world", 0), 0, 8);
+        slot.mode = entry.value("mode", std::string("solo"));
+        slot.luigi = entry.value("luigi", false);
+        slot.secondQuest = entry.value("second_quest", false);
+        return slot;
+    };
+    if (json.contains("saves") && json["saves"].is_array()) {
+        for (size_t i = 0; i < saves.size() && i < json["saves"].size(); ++i) saves[i] = readSlot(json["saves"][i]);
+    } else if (json.contains("save")) {
+        saves[0] = readSlot(json["save"]);   // la version de un solo espacio
     }
     if (json.contains("keys")) {
         try {
@@ -61,6 +68,15 @@ bool Settings::load() {
     return true;
 }
 
+nlohmann::json Settings::savesJson() const {
+    nlohmann::json list = nlohmann::json::array();
+    for (const SaveSlot& slot : saves) {
+        list.push_back({{"world", slot.world}, {"mode", slot.mode}, {"luigi", slot.luigi},
+                        {"second_quest", slot.secondQuest}});
+    }
+    return list;
+}
+
 bool Settings::save() const {
     nlohmann::json json{
         {"fullscreen", fullscreen},
@@ -75,7 +91,7 @@ bool Settings::save() const {
         {"player_collision", playerCollision},
         {"top_score", topScore},
         {"game_completed", gameCompleted},
-        {"save", {{"world", saveWorld}, {"mode", saveMode}, {"luigi", saveLuigi}, {"second_quest", saveSecondQuest}}},
+        {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},
         {"pad_run_button", padRunButton},

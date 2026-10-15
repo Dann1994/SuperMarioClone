@@ -3,6 +3,8 @@
 #include <SDL.h>
 
 #include <array>
+#include <memory>
+#include <functional>
 #include <vector>
 #include <string>
 
@@ -255,8 +257,14 @@ enum class AppState {
 // Caja de choque enemigo-jugador del original (ver originalEnemyBox en Game.cpp).
 enum class EnemyBox { Normal, Small, HammerBro };
 
+class LevelEditor;
+
 class Game {
 public:
+    // Definidos en Game.cpp (editor_ es un unique_ptr de un tipo que aca
+    // solo esta declarado).
+    Game();
+    ~Game();
     bool init();
     // Arranca directo en este archivo de nivel (--level, ver main.cpp) en
     // vez de en el selector. Llamar antes de run().
@@ -845,8 +853,16 @@ private:
     int mainSelection_ = 0;       // menu principal
     int extrasSelection_ = 0;     // submenu EXTRAS
     int editorSelection_ = 0;     // submenu EDITOR DE NIVELES
+    int plusSelection_ = 0;       // submenu PARTIDA + (1 o 2 jugadores)
     int titleMenu_ = 0;           // 0 principal, 1 JUGAR, 2 EXTRAS, 3 EDITOR DE NIVELES
-    bool editorLaunched_ = false; // el editor abierto desde el menu (ventana minimizada)
+    // Editor de niveles dentro del juego (solo los niveles del jugador, en
+    // la carpeta de datos del usuario): se crea la primera vez y queda vivo
+    // para volver a el despues de PROBAR.
+    std::unique_ptr<LevelEditor> editor_;
+    bool editorReturn_ = false;   // probando un nivel del editor: al salir vuelve a el
+    enum class EditorEntry { Resume, New, Pick };
+    // true si arranco la prueba de un nivel (ya no esta en el titulo).
+    bool enterEditor(EditorEntry entry);
     bool confirmingQuit_ = false; // cartel "esta seguro que quiere cerrar el juego?"
     int quitChoice_ = 1;          // 0 SI, 1 NO
     int pauseSelection_ = 0;
@@ -1348,6 +1364,24 @@ private:
     // Desde que mundo sigue CONTINUAR: el GAME OVER de esta sesion o la
     // partida guardada en settings.json (0 = nada).
     int continueWorld() const;
+    // Espacios de guardado: la pantalla para elegir uno (para una partida
+    // nueva o para CONTINUAR), con la vista previa del nivel donde sigue.
+    bool choosingSlot_ = false;
+    bool slotForContinue_ = false;
+    int slotChoice_ = 0;
+    bool confirmingOverwrite_ = false;
+    int overwriteChoice_ = 1;            // 0 SI, 1 NO
+    std::function<void()> pendingStart_; // la partida que arranca al elegir espacio
+    int currentSlot_ = -1;               // donde se guarda la partida en curso (-1: no se guarda)
+    bool worldSelectFlow_ = false;       // ELEGIR MUNDO: no usa espacio
+    std::array<SDL_Texture*, Settings::kSaveSlots> slotPreviews_{};
+    bool anySaveSlot() const;
+    void askSlotThen(std::function<void()> start);
+    void openContinueSlots();
+    void refreshSlotPreviews();
+    SDL_Texture* renderLevelPreview(const std::string& path);
+    void writeCurrentSlot(int world);
+    void renderSlotPicker();
     // 2 jugadores por turnos (el modo del original): un solo personaje en
     // pantalla; al morir pasa el turno al otro (si le quedan vidas), cada uno
     // con sus vidas, puntaje, monedas, nivel, checkpoint, tamano y su 1-UP

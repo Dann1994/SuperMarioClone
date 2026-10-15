@@ -32,7 +32,24 @@
 // que se ve aca es lo que se ve jugando.
 class LevelEditor {
 public:
+    // Herramienta aparte (mario_editor.exe): su ventana, todos los niveles.
     bool init();
+    // Dentro del juego (EXTRAS > EDITOR DE NIVELES): usa la ventana y el
+    // renderer del juego y SOLO ve y guarda los niveles del jugador
+    // (userLevelsDir); los predefinidos (levels/ del juego) no se tocan.
+    bool initEmbedded(SDL_Window* window, SDL_Renderer* renderer, const std::string& userLevelsDir);
+    struct EmbeddedResult {
+        enum class Kind { Back, Play } kind = Kind::Back;
+        std::string path;   // Play: el nivel a probar
+        int startCol = -1;  // Play: -1 desde el inicio
+    };
+    // Corre el editor hasta salir (Back) o apretar PROBAR (Play: el juego
+    // lo prueba y despues vuelve con runEmbedded()).
+    EmbeddedResult runEmbedded();
+    // Nivel nuevo vacio (CREAR).
+    void startNew();
+    // Libera lo propio sin cerrar la ventana ni el renderer del juego.
+    void shutdownEmbedded();
     // Abre este archivo al arrancar (si no, arranca con un nivel nuevo).
     void openFile(const std::string& path);
     // Arranca con la lista de niveles para elegir cual editar.
@@ -201,6 +218,10 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     bool running_ = false;
+    bool initResources();
+    bool embedded_ = false;          // dentro del juego (ver initEmbedded)
+    bool playRequested_ = false;
+    int playStartCol_ = -1;
 
     std::vector<std::string> rows_;
     nlohmann::json meta_;

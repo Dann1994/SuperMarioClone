@@ -3,6 +3,8 @@
 #include <array>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 // Configuracion del jugador (seccion 10.2 de la especificacion), guardada
 // en settings.json dentro de la carpeta de datos del usuario
 // (SDL_GetPrefPath, en Windows %APPDATA%\SuperMarioClone\SuperMarioClone):
@@ -22,14 +24,18 @@ struct Settings {
     int topScore = 0;
     // Se termino el juego (el 8-4) al menos una vez: desbloquea EXTRAS.
     bool gameCompleted = false;
-    // Partida guardada (seccion 6 de la especificacion: se guarda al
-    // completar un mundo entero): CONTINUAR arranca en el primer nivel de
-    // saveWorld (0 = no hay). saveMode: "solo", "coop" (2 a la vez) o
-    // "turns" (2 por turnos).
-    int saveWorld = 0;
-    std::string saveMode = "solo";
-    bool saveLuigi = false;
-    bool saveSecondQuest = false;
+    // Partidas guardadas (seccion 6 de la especificacion: se guarda al
+    // completar un mundo entero), hasta 3 espacios. world: el mundo desde
+    // el que sigue CONTINUAR (0 = espacio vacio). mode: "solo", "coop" (2 a
+    // la vez) o "turns" (2 por turnos).
+    struct SaveSlot {
+        int world = 0;
+        std::string mode = "solo";
+        bool luigi = false;
+        bool secondQuest = false;
+    };
+    static constexpr int kSaveSlots = 3;
+    std::array<SaveSlot, kSaveSlots> saves{};
 
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);
     // -1 = la de fabrica. Botones del mando para saltar y correr (los dos
@@ -40,4 +46,5 @@ struct Settings {
 
     bool load();
     bool save() const;
+    nlohmann::json savesJson() const;
 };

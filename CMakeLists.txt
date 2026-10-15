@@ -15,8 +15,10 @@ find_package(SDL2_ttf REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
 file(GLOB_RECURSE MARIO_SOURCES CONFIGURE_DEPENDS src/*.cpp)
-# El editor de niveles es un ejecutable aparte (ver mas abajo).
-list(FILTER MARIO_SOURCES EXCLUDE REGEX ".*/src/editor/.*")
+# El editor de niveles va tambien adentro del juego (EXTRAS > EDITOR DE
+# NIVELES, solo con los niveles del jugador); su main es el del ejecutable
+# aparte (ver mas abajo), que edita todos.
+list(FILTER MARIO_SOURCES EXCLUDE REGEX ".*/src/editor/editor_main\\.cpp")
 
 add_executable(mario WIN32 ${MARIO_SOURCES})
 

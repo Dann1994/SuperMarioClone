@@ -1,6 +1,6 @@
 #include "Game.h"
 
-#include "EditorLauncher.h"
+#include "../editor/LevelEditor.h"
 #include "../entities/Difficulty.h"
 
 #include <SDL_image.h>
@@ -2967,12 +2967,6 @@ bool Game::isAreaFree(float x, float y, int width, int height) const {
 }
 
 void Game::update(float dt) {
-    // Se cerro el editor abierto desde el menu: el juego vuelve a la vista.
-    if (editorLaunched_ && !EditorLauncher::running()) {
-        editorLaunched_ = false;
-        SDL_RestoreWindow(window_);
-        SDL_RaiseWindow(window_);
-    }
     if (appState_ == AppState::Title) return;
     if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
         appStateTimer_ -= dt;
@@ -2989,6 +2983,10 @@ void Game::update(float dt) {
             // habilitado (desde el primer nivel de ese mundo, como el
             // original); fuera de la partida, el escenario de cero.
             if (turnMode_ && passTurn()) return;
+            if (editorReturn_) {
+                openTitle();
+                return;
+            }
             if (campaign_) {
                 continueWorld_ = turnMode_ ? 0 : campaignWorld_;
                 continueTwoPlayers_ = twoPlayerMode_;
@@ -3929,7 +3927,18 @@ bool Game::loadLuigiSprites() {
     return true;
 }
 
+Game::Game() = default;
+Game::~Game() = default;
+
 void Game::shutdown() {
+    if (editor_) {
+        editor_->shutdownEmbedded();
+        editor_.reset();
+    }
+    for (SDL_Texture*& preview : slotPreviews_) {
+        if (preview) SDL_DestroyTexture(preview);
+        preview = nullptr;
+    }
     if (worldTarget_) SDL_DestroyTexture(worldTarget_);
     audio_.shutdown();  // antes de SDL_Quit() -- ver el comentario en SoundManager.h
     SpriteSheet::rendererDestroyed();
@@ -3993,7 +4002,8 @@ void Game::finishFinalEnding() {
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
     if (campaign_) {
         settings_.gameCompleted = true;
-        settings_.saveWorld = 0;   // la partida termino: no queda nada para continuar
+        // La partida termino: su espacio queda libre.
+        if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
         settings_.save();
     }
     audio_.stopMusic();
@@ -5198,6 +5208,52 @@ const SpriteSheet& Game::pipeSidePieces() const {
            : worldType_ == WorldType::Castle      ? pipeSideSlices_[4]
            : worldType_ == WorldType::Underground ? pipeSideSlices_[3]
                                                   : pipeSideSlices_[0];
+}
+
+SDL_Texture* Game::renderLevelPreview(const std::string& path) {
+    // La primera pantalla del nivel (fondo, decorados, terreno, caños y
+    // bloques), dibujada a una textura de 256 x el alto del nivel.
+    Tilemap map;
+    if (!map.loadFromFile(path)) return nullptr;
+    SDL_Texture* texture =
+        SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 256, map.heightPixels());
+    if (!texture) return nullptr;
+    SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
+    SDL_Texture* previous = SDL_GetRenderTarget(renderer_);
+    SDL_SetRenderTarget(renderer_, texture);
+    const LevelArea* area = map.areas().empty() ? nullptr : &map.areas().front();
+    const std::string palette = area ? area->palette : std::string();
+    const bool gray = palette == "gray";
+    const bool snow = palette == "snow" || palette == "night_snow";
+    const WorldType levelWorld = parseWorldType(map.world(), WorldType::Overworld);
+    const WorldType world = gray ? WorldType::Castle : area ? parseWorldType(area->world, levelWorld) : levelWorld;
+    const int row = static_cast<int>(world);
+    const SDL_Color bg = (palette == "night" || palette == "night_snow" || gray) ? SDL_Color{0, 0, 0, 255}
+                                                                               : backgroundColorFor(world);
+    SDL_SetRenderDrawColor(renderer_, bg.r, bg.g, bg.b, 255);
+    SDL_RenderClear(renderer_);
+    const int ts = map.tileSize();
+    for (const LevelDecoration& decoration : map.decorations()) {
+        for (int i = 0; i < kDecorationCount; ++i) {
+            if (decoration.type != kDecorations[i].type || decoration.type == "pipe_side") continue;
+            if (decoration.col * ts > 256) break;
+            const bool cloud = decoration.type.rfind("cloud", 0) == 0;
+            const bool castle = decoration.type.rfind("castle", 0) == 0;
+            const SpriteSheet& sheet = (gray && !cloud)              ? decorationGraySprites_[i]
+                                       : (snow && !cloud && !castle) ? decorationSnowSprites_[i]
+                                                                     : decorationSprites_[i];
+            sheet.draw(renderer_, 0, 0, decoration.col * ts, decoration.row * ts, false);
+            break;
+        }
+    }
+    map.renderTerrain(renderer_, bg, gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : row, 256, 0.0f, false);
+    map.renderScenery(renderer_, gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_,
+                      gray ? 0 : row, 256, 0.0f, snow && !gray ? &sceneryTilesSprite_ : nullptr);
+    map.renderPipes(renderer_, snow ? pipeSnowSprite_ : palette == "mushroom" ? pipeMushroomSprite_ : pipeSprite_, row,
+                    0.0f);
+    map.renderBlocks(renderer_, brickBlockSprite_, row, 0.0f, {}, &questionBlockSprite_, 0, &coinSprite_, 0);
+    SDL_SetRenderTarget(renderer_, previous);
+    return texture;
 }
 
 void Game::renderDecorations(bool front) {

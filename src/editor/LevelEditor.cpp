@@ -164,7 +164,74 @@ bool LevelEditor::init() {
     if (!renderer_) return false;
     SDL_RenderSetLogicalSize(renderer_, kWidth, kHeight);
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    if (!initResources()) return false;
+    levelsDir_ = std::string(MARIO_SOURCE_DIR) + "/levels";
+    newLevel();
+    running_ = true;
+    return true;
+}
 
+bool LevelEditor::initEmbedded(SDL_Window* window, SDL_Renderer* renderer, const std::string& userLevelsDir) {
+    window_ = window;
+    renderer_ = renderer;
+    embedded_ = true;
+    if (!initResources()) return false;
+    levelsDir_ = userLevelsDir;
+    try {
+        fs::create_directories(levelsDir_);
+    } catch (const std::exception&) {
+    }
+    newLevel();
+    return true;
+}
+
+void LevelEditor::startNew() {
+    newLevel();
+    undoStack_.clear();
+    mode_ = Mode::Edit;
+}
+
+LevelEditor::EmbeddedResult LevelEditor::runEmbedded() {
+    // La vista del editor (640x360) sobre la ventana del juego; al salir se
+    // devuelve la del juego como estaba.
+    int gameW = 0;
+    int gameH = 0;
+    SDL_RenderGetLogicalSize(renderer_, &gameW, &gameH);
+    const int cursorShown = SDL_ShowCursor(SDL_QUERY);
+    SDL_RenderSetLogicalSize(renderer_, kWidth, kHeight);
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    SDL_ShowCursor(SDL_ENABLE);
+    running_ = true;
+    playRequested_ = false;
+    while (running_ && !playRequested_) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) handleEvent(event);
+        render();
+    }
+    SDL_RenderSetClipRect(renderer_, nullptr);
+    SDL_RenderSetLogicalSize(renderer_, gameW, gameH);
+    SDL_ShowCursor(cursorShown);
+    if (arrowCursor_) SDL_SetCursor(arrowCursor_);
+    EmbeddedResult result;
+    if (playRequested_) {
+        result.kind = EmbeddedResult::Kind::Play;
+        result.path = path_;
+        result.startCol = playStartCol_;
+    }
+    playRequested_ = false;
+    return result;
+}
+
+void LevelEditor::shutdownEmbedded() {
+    if (previewTexture_) SDL_DestroyTexture(previewTexture_);
+    previewTexture_ = nullptr;
+    for (SDL_Cursor* cursor : {arrowCursor_, handCursor_, moveCursor_, resizeVCursor_, resizeHCursor_}) {
+        if (cursor) SDL_FreeCursor(cursor);
+    }
+    arrowCursor_ = handCursor_ = moveCursor_ = resizeVCursor_ = resizeHCursor_ = nullptr;
+}
+
+bool LevelEditor::initResources() {
     const std::string dir = "assets/sprites/";
     bool ok = terrainSprite_.loadFromFile(renderer_, dir + "terrain.png", 16, 16) &&
               brickSprite_.loadFromFile(renderer_, dir + "brick_block.png", 16, 16) &&
@@ -285,10 +352,6 @@ bool LevelEditor::init() {
     moveCursor_ = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEALL);
     resizeVCursor_ = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENS);
     resizeHCursor_ = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
-
-    levelsDir_ = std::string(MARIO_SOURCE_DIR) + "/levels";
-    newLevel();
-    running_ = true;
     return true;
 }
 
@@ -369,6 +432,10 @@ bool LevelEditor::loadLevel(const std::string& path) {
 }
 
 std::string LevelEditor::defaultPathForName() const {
+    if (embedded_) {
+        // Los niveles del jugador, todos en su carpeta.
+        return levelsDir_ + "/" + meta_.value("name", std::string("NUEVO")) + ".json";
+    }
     // "1-2" -> levels/world1/1-2.json; sin numero de mundo -> levels/custom/.
     const std::string name = meta_.value("name", std::string("NUEVO"));
     const size_t dash = name.find('-');
@@ -388,7 +455,7 @@ bool LevelEditor::saveLevel() {
     }
     // Marca de "editado a mano": rom_build.py no lo vuelve a generar (salvo
     // con --force), asi los arreglos hechos aca no se pierden.
-    meta_["edited"] = true;
+    if (!embedded_) meta_["edited"] = true;
     const std::string text = buildJson().dump(2) + "\n";
     {
         std::ofstream file(path_);
@@ -402,6 +469,11 @@ bool LevelEditor::saveLevel() {
     // pone ahi el build): se actualiza tambien, asi el cambio se ve jugando
     // sin recompilar.
     bool copied = false;
+    if (embedded_) {
+        dirty_ = false;
+        showMessage("GUARDADO", 1500);
+        return true;
+    }
     try {
         const fs::path source = fs::weakly_canonical(fs::path(path_));
         const fs::path levels = fs::weakly_canonical(fs::path(levelsDir_));
@@ -1284,6 +1356,11 @@ void LevelEditor::resetLevel() {
 
 void LevelEditor::playTest(bool fromView) {
     if (!saveLevel()) return;
+    if (embedded_) {
+        playRequested_ = true;
+        playStartCol_ = fromView ? static_cast<int>(cameraX_) / kTile + 2 : -1;
+        return;
+    }
 #ifdef _WIN32
     // mario.exe esta en la misma carpeta que el editor (build/), con los
     // assets copiados al lado: se lanza ahi como directorio de trabajo.

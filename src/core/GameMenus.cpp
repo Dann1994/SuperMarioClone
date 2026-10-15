@@ -10,8 +10,8 @@
 #include <filesystem>
 
 #include "../render/DebugFont.h"
-#include "EditorLauncher.h"
 #include "Game.h"
+#include "../editor/LevelEditor.h"
 
 #include "../entities/Difficulty.h"
 
@@ -43,7 +43,7 @@ std::vector<bool> extrasDisabled(bool completed, bool editorAvailable) {
 // Submenu EDITOR DE NIVELES.
 enum EditorItem { kEditorCreate, kEditorSelect, kEditorCount };
 // Que menu del titulo se ve (titleMenu_).
-enum TitleMenu { kMenuMain, kMenuPlay, kMenuExtras, kMenuEditor };
+enum TitleMenu { kMenuMain, kMenuPlay, kMenuExtras, kMenuEditor, kMenuPlus };
 // Opciones del menu de pausa.
 enum PauseItem { kPauseResume, kPauseRestart, kPauseOptions, kPauseQuit, kPauseCount };
 // Opciones del menu de configuracion.
@@ -93,12 +93,46 @@ void Game::saveTopScore() {
     settings_.save();
 }
 
+bool Game::enterEditor(EditorEntry entry) {
+    if (!editor_) {
+        editor_ = std::make_unique<LevelEditor>();
+        char* base = SDL_GetPrefPath("SuperMarioClone", "SuperMarioClone");
+        const std::string dir = base ? std::string(base) + "levels" : std::string("user_levels");
+        SDL_free(base);
+        if (!editor_->initEmbedded(window_, renderer_, dir)) {
+            editor_.reset();
+            audio_.play(Sfx::Bump);
+            return false;
+        }
+    }
+    if (entry == EditorEntry::New) editor_->startNew();
+    if (entry == EditorEntry::Pick) editor_->openPicker();
+    audio_.stopMusic();
+    const LevelEditor::EmbeddedResult result = editor_->runEmbedded();
+    input1_.clearPresses();
+    input2_.clearPresses();
+    if (result.kind != LevelEditor::EmbeddedResult::Kind::Play) return false;
+    // PROBAR: se juega el nivel y al salir (o perder) se vuelve al editor.
+    editorReturn_ = true;
+    campaign_ = false;
+    currentSlot_ = -1;
+    startWithLevelFile(result.path, result.startCol, -1);
+    return true;
+}
+
 void Game::openTitle() {
+    if (editorReturn_) {
+        editorReturn_ = false;
+        if (enterEditor(EditorEntry::Resume)) return;
+    }
     saveTopScore();
     choosingCharacter_ = false;
     choosingLevel_ = false;
     choosingTwoMode_ = false;
     confirmingQuit_ = false;
+    choosingSlot_ = false;
+    confirmingOverwrite_ = false;
+    worldSelectFlow_ = false;
     titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
@@ -251,11 +285,120 @@ std::vector<bool> titleDisabled(bool canContinue) {
 }  // namespace
 
 int Game::continueWorld() const {
-    // El GAME OVER de esta sesion manda; si no, la partida guardada.
-    return continueWorld_ > 0 ? continueWorld_ : settings_.saveWorld;
+    // Solo el GAME OVER de esta sesion (las guardadas se eligen de a una).
+    return continueWorld_;
+}
+
+bool Game::anySaveSlot() const {
+    for (const Settings::SaveSlot& slot : settings_.saves) {
+        if (slot.world > 0) return true;
+    }
+    return false;
+}
+
+void Game::askSlotThen(std::function<void()> start) {
+    // Partida nueva: en que espacio se guarda (arranca en el primero vacio).
+    pendingStart_ = std::move(start);
+    choosingSlot_ = true;
+    slotForContinue_ = false;
+    confirmingOverwrite_ = false;
+    slotChoice_ = 0;
+    for (int i = 0; i < Settings::kSaveSlots; ++i) {
+        if (settings_.saves[static_cast<size_t>(i)].world == 0) {
+            slotChoice_ = i;
+            break;
+        }
+    }
+    refreshSlotPreviews();
+}
+
+void Game::openContinueSlots() {
+    choosingSlot_ = true;
+    slotForContinue_ = true;
+    confirmingOverwrite_ = false;
+    slotChoice_ = 0;
+    for (int i = 0; i < Settings::kSaveSlots; ++i) {
+        if (settings_.saves[static_cast<size_t>(i)].world > 0) {
+            slotChoice_ = i;
+            break;
+        }
+    }
+    refreshSlotPreviews();
+}
+
+void Game::writeCurrentSlot(int world) {
+    if (currentSlot_ < 0 || currentSlot_ >= Settings::kSaveSlots) return;
+    Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
+    slot.world = world;
+    slot.mode = turnMode_ ? "turns" : twoPlayerMode_ ? "coop" : "solo";
+    slot.luigi = playAsLuigi_;
+    slot.secondQuest = secondQuestNext_;
+    settings_.save();
 }
 
 void Game::handleTitleInput(MenuInput input) {
+    if (confirmingOverwrite_) {
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            overwriteChoice_ = 1 - overwriteChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm && overwriteChoice_ == 0) {
+            confirmingOverwrite_ = false;
+            choosingSlot_ = false;
+            audio_.play(Sfx::Coin);
+            currentSlot_ = slotChoice_;
+            if (pendingStart_) pendingStart_();
+            writeCurrentSlot(startWorld_);
+        } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
+            confirmingOverwrite_ = false;
+            audio_.play(Sfx::Bump);
+        }
+        return;
+    }
+    if (choosingSlot_) {
+        const auto filled = [&](int i) { return settings_.saves[static_cast<size_t>(i)].world > 0; };
+        if (input == MenuInput::Up || input == MenuInput::Down) {
+            // Para CONTINUAR, solo los espacios con partida.
+            const int delta = input == MenuInput::Up ? -1 : 1;
+            int next = slotChoice_;
+            for (int i = 0; i < Settings::kSaveSlots; ++i) {
+                next = (next + delta + Settings::kSaveSlots) % Settings::kSaveSlots;
+                if (!slotForContinue_ || filled(next)) break;
+            }
+            slotChoice_ = next;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Back) {
+            choosingSlot_ = false;
+            audio_.play(Sfx::Bump);
+        } else if (input == MenuInput::Confirm) {
+            if (slotForContinue_) {
+                if (!filled(slotChoice_)) return;
+                const Settings::SaveSlot slot = settings_.saves[static_cast<size_t>(slotChoice_)];
+                choosingSlot_ = false;
+                audio_.play(Sfx::Coin);
+                currentSlot_ = slotChoice_;
+                startWorld_ = slot.world;
+                startLevel_ = 1;
+                secondQuestNext_ = slot.secondQuest;
+                if (slot.mode == "turns") {
+                    startTurnCampaign();
+                } else {
+                    startCampaign(slot.mode == "coop", slot.luigi);
+                }
+            } else if (filled(slotChoice_)) {
+                confirmingOverwrite_ = true;   // ya tiene una partida: preguntar
+                overwriteChoice_ = 1;
+                audio_.play(Sfx::TimeTally);
+            } else {
+                choosingSlot_ = false;
+                audio_.play(Sfx::Coin);
+                currentSlot_ = slotChoice_;
+                if (pendingStart_) pendingStart_();
+                writeCurrentSlot(startWorld_);
+            }
+        }
+        return;
+    }
     if (confirmingQuit_) {
         // "Esta seguro que quiere cerrar el juego?": SI / NO (arranca en NO).
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
@@ -284,11 +427,14 @@ void Game::handleTitleInput(MenuInput input) {
         } else if (input == MenuInput::Confirm) {
             choosingTwoMode_ = false;
             audio_.play(Sfx::Coin);
-            if (twoModeChoice_ == 0) {
-                startCampaign(true);
-            } else {
-                startTurnCampaign();
-            }
+            const bool together = twoModeChoice_ == 0;
+            askSlotThen([this, together] {
+                if (together) {
+                    startCampaign(true);
+                } else {
+                    startTurnCampaign();
+                }
+            });
         } else if (input == MenuInput::Back) {
             choosingTwoMode_ = false;
         }
@@ -310,6 +456,7 @@ void Game::handleTitleInput(MenuInput input) {
             audio_.play(Sfx::TimeTally);
         } else if (input == MenuInput::Confirm) {
             choosingLevel_ = false;
+            worldSelectFlow_ = true;
             choosingCharacter_ = true;
             characterChoice_ = playAsLuigi_ ? 1 : 0;
             audio_.play(Sfx::Coin);
@@ -327,16 +474,27 @@ void Game::handleTitleInput(MenuInput input) {
         } else if (input == MenuInput::Confirm) {
             choosingCharacter_ = false;
             audio_.play(Sfx::Coin);
-            startCampaign(false, characterChoice_ == 1);
+            const bool luigi = characterChoice_ == 1;
+            if (worldSelectFlow_) {
+                // ELEGIR MUNDO: para probar, no se guarda en ningun espacio.
+                worldSelectFlow_ = false;
+                currentSlot_ = -1;
+                startCampaign(false, luigi);
+            } else {
+                askSlotThen([this, luigi] { startCampaign(false, luigi); });
+            }
         } else if (input == MenuInput::Back) {
             choosingCharacter_ = false;
+            worldSelectFlow_ = false;
         }
         return;
     }
     // Atras: al menu de arriba (en el principal no hace nada).
     if (input == MenuInput::Back) {
         if (titleMenu_ == kMenuMain) return;
-        titleMenu_ = titleMenu_ == kMenuEditor ? kMenuExtras : titleMenu_ == kMenuExtras ? kMenuPlay : kMenuMain;
+        titleMenu_ = (titleMenu_ == kMenuEditor || titleMenu_ == kMenuPlus) ? kMenuExtras
+                     : titleMenu_ == kMenuExtras                            ? kMenuPlay
+                                                                            : kMenuMain;
         audio_.play(Sfx::Bump);
         return;
     }
@@ -368,12 +526,12 @@ void Game::handleTitleInput(MenuInput input) {
         // EXTRAS: ELEGIR MUNDO, EDITOR DE NIVELES (gris si no hay editor).
         if (input == MenuInput::Up || input == MenuInput::Down) {
             extrasSelection_ = stepSelection(extrasSelection_, input == MenuInput::Up ? -1 : 1, kExtrasCount,
-                                             extrasDisabled(settings_.gameCompleted, EditorLauncher::available()));
+                                             extrasDisabled(settings_.gameCompleted, true));
             audio_.play(Sfx::TimeTally);
             return;
         }
         if (input != MenuInput::Confirm) return;
-        if (extrasDisabled(settings_.gameCompleted, EditorLauncher::available())[extrasSelection_]) return;
+        if (extrasDisabled(settings_.gameCompleted, true)[extrasSelection_]) return;
         audio_.play(Sfx::Coin);
         switch (extrasSelection_) {
             case kExtrasWorldSelect:
@@ -381,18 +539,36 @@ void Game::handleTitleInput(MenuInput input) {
                 choosingLevel_ = true;
                 break;
             case kExtrasNewGamePlus:
-                // La segunda vuelta del original: los niveles mas dificiles.
-                secondQuestNext_ = true;
-                startWorld_ = 1;
-                startLevel_ = 1;
-                choosingCharacter_ = true;
-                characterChoice_ = playAsLuigi_ ? 1 : 0;
+                // La segunda vuelta del original (los niveles mas dificiles):
+                // 1 o 2 jugadores.
+                titleMenu_ = kMenuPlus;
+                plusSelection_ = 0;
                 break;
             case kExtrasEditor:
                 titleMenu_ = kMenuEditor;
                 editorSelection_ = kEditorCreate;
                 break;
             default: break;
+        }
+        return;
+    }
+    if (titleMenu_ == kMenuPlus) {
+        if (input == MenuInput::Up || input == MenuInput::Down) {
+            plusSelection_ = 1 - plusSelection_;
+            audio_.play(Sfx::TimeTally);
+            return;
+        }
+        if (input != MenuInput::Confirm) return;
+        audio_.play(Sfx::Coin);
+        secondQuestNext_ = true;
+        startWorld_ = 1;
+        startLevel_ = 1;
+        if (plusSelection_ == 0) {
+            choosingCharacter_ = true;
+            characterChoice_ = playAsLuigi_ ? 1 : 0;
+        } else {
+            choosingTwoMode_ = true;
+            twoModeChoice_ = 0;
         }
         return;
     }
@@ -404,20 +580,14 @@ void Game::handleTitleInput(MenuInput input) {
             return;
         }
         if (input != MenuInput::Confirm) return;
-        if (EditorLauncher::launch(editorSelection_ == kEditorSelect)) {
-            audio_.play(Sfx::Coin);
-            // El juego se minimiza mientras se edita y vuelve al cerrar el editor.
-            editorLaunched_ = true;
-            SDL_MinimizeWindow(window_);
-        } else {
-            audio_.play(Sfx::Bump);
-        }
+        audio_.play(Sfx::Coin);
+        enterEditor(editorSelection_ == kEditorSelect ? EditorEntry::Pick : EditorEntry::New);
         return;
     }
     // Submenu JUGAR.
     if (input == MenuInput::Up || input == MenuInput::Down) {
         titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount,
-                                        titleDisabled(continueWorld() > 0));
+                                        titleDisabled(continueWorld() > 0 || anySaveSlot()));
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -439,21 +609,13 @@ void Game::handleTitleInput(MenuInput input) {
             twoModeChoice_ = 0;
             break;
         case kTitleContinue:
-            if (continueWorld() <= 0) break;
             startLevel_ = 1;
             if (continueWorld_ > 0) {
-                // Despues de un GAME OVER en esta sesion.
+                // Despues de un GAME OVER en esta sesion (sigue en el mismo espacio).
                 startWorld_ = continueWorld_;
                 startCampaign(continueTwoPlayers_, continueAsLuigi_);
-            } else {
-                // La partida guardada (al completar un mundo).
-                startWorld_ = settings_.saveWorld;
-                secondQuestNext_ = settings_.saveSecondQuest;
-                if (settings_.saveMode == "turns") {
-                    startTurnCampaign();
-                } else {
-                    startCampaign(settings_.saveMode == "coop", settings_.saveLuigi);
-                }
+            } else if (anySaveSlot()) {
+                openContinueSlots();
             }
             break;
         case kTitleExtras:
@@ -797,19 +959,13 @@ void Game::onLevelCleared() {
     // Termino el castillo de un mundo (x-4): se guarda la partida para
     // seguir desde el mundo siguiente (CONTINUAR, tambien despues de cerrar
     // el juego).
-    if (level == 1 && std::filesystem::exists(next)) {
-        settings_.saveWorld = world;
-        settings_.saveMode = turnMode_ ? "turns" : twoPlayerMode_ ? "coop" : "solo";
-        settings_.saveLuigi = playAsLuigi_;
-        settings_.saveSecondQuest = secondQuestNext_;
-        settings_.save();
-    }
+    if (level == 1 && std::filesystem::exists(next)) writeCurrentSlot(world);
     if (!std::filesystem::exists(next)) {
         // Despues del 8-4 (WorldSelectEnableFlag del original): queda
         // desbloqueado lo de EXTRAS (PARTIDA + es la segunda vuelta).
         if (campaignWorld_ >= 8) {
             settings_.gameCompleted = true;
-            settings_.saveWorld = 0;
+            if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();
         }
         appState_ = AppState::DemoEnd;
@@ -874,6 +1030,77 @@ void Game::renderFpsCorner() {
                         kMenuWhite);
 }
 
+void Game::refreshSlotPreviews() {
+    for (size_t i = 0; i < slotPreviews_.size(); ++i) {
+        if (slotPreviews_[i]) SDL_DestroyTexture(slotPreviews_[i]);
+        slotPreviews_[i] = nullptr;
+        const int world = settings_.saves[i].world;
+        if (world > 0) slotPreviews_[i] = renderLevelPreview(campaignLevelPath(world, 1));
+    }
+}
+
+void Game::renderSlotPicker() {
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 240);
+    SDL_RenderFillRect(renderer_, nullptr);
+    drawCentered(12, tr(Txt::ChooseSlot), 2, kMenuWhite);
+    const int boxW = 240;
+    const int boxX = (gLogicalWidth - boxW) / 2;
+    for (int i = 0; i < Settings::kSaveSlots; ++i) {
+        const Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(i)];
+        const int y = 32 + i * 68;
+        const SDL_Rect box{boxX, y, boxW, 62};
+        const bool selected = i == slotChoice_;
+        const bool usable = !slotForContinue_ || slot.world > 0;
+        SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
+        SDL_RenderFillRect(renderer_, &box);
+        const SDL_Color border = selected ? kMenuYellow : SDL_Color{90, 90, 110, 255};
+        SDL_SetRenderDrawColor(renderer_, border.r, border.g, border.b, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        // Vista previa: la franja de abajo de la primera pantalla (piso).
+        const SDL_Rect thumb{boxX + 4, y + 4, 96, 54};
+        if (slotPreviews_[static_cast<size_t>(i)]) {
+            int previewH = 0;
+            SDL_QueryTexture(slotPreviews_[static_cast<size_t>(i)], nullptr, nullptr, nullptr, &previewH);
+            const SDL_Rect source{0, std::max(0, previewH - 144), 256, std::min(144, previewH)};
+            SDL_RenderCopy(renderer_, slotPreviews_[static_cast<size_t>(i)], &source, &thumb);
+        } else {
+            SDL_SetRenderDrawColor(renderer_, 40, 40, 60, 255);
+            SDL_RenderFillRect(renderer_, &thumb);
+        }
+        SDL_SetRenderDrawColor(renderer_, 90, 90, 110, 255);
+        SDL_RenderDrawRect(renderer_, &thumb);
+        const SDL_Color text = usable ? kMenuWhite : kMenuGray;
+        const int tx = boxX + 108;
+        DebugFont::drawText(renderer_, tx, y + 6, std::string(tr(Txt::SlotLabel)) + " " + std::to_string(i + 1), 2,
+                            selected ? kMenuYellow : text);
+        if (slot.world <= 0) {
+            DebugFont::drawText(renderer_, tx, y + 24, tr(Txt::SlotEmpty), 2, text);
+            continue;
+        }
+        DebugFont::drawText(renderer_, tx, y + 20, std::string(tr(Txt::HudWorld)) + " " + std::to_string(slot.world) + "-1",
+                            2, text);
+        const Txt mode = slot.mode == "coop" ? Txt::ModeCoop : slot.mode == "turns" ? Txt::ModeTurns : Txt::OnePlayer;
+        std::string line = tr(mode);
+        if (slot.mode == "solo" && slot.luigi) line = "LUIGI";
+        DebugFont::drawText(renderer_, tx, y + 34, line, 2, text);
+        if (slot.secondQuest) DebugFont::drawText(renderer_, tx, y + 48, tr(Txt::NewGamePlus), 2, kMenuYellow);
+    }
+    if (confirmingOverwrite_) {
+        const SDL_Rect box{(gLogicalWidth - 200) / 2, 90, 200, 62};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+        SDL_RenderFillRect(renderer_, &box);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        drawCentered(98, tr(Txt::Overwrite1), 2, kMenuWhite);
+        drawCentered(110, tr(Txt::Overwrite2), 2, kMenuWhite);
+        const int yesX = gLogicalWidth / 2 - 48;
+        const int noX = gLogicalWidth / 2 + 24;
+        DebugFont::drawText(renderer_, yesX, 132, tr(Txt::Yes), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, noX, 132, tr(Txt::No), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, (overwriteChoice_ == 0 ? yesX : noX) - 12, 132, false);
+    }
+}
+
 void Game::renderTitle() {
     // Como la pantalla de titulo original (ver gen_title.py): el HUD
     // arriba, el cartel, el (c), las opciones con el hongo de cursor y el
@@ -903,12 +1130,16 @@ void Game::renderTitle() {
         int selection = 0;
         if (titleMenu_ == kMenuPlay) {
             ids = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::Extras};
-            disabled = titleDisabled(continueWorld() > 0);
+            disabled = titleDisabled(continueWorld() > 0 || anySaveSlot());
             selection = titleSelection_;
         } else if (titleMenu_ == kMenuExtras) {
             ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
-            disabled = extrasDisabled(settings_.gameCompleted, EditorLauncher::available());
+            disabled = extrasDisabled(settings_.gameCompleted, true);
             selection = extrasSelection_;
+        } else if (titleMenu_ == kMenuPlus) {
+            ids = {Txt::OnePlayer, Txt::TwoPlayers};
+            disabled.assign(ids.size(), false);
+            selection = plusSelection_;
         } else if (titleMenu_ == kMenuEditor) {
             ids = {Txt::EditorCreate, Txt::EditorSelect};
             disabled.assign(ids.size(), false);
@@ -1018,6 +1249,7 @@ void Game::renderTitle() {
         DebugFont::drawText(renderer_, luigiX, 178, "LUIGI", 2, SDL_Color{0, 200, 0, 255});
         titleCursorSprite_.draw(renderer_, 0, 0, (characterChoice_ == 0 ? marioX : luigiX) - 12, 178, false);
     }
+    if (choosingSlot_) renderSlotPicker();
 }
 
 void Game::renderPauseMenu() {
