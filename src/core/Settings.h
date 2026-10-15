@@ -31,6 +31,9 @@ struct Settings {
     // elementos desbloqueados que estan activados (por id, ver kExtraContent
     // en GameMenus.cpp).
     std::vector<std::string> unlockedExtras;
+    // Progreso de los logros (acumulado entre partidas): los niveles de la
+    // campana pasados sin recibir dano ("1-1").
+    std::vector<std::string> flawlessLevels;
     std::vector<std::string> enabledExtras;
     bool extraUnlocked(const std::string& id) const;
     bool extraEnabled(const std::string& id) const;
@@ -45,6 +48,9 @@ struct Settings {
         bool secondQuest = false;
         bool noDamage = false;   // desde el 1-1 sin recibir dano (logro)
         bool noSkip = false;     // desde el 1-1 sin zonas de warp (logro)
+        bool noStar = false;     // desde el 1-1 sin agarrar estrellas (logro)
+        bool noMushroom = false; // ... sin super champinones (logro)
+        bool noFlower = false;   // ... sin flores de fuego (logro)
     };
     static constexpr int kSaveSlots = 3;
     std::array<SaveSlot, kSaveSlots> saves{};

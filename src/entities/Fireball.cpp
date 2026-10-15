@@ -3,6 +3,8 @@
 #include <cmath>
 
 void Fireball::spawn(float x, float y, bool movingRight) {
+    hammer_ = false;
+    movingRight_ = movingRight;
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kSpeed : -kSpeed;
@@ -17,8 +19,20 @@ void Fireball::spawn(float x, float y, bool movingRight) {
     explosionTimer_ = 0.0f;
 }
 
+void Fireball::spawnHammer(float x, float y, bool movingRight) {
+    spawn(x, y, movingRight);
+    hammer_ = true;
+    movingRight_ = movingRight;
+    velX_ = movingRight ? kHammerSpeedX : -kHammerSpeedX;
+    velY_ = kHammerSpeedY;
+}
+
 void Fireball::explode() {
     if (!alive_ || exploding_) return;
+    if (hammer_) {
+        alive_ = false;   // el martillo no explota: desaparece
+        return;
+    }
     exploding_ = true;
     explosionTimer_ = kExplosionFrameDuration * kExplosionFrameCount;
 }
@@ -53,6 +67,15 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
 
     animTimer_ += dt * 15.0f;
     frame_ = static_cast<int>(animTimer_) % 4;
+
+    if (hammer_) {
+        // Arco sin chocar con nada; se va al caer por debajo del nivel.
+        velY_ += kHammerGravity * dt;
+        x_ += velX_ * dt;
+        y_ += velY_ * dt;
+        if (y_ > level.heightPixels()) alive_ = false;
+        return;
+    }
 
     const int ts = level.tileSize();
     // El solido invisible ('X') no frena el fuego: lo atraviesa.
@@ -102,7 +125,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
 }
 
 void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
-                       const SpriteSheet& explosionSprite, float cameraX) const {
+                       const SpriteSheet& explosionSprite, float cameraX, const SpriteSheet* hammerSprite) const {
     if (!alive_) return;
 
     if (exploding_) {
@@ -116,5 +139,12 @@ void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprit
         return;
     }
 
+    if (hammer_ && hammerSprite) {
+        // El sprite del martillo (16x16, girando) centrado en la caja de 8x8.
+        const int offset = (kHammerSpriteSize - kSize) / 2;
+        hammerSprite->draw(renderer, 0, frame_, static_cast<int>(std::lround(x_ - cameraX)) - offset,
+                           static_cast<int>(std::lround(y_)) - offset, !movingRight_);
+        return;
+    }
     projectileSprite.draw(renderer, 0, frame_, static_cast<int>(std::lround(x_ - cameraX)), static_cast<int>(std::lround(y_)), false);
 }

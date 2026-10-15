@@ -6,6 +6,28 @@
 
 namespace {
 
+// Codigo interno de la Ñ en las tablas (los textos vienen en UTF-8).
+constexpr char kEnye = '';
+
+// "Ñ"/"ñ" (2 bytes en UTF-8) -> kEnye; el resto igual.
+std::string toFontText(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c == 0xC3 && i + 1 < text.size()) {
+            const unsigned char next = static_cast<unsigned char>(text[i + 1]);
+            if (next == 0x91 || next == 0xB1) {
+                out.push_back(kEnye);
+                ++i;
+                continue;
+            }
+        }
+        out.push_back(text[i]);
+    }
+    return out;
+}
+
 using Glyph = std::array<uint8_t, 5>;  // 5 filas, 3 columnas (bits 2..0 = col 0..2)
 
 const std::unordered_map<char, Glyph>& glyphTable() {
@@ -58,6 +80,8 @@ const std::unordered_map<char, Glyph>& glyphTable() {
         // Agregadas para el editor de niveles (rutas, ayuda de teclas).
         {'J', {0b001, 0b001, 0b001, 0b101, 0b111}},
         {'Q', {0b010, 0b101, 0b101, 0b110, 0b011}},
+        // Ñ: la N con la raya arriba.
+        {kEnye, {0b111, 0b000, 0b111, 0b111, 0b101}},
         {'X', {0b101, 0b101, 0b010, 0b101, 0b101}},
         {'Y', {0b101, 0b101, 0b010, 0b010, 0b010}},
         {'Z', {0b111, 0b001, 0b010, 0b100, 0b111}},
@@ -87,6 +111,9 @@ using SmbGlyph = std::array<uint8_t, 8>;
 const std::unordered_map<char, SmbGlyph>& smbGlyphTable() {
     static const std::unordered_map<char, SmbGlyph> table = {
 #include "SmbFontGlyphs.inc"
+        // Ñ (no viene en la fuente del original): la N un poco mas baja con
+        // la tilde arriba.
+        {kEnye, {0x32, 0x4C, 0xC6, 0xE6, 0xF6, 0xDE, 0xCE, 0xC6}},
     };
     return table;
 }
@@ -94,7 +121,7 @@ const std::unordered_map<char, SmbGlyph>& smbGlyphTable() {
 void drawMiniText(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale) {
     const int advance = 4 * scale;  // 3 de letra + 1 de separacion
     int cursorX = x;
-    for (char c : text) {
+    for (char c : toFontText(text)) {
         auto it = glyphTable().find(c);
         if (it != glyphTable().end()) {
             const Glyph& glyph = it->second;
@@ -125,7 +152,7 @@ void DebugFont::drawText(SDL_Renderer* renderer, int x, int y, const std::string
     const float pixel = static_cast<float>(scale) / 2.0f;
     const int advance = 4 * scale;
     int cursorX = x;
-    for (char c : text) {
+    for (char c : toFontText(text)) {
         // Minusculas como mayusculas, salvo la "x" chica del HUD.
         const char key = (c >= 'a' && c <= 'z' && c != 'x') ? static_cast<char>(c - 'a' + 'A') : c;
         auto it = smbGlyphTable().find(key);
@@ -143,6 +170,8 @@ void DebugFont::drawText(SDL_Renderer* renderer, int x, int y, const std::string
         cursorX += advance;
     }
 }
+
+int DebugFont::length(const std::string& text) { return static_cast<int>(toFontText(text).size()); }
 
 void DebugFont::drawTextOutlined(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale,
                                  SDL_Color color) {

@@ -306,7 +306,8 @@ MarioSize nextSize(MarioSize size) {
     switch (size) {
         case MarioSize::Small: return MarioSize::Big;
         case MarioSize::Big: return MarioSize::Fire;
-        case MarioSize::Fire: default: return MarioSize::Small;
+        case MarioSize::Fire: return MarioSize::Hammer;
+        case MarioSize::Hammer: default: return MarioSize::Small;
     }
 }
 
@@ -501,6 +502,10 @@ bool Game::init() {
         return false;
     }
     if (!loadLuigiSprites()) return false;
+    // Traje de Hammer Bro (gen_mario_hammer.py): opcional.
+    mario_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png");
+    luigi_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png");
+    hammerFlowerSprite_.loadFromFile(renderer_, "assets/sprites/hammer_flower.png", 16, 20);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
     for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},
@@ -706,6 +711,13 @@ void Game::startScenario(TestScenario scenario) {
 }
 
 void Game::loadScenario(TestScenario scenario) {
+    levelUndamaged_ = true;   // cada intento del nivel arranca sin dano
+    // La estrella infinita dura solo el nivel en que se puso.
+    if (infiniteStarActive_) {
+        infiniteStarActive_ = false;
+        mario_.setInvincible(false);
+        luigi_.setInvincible(false);
+    }
     coinTallyForOneUps_ = 0;
     scenario_ = scenario;
     if (static_cast<int>(scenario) < kMenuOptionCount) menuSelection_ = static_cast<int>(scenario);
@@ -978,6 +990,7 @@ void Game::processEvents() {
             } else if (appState_ == AppState::Playing &&
                        (button == SDL_CONTROLLER_BUTTON_START || button == SDL_CONTROLLER_BUTTON_BACK)) {
                 openPause();
+                pausedBy_ = std::max(0, Input::playerOfController(event.cbutton.which));
             }
         } else if (event.type == SDL_CONTROLLERAXISMOTION &&
                    event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
@@ -1134,7 +1147,11 @@ void Game::trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPe
         // un poco mas abajo del tope justo, a pedido del usuario.
         constexpr float kHandYOffset = 6.0f;
         const float spawnY = shooter.spriteTopY() + kHandYOffset;
-        fireball.spawn(spawnX, spawnY, right);
+        if (shooter.size() == MarioSize::Hammer) {
+            fireball.spawnHammer(spawnX, spawnY, right);
+        } else {
+            fireball.spawn(spawnX, spawnY, right);
+        }
         shooter.playThrowAnimation();
         audio_.play(Sfx::Fireball);
         return;
@@ -1290,6 +1307,7 @@ void Game::checkMushroomPickup(Mario& character) {
     if (character.size() == MarioSize::Small) {
         character.startGrow();
     }
+    campaignNoMushroom_ = false;
     spawnScorePopup(mushroom_.x(), mushroom_.y(), "1000");
     mushroom_.collect();
     audio_.play(Sfx::PowerUp);
@@ -1316,6 +1334,7 @@ void Game::checkFireFlowerPickup(Mario& character) {
         // fuego miden igual): parpadea entre la paleta normal y la de fuego.
         character.startGrow(MarioSize::Fire);
     }
+    campaignNoFlower_ = false;
     spawnScorePopup(fireFlower_.x(), fireFlower_.y(), "1000");
     fireFlower_.collect();
     audio_.play(Sfx::PowerUp);
@@ -1333,6 +1352,7 @@ void Game::checkStarPickup(Mario& character) {
     if (!overlap) return;
 
     character.setInvincible(true);
+    campaignNoStar_ = false;
     spawnScorePopup(star_.x(), star_.y(), "1000");
     star_.collect();
     audio_.play(Sfx::PowerUp);
@@ -1676,6 +1696,12 @@ void Game::checkFireballBuzzyBeetleCollision(Fireball& fireball, BuzzyBeetle& bu
         fireball.y() < buzzy.y() + buzzy.height() && fireball.y() + Fireball::kSize > buzzy.y();
     if (!overlap) return;
 
+    // Al martillo no es inmune.
+    if (fireball.isHammer()) {
+        killEnemyFalling(buzzy, fireball.x() <= buzzy.x());
+        fireball.explode();
+        return;
+    }
     // Inmune (ver BuzzyBeetle.h): la bola explota igual, pero al Buzzy
     // Beetle no le pasa nada -- sigue caminando/en su estado actual.
     fireball.explode();
@@ -2052,6 +2078,7 @@ void Game::checkPodobooCollision(Mario& character, Podoboo& podoboo) {
                                                                  static_cast<float>(podoboo.height()), EnemyBox::Small));
     if (!overlap) return;
 
+    if (character.isHammerShell()) return;   // el caparazon del traje lo cubre del fuego
     // Invencible de verdad (ver Podoboo.h): la estrella sigue protegiendo a
     // quien lo toca del dano como siempre, pero el Podoboo no desaparece --
     // por eso, a diferencia de cualquier otro chequeo de colision, esta
@@ -2136,6 +2163,7 @@ void Game::checkBowserFireCollision(Mario& character, BowserFire& fire) {
     // al tocar a nadie (ver BowserFire.h): sigue de largo, mismo criterio
     // que Hammer/checkHammerCollision. Con estrella no hace dano.
     if (character.isInvincible()) return;
+    if (character.isHammerShell()) return;   // el caparazon del traje lo cubre del fuego
 
     applyContactDamage(character);
 }
@@ -3548,11 +3576,13 @@ void Game::render() {
             default: renderDemoEnd(); break;
         }
         renderFpsCorner();
+        renderUnlockToast();
         SDL_RenderPresent(renderer_);
         return;
     }
     if (appState_ == AppState::ScenarioSelect) {
         renderScenarioSelect();
+        renderUnlockToast();
         SDL_RenderPresent(renderer_);
         return;
     }
@@ -3564,6 +3594,7 @@ void Game::render() {
         } else {
             renderGameOver();
         }
+        renderUnlockToast();
         SDL_RenderPresent(renderer_);
         return;
     }
@@ -3777,12 +3808,12 @@ void Game::render() {
         const bool luigiFire = playAsLuigi_ && !twoPlayerMode_;
         const SpriteSheet& ball = luigiFire ? fireballGreenSprite_ : fireballSprite_;
         const SpriteSheet& boom = luigiFire ? fireballExplosionGreenSprite_ : fireballExplosionSprite_;
-        for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_);
+        for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_, &hammerSprite_);
     }
     if (twoPlayerMode_) {
         if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
         for (const Fireball& fireball : luigiFireballs_) {
-            fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_);
+            fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_, &hammerSprite_);
         }
     }
     renderDecorations(true);
@@ -3861,6 +3892,7 @@ void Game::render() {
     }
 
     if (appState_ == AppState::Paused) renderPauseMenu();
+    renderUnlockToast();
     SDL_RenderPresent(renderer_);
 }
 
@@ -4035,9 +4067,17 @@ void Game::finishFinalEnding() {
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
     if (campaign_) {
+        if (levelUndamaged_ && campaignWorld_ == 8) {
+            const std::string id = "8-" + std::to_string(campaignLevel_);
+            auto& done = settings_.flawlessLevels;
+            if (std::find(done.begin(), done.end(), id) == done.end()) done.push_back(id);
+            checkExtraProgress();
+        }
         unlockExtra("new_game_plus");
         if (campaignNoSkip_) unlockExtra("level_editor");
-        if (campaignNoDamage_) unlockExtra("star_trick");
+        if (campaignNoDamage_ && campaignNoStar_) unlockExtra("item_infinite_star");
+        if (campaignNoMushroom_) unlockExtra("item_mushroom");
+        if (campaignNoFlower_) unlockExtra("item_flower");
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
@@ -5166,6 +5206,7 @@ void Game::updateFirebars(float dt) {
             for (Mario* character : {&mario_, &luigi_}) {
                 if (character == &luigi_ && !twoPlayerMode_) continue;
                 if (character->isInDeathSequence() || character->isInvincible()) continue;
+                if (character->isHammerShell()) continue;   // el caparazon lo cubre del fuego
                 // Hitbox un poco mas chica que el sprite (como el original).
                 const float half = static_cast<float>(Fireball::kSize) / 2.0f - 1.0f;
                 const bool overlap = character->x() < cx + half && character->x() + character->width() > cx - half &&

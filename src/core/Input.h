@@ -63,6 +63,9 @@ public:
     // Control automatico (escenas como la intro del 1-2): mientras esta
     // activo se ignoran teclado y mando y las acciones las fija `held`.
     void setScripted(bool active, std::initializer_list<Action> held = {});
+    // A que jugador corresponde el mando de este evento (0 o 1; -1 si no
+    // es ninguno de los dos primeros).
+    static int playerOfController(SDL_JoystickID instanceId);
 
 private:
     using ActionState = std::array<bool, static_cast<size_t>(Action::Count)>;

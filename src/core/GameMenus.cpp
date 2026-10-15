@@ -45,6 +45,10 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
 // entonces se ve "?????" y abajo la condicion). Se van agregando aca.
 // menuOption: al desbloquearse habilita una opcion del menu EXTRAS (no se
 // activa ni desactiva: queda disponible).
+// progress: que cuenta para el logro (y su meta), para mostrar el avance.
+enum class ExtraProgress { None, FlawlessLevels };
+// item: el item que da en la pausa (ITEMS) cuando esta activado.
+enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit };
 struct ExtraContent {
     const char* id;
     const char* nameEs;
@@ -52,16 +56,41 @@ struct ExtraContent {
     const char* conditionEs;
     const char* conditionEn;
     bool menuOption = false;
+    ExtraProgress progress = ExtraProgress::None;
+    int target = 0;
+    ExtraItem item = ExtraItem::None;
 };
+constexpr int kCampaignLevels = 32;   // 1-1 ... 8-4
 constexpr ExtraContent kExtraContent[] = {
     {"new_game_plus", "PARTIDA +", "NEW GAME +", "COMPLETA EL JUEGO AL MENOS UNA VEZ",
      "BEAT THE GAME AT LEAST ONCE", true},
     {"level_editor", "EDITOR DE NIVELES", "LEVEL EDITOR", "COMPLETA EL JUEGO SIN SALTEARTE NIVELES",
      "BEAT THE GAME WITHOUT SKIPPING LEVELS", true},
-    {"star_trick", "TRUCO: ESTRELLA", "CHEAT: STAR", "TERMINA EL JUEGO SIN RECIBIR DANO",
-     "BEAT THE GAME WITHOUT TAKING DAMAGE"},
+    {"item_mushroom", "ITEM: SUPER CHAMPIÑON", "ITEM: SUPER MUSHROOM",
+     "COMPLETA EL JUEGO SIN AGARRAR NI UN SUPER CHAMPIÑON", "BEAT THE GAME WITHOUT GETTING A SINGLE SUPER MUSHROOM",
+     false,
+     ExtraProgress::None, 0, ExtraItem::Mushroom},
+    {"item_flower", "ITEM: FLOR DE FUEGO", "ITEM: FIRE FLOWER", "COMPLETA EL JUEGO SIN AGARRAR NI UNA FLOR DE FUEGO",
+     "BEAT THE GAME WITHOUT GETTING A SINGLE FIRE FLOWER", false, ExtraProgress::None, 0, ExtraItem::FireFlower},
+    {"item_star", "ITEM: ESTRELLA", "ITEM: STAR", "COMPLETA CADA NIVEL SIN RECIBIR DAÑO",
+     "CLEAR EVERY LEVEL WITHOUT TAKING DAMAGE", false, ExtraProgress::FlawlessLevels, kCampaignLevels,
+     ExtraItem::Star},
+    {"item_infinite_star", "ITEM: ESTRELLA INFINITA", "ITEM: ENDLESS STAR",
+     "COMPLETA EL JUEGO SIN MORIR NI RECIBIR DAÑO Y SIN AGARRAR ESTRELLAS",
+     "BEAT THE GAME WITHOUT DYING, TAKING DAMAGE OR GETTING A STAR", false, ExtraProgress::None, 0,
+     ExtraItem::InfiniteStar},
+    {"item_hammer", "ITEM: TRAJE HAMMER BRO", "ITEM: HAMMER SUIT", "CONDICION POR DEFINIR",
+     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::HammerSuit},
 };
 constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
+
+int extraProgressValue(const Settings& settings, ExtraProgress progress) {
+    switch (progress) {
+        case ExtraProgress::FlawlessLevels: return static_cast<int>(settings.flawlessLevels.size());
+        case ExtraProgress::None: break;
+    }
+    return 0;
+}
 
 // Parte un texto en renglones de hasta maxChars letras (por palabras).
 std::vector<std::string> wrapText(const std::string& text, size_t maxChars) {
@@ -72,7 +101,7 @@ std::vector<std::string> wrapText(const std::string& text, size_t maxChars) {
         size_t end = text.find(' ', start);
         if (end == std::string::npos) end = text.size();
         const std::string word = text.substr(start, end - start);
-        if (!line.empty() && line.size() + 1 + word.size() > maxChars) {
+        if (!line.empty() && static_cast<size_t>(DebugFont::length(line) + 1 + DebugFont::length(word)) > maxChars) {
             lines.push_back(line);
             line.clear();
         }
@@ -87,7 +116,7 @@ enum EditorItem { kEditorCreate, kEditorSelect, kEditorCount };
 // Que menu del titulo se ve (titleMenu_).
 enum TitleMenu { kMenuMain, kMenuPlay, kMenuExtras, kMenuEditor, kMenuPlus };
 // Opciones del menu de pausa.
-enum PauseItem { kPauseResume, kPauseRestart, kPauseOptions, kPauseQuit, kPauseCount };
+enum PauseItem { kPauseResume, kPauseRestart, kPauseItems, kPauseOptions, kPauseQuit, kPauseCount };
 // Opciones del menu de configuracion.
 enum SettingsItem { kSetDisplay, kSetWindowSize, kSetAspect, kSetFps, kSetMaster, kSetMusic, kSetSfx,
                     kSetLanguage, kSetVibration, kSetPlayerBump, kSetControls, kSetBack, kSetCount };
@@ -199,6 +228,8 @@ void Game::openScenarioSelect() {
 void Game::openPause() {
     appState_ = AppState::Paused;
     pauseSelection_ = kPauseResume;
+    pausedBy_ = 0;   // teclado: el jugador 1 (el mando lo cambia al pausar)
+    pauseItemsOpen_ = false;
     audio_.pauseMusic();
     audio_.play(Sfx::Pause);
 }
@@ -371,10 +402,85 @@ void Game::openContinueSlots() {
     refreshSlotPreviews();
 }
 
+void Game::checkExtraProgress() {
+    // Los que se ganan por avance (cantidad o niveles): llegaron a la meta.
+    for (const ExtraContent& item : kExtraContent) {
+        if (item.progress == ExtraProgress::None || item.target <= 0) continue;
+        if (extraProgressValue(settings_, item.progress) >= item.target) unlockExtra(item.id);
+    }
+}
+
 void Game::unlockExtra(const std::string& id) {
     if (settings_.extraUnlocked(id)) return;
     settings_.unlockedExtras.push_back(id);
     settings_.save();
+    unlockToasts_.push_back(id);   // el aviso
+}
+
+void Game::renderUnlockToast() {
+    // Un cuadro abajo al centro que sube, queda y baja: "FELICIDADES!
+    // DESBLOQUEASTE:" y el nombre, con el icono a la izquierda. Si se
+    // ganaron varios a la vez, uno detras del otro. Suena el de la vida.
+    if (unlockToasts_.empty()) return;
+    constexpr Uint32 kSlide = 300;   // ms subiendo / bajando
+    constexpr Uint32 kTotal = 3600;  // ms en pantalla
+    const Uint32 now = SDL_GetTicks();
+    if (unlockToastStart_ == 0) {
+        unlockToastStart_ = now;
+        audio_.play(Sfx::OneUp);
+    }
+    const Uint32 elapsed = now - unlockToastStart_;
+    if (elapsed >= kTotal) {
+        unlockToasts_.erase(unlockToasts_.begin());
+        unlockToastStart_ = 0;
+        return;   // el siguiente arranca en el proximo cuadro
+    }
+    const ExtraContent* item = nullptr;
+    for (const ExtraContent& content : kExtraContent) {
+        if (unlockToasts_.front() == content.id) item = &content;
+    }
+    if (!item) {
+        unlockToasts_.erase(unlockToasts_.begin());
+        unlockToastStart_ = 0;
+        return;
+    }
+    float shown = 1.0f;
+    if (elapsed < kSlide) shown = static_cast<float>(elapsed) / kSlide;
+    if (elapsed > kTotal - kSlide) shown = static_cast<float>(kTotal - elapsed) / kSlide;
+    constexpr int kW = 236;
+    constexpr int kH = 46;
+    const int x = (gLogicalWidth - kW) / 2;
+    const int y = kLogicalHeight - static_cast<int>(static_cast<float>(kH + 8) * shown);
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    // Caja oscura con borde verde (a lo logro de Xbox) y un circulo para el icono.
+    const SDL_Rect box{x, y, kW, kH};
+    SDL_SetRenderDrawColor(renderer_, 24, 24, 28, 235);
+    SDL_RenderFillRect(renderer_, &box);
+    SDL_SetRenderDrawColor(renderer_, 16, 124, 16, 255);
+    SDL_RenderDrawRect(renderer_, &box);
+    const SDL_Rect inner{x + 1, y + 1, kW - 2, kH - 2};
+    SDL_RenderDrawRect(renderer_, &inner);
+    const int cx = x + 20;
+    const int cy = y + kH / 2;
+    for (int dy = -15; dy <= 15; ++dy) {
+        const int half = static_cast<int>(std::sqrt(static_cast<float>(15 * 15 - dy * dy)));
+        SDL_RenderDrawLine(renderer_, cx - half, cy + dy, cx + half, cy + dy);
+    }
+    const int iconX = cx - 8;
+    const int iconY = cy - 8;
+    switch (item->item) {
+        case ExtraItem::Mushroom: mushroomSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
+        case ExtraItem::FireFlower: fireFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
+        case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY - 2, false); break;
+        case ExtraItem::InfiniteStar:
+            starSprite_.draw(renderer_, 0, static_cast<int>(now / 70) % 4, iconX, iconY, false);
+            break;
+        default: starSprite_.draw(renderer_, 0, 2, iconX, iconY, false); break;
+    }
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
+    DebugFont::drawText(renderer_, x + 40, y + 5, tr(Txt::UnlockToast), 2, SDL_Color{120, 220, 120, 255});
+    DebugFont::drawText(renderer_, x + 40, y + 17, tr(Txt::UnlockToast2), 2, kMenuWhite);
+    DebugFont::drawText(renderer_, x + 40, y + 31, isEnglish() ? item->nameEn : item->nameEs, 2, kMenuYellow);
 }
 
 void Game::writeCurrentSlot(int world, int level) {
@@ -387,6 +493,9 @@ void Game::writeCurrentSlot(int world, int level) {
     slot.secondQuest = secondQuestNext_;
     slot.noDamage = campaignNoDamage_;
     slot.noSkip = campaignNoSkip_;
+    slot.noStar = campaignNoStar_;
+    slot.noMushroom = campaignNoMushroom_;
+    slot.noFlower = campaignNoFlower_;
     settings_.save();
 }
 
@@ -473,6 +582,9 @@ void Game::handleTitleInput(MenuInput input) {
             }
             campaignNoDamage_ = slot.noDamage;
             campaignNoSkip_ = slot.noSkip;
+            campaignNoStar_ = slot.noStar;
+            campaignNoMushroom_ = slot.noMushroom;
+            campaignNoFlower_ = slot.noFlower;
         }
         return;
     }
@@ -613,6 +725,9 @@ void Game::handleTitleInput(MenuInput input) {
                 startCampaign(false, luigi);
                 campaignNoDamage_ = false;   // ELEGIR MUNDO no cuenta para logros
                 campaignNoSkip_ = false;
+                campaignNoStar_ = false;
+                campaignNoMushroom_ = false;
+                campaignNoFlower_ = false;
             } else {
                 askSlotThen([this, luigi] { startCampaign(false, luigi); });
             }
@@ -763,9 +878,84 @@ void Game::handleTitleInput(MenuInput input) {
     }
 }
 
+std::vector<int> Game::enabledItemExtras() const {
+    std::vector<int> result;
+    // Los trucos de items solo se usan en PARTIDA + (la segunda vuelta).
+    if (!campaign_ || !gPrimaryHardMode) return result;
+    for (int i = 0; i < kExtraContentCount; ++i) {
+        const ExtraContent& item = kExtraContent[i];
+        if (item.item != ExtraItem::None && settings_.extraUnlocked(item.id) && settings_.extraEnabled(item.id)) {
+            result.push_back(i);
+        }
+    }
+    return result;
+}
+
+void Game::applyCheatItem(int extraIndex) {
+    // El mismo efecto que tocar el item, en el personaje de quien pauso (en
+    // 2 a la vez; si no, el que esta en pantalla).
+    Mario& character = (twoPlayerMode_ && pausedBy_ == 1) ? luigi_ : mario_;
+    if (character.isInDeathSequence()) return;
+    switch (kExtraContent[extraIndex].item) {
+        case ExtraItem::Mushroom:
+            if (character.size() == MarioSize::Small) character.startGrow();
+            campaignNoMushroom_ = false;
+            break;
+        case ExtraItem::FireFlower:
+            campaignNoFlower_ = false;
+            if (character.size() == MarioSize::Small) {
+                character.startGrow(MarioSize::Big);
+            } else if (character.size() == MarioSize::Big) {
+                character.startGrow(MarioSize::Fire);
+            }
+            break;
+        case ExtraItem::Star:
+            character.setInvincible(true);
+            campaignNoStar_ = false;
+            break;
+        case ExtraItem::HammerSuit:
+            character.startGrow(MarioSize::Hammer);
+            break;
+        case ExtraItem::InfiniteStar:
+            // Lo que queda del nivel: se apaga al cargar el siguiente (o al
+            // volver a intentar este).
+            character.setInvincible(true, kInfiniteStarDuration);
+            infiniteStarActive_ = true;
+            campaignNoStar_ = false;
+            break;
+        case ExtraItem::None: return;
+    }
+    audio_.play(Sfx::PowerUp);
+    startRumble(character, RumbleKind::Item);
+}
+
 void Game::handlePauseInput(MenuInput input) {
+    const std::vector<int> items = enabledItemExtras();
+    if (pauseItemsOpen_) {
+        // Lista de items: confirmar (saltar) lo aplica y vuelve al juego.
+        if (input == MenuInput::Back || items.empty()) {
+            pauseItemsOpen_ = false;
+            audio_.play(Sfx::Bump);
+        } else if (input == MenuInput::Up || input == MenuInput::Down) {
+            const int count = static_cast<int>(items.size());
+            pauseItemSelection_ = (pauseItemSelection_ + (input == MenuInput::Up ? count - 1 : 1)) % count;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm) {
+            pauseItemsOpen_ = false;
+            appState_ = AppState::Playing;
+            audio_.resumeMusic();
+            applyCheatItem(items[static_cast<size_t>(std::min<int>(pauseItemSelection_, static_cast<int>(items.size()) - 1))]);
+            input1_.clearPresses();
+            input2_.clearPresses();
+        }
+        return;
+    }
     if (input == MenuInput::Up || input == MenuInput::Down) {
-        pauseSelection_ = (pauseSelection_ + (input == MenuInput::Up ? kPauseCount - 1 : 1)) % kPauseCount;
+        // ITEMS solo aparece si hay algun truco de item activado.
+        const int delta = input == MenuInput::Up ? kPauseCount - 1 : 1;
+        do {
+            pauseSelection_ = (pauseSelection_ + delta) % kPauseCount;
+        } while (pauseSelection_ == kPauseItems && items.empty());
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -788,6 +978,11 @@ void Game::handlePauseInput(MenuInput input) {
             checkpointCol_ = -1;
             loadScenario(scenario_);
             break;
+        case kPauseItems:
+            audio_.play(Sfx::Coin);
+            pauseItemsOpen_ = true;
+            pauseItemSelection_ = 0;
+            return;
         case kPauseOptions:
             audio_.play(Sfx::Coin);
             openSettings(AppState::Paused);
@@ -985,7 +1180,10 @@ void Game::updateRumble(float dt) {
     // Golpeado o muerto: arranca el patron una vez, al empezar.
     const bool marioHurt = mario_.isInDamageSequence() || mario_.isInDeathSequence();
     const bool luigiHurt = twoPlayerMode_ && (luigi_.isInDamageSequence() || luigi_.isInDeathSequence());
-    if ((marioHurt && !marioWasHurt_) || (luigiHurt && !luigiWasHurt_)) campaignNoDamage_ = false;
+    if ((marioHurt && !marioWasHurt_) || (luigiHurt && !luigiWasHurt_)) {
+        campaignNoDamage_ = false;
+        levelUndamaged_ = false;
+    }
     if (marioHurt && !marioWasHurt_) {
         startRumble(mario_, mario_.isInDeathSequence() ? RumbleKind::Death : RumbleKind::Hurt);
     }
@@ -1060,6 +1258,9 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     // ELEGIR MUNDO); continuando un espacio, lo que traia ese espacio.
     campaignNoDamage_ = startWorld_ == 1 && startLevel_ == 1 && !worldSelectFlow_;
     campaignNoSkip_ = campaignNoDamage_;
+    campaignNoStar_ = campaignNoDamage_;
+    campaignNoMushroom_ = campaignNoDamage_;
+    campaignNoFlower_ = campaignNoDamage_;
     continueWorld_ = 0;   // una partida nueva (o la continuada) gasta el CONTINUAR
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
@@ -1072,6 +1273,16 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
 }
 
 void Game::onLevelCleared() {
+    // Logro de la estrella: este nivel de la campana, pasado sin dano.
+    if (campaign_ && levelUndamaged_ && campaignWorld_ >= 1 && campaignWorld_ <= 8) {
+        const std::string id = std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_);
+        auto& done = settings_.flawlessLevels;
+        if (std::find(done.begin(), done.end(), id) == done.end()) {
+            done.push_back(id);
+            settings_.save();
+            checkExtraProgress();
+        }
+    }
     if (!campaign_) {
         // Modo prueba vuelve a su selector; un nivel suelto (--level, el
         // editor), al menu principal.
@@ -1109,7 +1320,9 @@ void Game::onLevelCleared() {
         if (campaignWorld_ >= 8) {
             unlockExtra("new_game_plus");
             if (campaignNoSkip_) unlockExtra("level_editor");
-            if (campaignNoDamage_) unlockExtra("star_trick");
+            if (campaignNoDamage_ && campaignNoStar_) unlockExtra("item_infinite_star");
+            if (campaignNoMushroom_) unlockExtra("item_mushroom");
+            if (campaignNoFlower_) unlockExtra("item_flower");
             settings_.gameCompleted = true;
             if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();
@@ -1130,7 +1343,7 @@ void Game::onLevelCleared() {
 void Game::drawCenteredFit(int y, const std::string& text, SDL_Color color) {
     // Con la fuente del juego; si no entra en un renglon, en dos (cortando
     // en el espacio mas cercano a la mitad).
-    if (static_cast<int>(text.size()) * 8 <= gLogicalWidth - 8) {
+    if (DebugFont::length(text) * 8 <= gLogicalWidth - 8) {
         drawCentered(y, text, 2, color);
         return;
     }
@@ -1153,7 +1366,7 @@ void Game::drawCenteredFit(int y, const std::string& text, SDL_Color color) {
 }
 
 void Game::drawCentered(int y, const std::string& text, int scale, SDL_Color color) {
-    const int width = static_cast<int>(text.size()) * 4 * scale;
+    const int width = DebugFont::length(text) * 4 * scale;
     DebugFont::drawText(renderer_, (gLogicalWidth - width) / 2, y, text, scale, color);
 }
 
@@ -1204,12 +1417,19 @@ void Game::renderExtraContent() {
         if (i == extraContentSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 12, y, false);
         if (!unlocked) {
             DebugFont::drawText(renderer_, listX, y, "?????", 2, kMenuGray);
+            if (item.progress != ExtraProgress::None && item.target > 0) {
+                const int value = std::min(item.target, extraProgressValue(settings_, item.progress));
+                const std::string text = std::to_string(value) + "/" + std::to_string(item.target) + " - " +
+                                         std::to_string(value * 100 / item.target) + "%";
+                const int right = gLogicalWidth / 2 + 116;
+                DebugFont::drawText(renderer_, right - static_cast<int>(text.size()) * 8, y, text, 2, kMenuGray);
+            }
             continue;
         }
         DebugFont::drawText(renderer_, listX, y, isEnglish() ? item.nameEn : item.nameEs, 2, kMenuWhite);
     }
     // Cuadro de abajo: la condicion (bloqueado) o el estado (desbloqueado).
-    const SDL_Rect box{(gLogicalWidth - 240) / 2, 166, 240, 48};
+    const SDL_Rect box{(gLogicalWidth - 240) / 2, 162, 240, 56};
     SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
     SDL_RenderFillRect(renderer_, &box);
     SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
@@ -1220,11 +1440,13 @@ void Game::renderExtraContent() {
         DebugFont::drawText(renderer_, box.x + 6, box.y + 19, tr(Txt::ExtrasInMenu2), 2, kMenuWhite);
     } else if (settings_.extraUnlocked(item.id)) {
         const bool on = settings_.extraEnabled(item.id);
-        drawCentered(184, tr(on ? Txt::ExtrasOn : Txt::ExtrasOff), 2, on ? kMenuYellow : kMenuGray);
+        const bool cheat = item.item != ExtraItem::None;
+        drawCentered(cheat ? 176 : 184, tr(on ? Txt::ExtrasOn : Txt::ExtrasOff), 2, on ? kMenuYellow : kMenuGray);
+        if (cheat) drawCentered(194, tr(Txt::OnlyNewGamePlus), 2, kMenuWhite);
     } else {
         DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ExtrasLocked), 2, kMenuYellow);
         const auto lines = wrapText(isEnglish() ? item.conditionEn : item.conditionEs, 28);
-        for (size_t l = 0; l < lines.size() && l < 2; ++l) {
+        for (size_t l = 0; l < lines.size() && l < 3; ++l) {
             DebugFont::drawText(renderer_, box.x + 6, box.y + 19 + static_cast<int>(l) * 12, lines[l], 2, kMenuWhite);
         }
     }
@@ -1476,15 +1698,49 @@ void Game::renderPauseMenu() {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 150);
     SDL_RenderFillRect(renderer_, nullptr);
-    const SDL_Rect box{(gLogicalWidth - 180) / 2, 70, 180, 100};
+    // Con la lista de items, un poco mas ancha (icono + nombre largo).
+    const int boxW = pauseItemsOpen_ ? 200 : 180;
+    const SDL_Rect box{(gLogicalWidth - boxW) / 2, 70, boxW, 100};
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 220);
     SDL_RenderFillRect(renderer_, &box);
     SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
     SDL_RenderDrawRect(renderer_, &box);
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
     drawCentered(78, tr(Txt::Paused), 2, kMenuWhite);
-    std::vector<std::string> items{tr(Txt::Resume), tr(Txt::RestartLevel), tr(Txt::Options), tr(Txt::QuitToMenu)};
-    drawMenuList(box.x + 24, 100, 15, items, pauseSelection_);
+    const std::vector<int> cheats = enabledItemExtras();
+    if (pauseItemsOpen_) {
+        // Los items activados (CONTENIDO EXTRA): su icono y su nombre.
+        // La estrella infinita titila entre los colores de la estrella.
+        const int starCycle = static_cast<int>(SDL_GetTicks() / 70) % 4;
+        for (size_t i = 0; i < cheats.size(); ++i) {
+            const ExtraContent& item = kExtraContent[cheats[i]];
+            std::string name = isEnglish() ? item.nameEn : item.nameEs;
+            const size_t colon = name.find(": ");
+            if (colon != std::string::npos) name = name.substr(colon + 2);   // sin "ITEM: "
+            const int y = 96 + static_cast<int>(i) * 18;
+            const bool selected = static_cast<int>(i) == pauseItemSelection_;
+            if (selected) DebugFont::drawText(renderer_, box.x + 6, y + 4, ">", 2, kMenuWhite);
+            const int iconX = box.x + 16;
+            switch (item.item) {
+                case ExtraItem::Mushroom: mushroomSprite_.draw(renderer_, 0, 0, iconX, y, false); break;
+                case ExtraItem::FireFlower: fireFlowerSprite_.draw(renderer_, 0, 0, iconX, y, false); break;
+                case ExtraItem::Star: starSprite_.draw(renderer_, 0, 2, iconX, y, false); break;   // la amarilla
+                case ExtraItem::InfiniteStar: starSprite_.draw(renderer_, 0, starCycle, iconX, y, false); break;
+                case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, y - 4, false); break;
+                case ExtraItem::None: break;
+            }
+            DebugFont::drawText(renderer_, box.x + 36, y + 4, name, 2, selected ? kMenuWhite : kMenuYellow);
+        }
+        return;
+    }
+    // ITEMS va entre REINICIAR y OPCIONES, solo con trucos de items activados.
+    std::vector<std::string> items{tr(Txt::Resume), tr(Txt::RestartLevel)};
+    if (!cheats.empty()) items.push_back(tr(Txt::PauseItems));
+    items.push_back(tr(Txt::Options));
+    items.push_back(tr(Txt::QuitToMenu));
+    int shown = pauseSelection_;
+    if (cheats.empty() && pauseSelection_ > kPauseItems) --shown;
+    drawMenuList(box.x + 24, 96, 14, items, shown);
 }
 
 void Game::renderSettings() {
@@ -1595,7 +1851,7 @@ void Game::renderCredits() {
         "SUPER MARIO BROS. (NINTENDO,",
         "1985), SIN FINES DE LUCRO",
         "",
-        "DISENO Y DESARROLLO",
+        "DISEÑO Y DESARROLLO",
         "DANIEL VERGARA",
         "",
         "PROGRAMACION ASISTIDA POR",

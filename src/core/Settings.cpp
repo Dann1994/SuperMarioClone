@@ -42,6 +42,7 @@ bool Settings::load() {
     try {
         unlockedExtras = json.value("unlocked_extras", std::vector<std::string>{});
         enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
+        flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
     } catch (const std::exception&) {
     }
     const auto readSlot = [](const nlohmann::json& entry) {
@@ -54,6 +55,9 @@ bool Settings::load() {
         slot.secondQuest = entry.value("second_quest", false);
         slot.noDamage = entry.value("no_damage", false);
         slot.noSkip = entry.value("no_skip", false);
+        slot.noStar = entry.value("no_star", false);
+        slot.noMushroom = entry.value("no_mushroom", false);
+        slot.noFlower = entry.value("no_flower", false);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -90,7 +94,8 @@ nlohmann::json Settings::savesJson() const {
     for (const SaveSlot& slot : saves) {
         list.push_back({{"world", slot.world}, {"level", slot.level}, {"mode", slot.mode}, {"luigi", slot.luigi},
                         {"second_quest", slot.secondQuest}, {"no_damage", slot.noDamage},
-                        {"no_skip", slot.noSkip}});
+                        {"no_skip", slot.noSkip}, {"no_star", slot.noStar},
+                        {"no_mushroom", slot.noMushroom}, {"no_flower", slot.noFlower}});
     }
     return list;
 }
@@ -112,6 +117,7 @@ bool Settings::save() const {
         {"player_world_palettes", playerWorldPalettes},
         {"unlocked_extras", unlockedExtras},
         {"enabled_extras", enabledExtras},
+        {"flawless_levels", flawlessLevels},
         {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

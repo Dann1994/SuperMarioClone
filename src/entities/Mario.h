@@ -27,6 +27,9 @@ enum class MarioSize {
     Small,
     Big,
     Fire,
+    // Traje de Hammer Bro (como en Mario 3): tira martillos con el boton de
+    // correr y agachado se mete en el caparazon (no le hace dano el fuego).
+    Hammer,
 };
 
 // Mario chico/grande/fuego (seccion 5.1 de la especificacion): movimiento
@@ -279,6 +282,10 @@ public:
     }
     bool isWaitingAtFlagpoleBottom() const { return flagpolePhase_ == FlagpolePhase::Bottom; }
     bool isSlidingFlagpole() const { return flagpolePhase_ == FlagpolePhase::Slide; }
+    // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34).
+    bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path);
+    // Agachado con el traje de Hammer Bro: el caparazon lo cubre del fuego.
+    bool isHammerShell() const { return size_ == MarioSize::Hammer && isDucking_; }
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
 
@@ -307,6 +314,8 @@ private:
     // grilla.
     static constexpr int kSpriteFrameWidth = 16;
     static constexpr int kBigHeight = 32;
+    static constexpr int kHammerHeight = 34;   // el casco: 2 px mas alto que grande
+    static constexpr int kHammerThrowTopHeight = 26;   // alto de la pose de tirar martillo (sin piernas)
 
     // Constantes sacadas de la tabla real de fisica de SMB1 (disassembly de
     // doppelganger, MaxLeftXSpdData/MaxRightXSpdData/FrictionData/
@@ -426,6 +435,8 @@ private:
     SpriteSheet spriteSmall_;
     SpriteSheet spriteBig_;
     SpriteSheet spriteFire_;
+    SpriteSheet spriteHammer_;
+    SpriteSheet spriteHammerStar_;   // sin cargar: la estrella no cambia sus colores
     // Paletas por tipo de mundo: la activa vive en spriteSmall_/Big_/Fire_ y
     // su lugar aca queda vacio; cambiar de paleta es intercambiar texturas.
     std::array<std::array<SpriteSheet, 3>, 4> paletteSprites_;

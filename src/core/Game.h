@@ -1156,6 +1156,7 @@ private:
     std::array<HammerBro, kMaxHammerBros> hammerBros_;
     HammerBro& hammerBro_ = hammerBros_[0];
     SpriteSheet hammerSprite_;
+    SpriteSheet hammerFlowerSprite_;   // la flor martillo (icono del item)
     std::array<Hammer, kMaxHammers> hammers_;
 
     // Lakitu de prueba (seccion 5.2, sexto enemigo): escenario propio
@@ -1381,7 +1382,30 @@ private:
     bool campaignNoDamage_ = false;
     // ... y sin saltearse niveles (sin zonas de warp).
     bool campaignNoSkip_ = false;
+    // ... y sin agarrar estrellas (ni la del truco).
+    bool campaignNoStar_ = false;
+    // ... sin agarrar super champinones / flores de fuego (ni los del truco).
+    bool campaignNoMushroom_ = false;
+    bool campaignNoFlower_ = false;
+    // ITEM: ESTRELLA INFINITA puesta en este nivel.
+    bool infiniteStarActive_ = false;
+    static constexpr float kInfiniteStarDuration = 100000.0f;
     void unlockExtra(const std::string& id);
+    // Aviso de desbloqueo (estilo logro): los que se ganaron, de a uno; el
+    // de adelante se esta mostrando desde unlockToastStart_ (ms, 0 = todavia no).
+    std::vector<std::string> unlockToasts_;
+    Uint32 unlockToastStart_ = 0;
+    void renderUnlockToast();
+    void checkExtraProgress();
+    // El nivel en curso todavia no recibio dano (logro de la estrella).
+    bool levelUndamaged_ = true;
+    // ITEMS de la pausa (trucos activados): quien pauso, la lista abierta y
+    // su seleccion.
+    int pausedBy_ = 0;
+    bool pauseItemsOpen_ = false;
+    int pauseItemSelection_ = 0;
+    std::vector<int> enabledItemExtras() const;   // indices en kExtraContent
+    void applyCheatItem(int extraIndex);
     bool slotActions_ = false;
     int slotActionChoice_ = 0;           // 0 CONTINUAR, 1 BORRAR
     bool confirmingDelete_ = false;

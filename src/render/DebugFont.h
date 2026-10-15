@@ -12,5 +12,7 @@ void drawText(SDL_Renderer* renderer, int x, int y, const std::string& text, int
 // Igual, con un borde negro de un punto alrededor de cada letra: para texto
 // que va encima del nivel (el HUD sobre nubes o techos claros).
 void drawTextOutlined(SDL_Renderer* renderer, int x, int y, const std::string& text, int scale, SDL_Color color);
+// Cuantas letras ocupa el texto (la Ñ viene en dos bytes de UTF-8).
+int length(const std::string& text);
 
 }  // namespace DebugFont

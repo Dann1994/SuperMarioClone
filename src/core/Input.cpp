@@ -94,6 +94,15 @@ void Input::setPadButtons(SDL_GameControllerButton jump, SDL_GameControllerButto
     padRunButton_ = run;
 }
 
+int Input::playerOfController(SDL_JoystickID instanceId) {
+    for (size_t i = 0; i < gControllers.size() && i < 2; ++i) {
+        if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gControllers[i])) == instanceId) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 void Input::rumble(Uint16 strength, Uint32 durationMs) {
     if (controllerSlot_ >= static_cast<int>(gControllers.size())) return;
     SDL_GameControllerRumble(gControllers[controllerSlot_], strength, strength, durationMs);
