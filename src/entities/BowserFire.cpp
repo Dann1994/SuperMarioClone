@@ -28,7 +28,10 @@ void BowserFire::spawn(float x, float y, float velX, float maxY) {
     // fijo para todo el vuelo, no cambia a mitad de camino. La velocidad se
     // calcula para llegar justo a kVerticalShiftPixels de desvio al cabo de
     // kVerticalShiftDuration (ver update()): de ahi en mas sigue derecho.
-    static const float kTargetOffsets[4] = {32.0f, 48.0f, 64.0f, 32.0f};
+    // FlameYPosData del original ($90, $80, $70, $90): 16, 32 o 48 px por
+    // encima del puente (antes 32/48/64: la mas baja pasaba por encima de
+    // Mario chico y la de la cabeza de Mario grande no existia).
+    static const float kTargetOffsets[4] = {16.0f, 32.0f, 48.0f, 16.0f};
     targetY_ = maxY - kTargetOffsets[static_cast<int>(randomRange(0.0f, 3.999f))];
     velY_ = 0.0f;
     verticalShiftTimer_ = 0.0f;

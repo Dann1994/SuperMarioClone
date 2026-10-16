@@ -13,10 +13,13 @@ class Fireball {
 public:
     void spawn(float x, float y, bool movingRight);
     // Martillo del traje de Hammer Bro: sale para arriba y adelante en arco,
-    // atraviesa el escenario y desaparece al pegarle a un enemigo (mata
-    // tambien a los inmunes al fuego) o al salir del nivel.
+    // atraviesa el escenario y a los enemigos (los mata de un golpe, tambien
+    // a los inmunes al fuego; a Bowser con 2) y desaparece al salir del nivel.
     void spawnHammer(float x, float y, bool movingRight);
     bool isHammer() const { return hammer_; }
+    // Un martillo cuenta un solo golpe a Bowser aunque lo atraviese varios cuadros.
+    bool hasHitBowser() const { return hitBowser_; }
+    void markHitBowser() { hitBowser_ = true; }
     void update(float dt, const Tilemap& level, int screenWidth);
     // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
     void render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
@@ -77,6 +80,7 @@ private:
     float explosionTimer_ = 0.0f;
     bool wallHitRequested_ = false;
     bool hammer_ = false;
+    bool hitBowser_ = false;
     bool movingRight_ = true;
     static constexpr float kHammerSpeedX = 120.0f;    // px/s hacia adelante
     static constexpr float kHammerSpeedY = -300.0f;   // px/s hacia arriba al salir

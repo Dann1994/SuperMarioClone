@@ -22,6 +22,7 @@ void Fireball::spawn(float x, float y, bool movingRight) {
 void Fireball::spawnHammer(float x, float y, bool movingRight) {
     spawn(x, y, movingRight);
     hammer_ = true;
+    hitBowser_ = false;
     movingRight_ = movingRight;
     velX_ = movingRight ? kHammerSpeedX : -kHammerSpeedX;
     velY_ = kHammerSpeedY;
@@ -29,10 +30,7 @@ void Fireball::spawnHammer(float x, float y, bool movingRight) {
 
 void Fireball::explode() {
     if (!alive_ || exploding_) return;
-    if (hammer_) {
-        alive_ = false;   // el martillo no explota: desaparece
-        return;
-    }
+    if (hammer_) return;   // el martillo no explota: sigue de largo
     exploding_ = true;
     explosionTimer_ = kExplosionFrameDuration * kExplosionFrameCount;
 }

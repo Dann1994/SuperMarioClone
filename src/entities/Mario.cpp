@@ -279,6 +279,7 @@ void Mario::spawn(float x, float y) {
 }
 
 void Mario::update(float dt, Input& input, const Tilemap& level) {
+    if (benched_) return;
     if (inDeathSequence_) {
         // Se maneja solo (no depende de que Game congele todo): mientras el
         // otro jugador sigue jugando normal, este cae con la pose de
@@ -390,28 +391,61 @@ void Mario::updateHorizontal(float dt, const Input& input) {
 
     const bool left = input.down(Action::MoveLeft);
     const bool right = input.down(Action::MoveRight);
-    // Bajo el agua no hay dash (Action::Run no acelera mas), todo es mas lento.
-    const bool running = !underwater && input.down(Action::Run);
-    const float accel = underwater ? kSwimAccel : (running ? kRunAccel : kWalkAccel);
-    const float maxSpeed = underwater ? kSwimMaxSpeed : (running ? kMaxRunSpeed : kMaxWalkSpeed);
-    const float friction = underwater ? kSwimFriction : kFriction;
+    const int dir = (left && !right) ? -1 : (right && !left) ? 1 : 0;
+    if (dir != 0 && (grounded_ || underwater)) facingRight_ = dir > 0;
 
-    if (left && !right) {
-        velX_ -= accel * dt;
-        facingRight_ = false;
-    } else if (right && !left) {
-        velX_ += accel * dt;
-        facingRight_ = true;
-    } else {
-        // Sin input horizontal: friccion que frena hasta cero sin pasarse.
-        if (velX_ > 0.0f) {
-            velX_ = std::max(0.0f, velX_ - friction * dt);
+    if (underwater) {
+        // Nado: sin dash, todo mas lento (como estaba).
+        if (dir != 0) {
+            velX_ += static_cast<float>(dir) * kSwimAccel * dt;
+        } else if (velX_ > 0.0f) {
+            velX_ = std::max(0.0f, velX_ - kSwimFriction * dt);
         } else if (velX_ < 0.0f) {
-            velX_ = std::min(0.0f, velX_ + friction * dt);
+            velX_ = std::min(0.0f, velX_ + kSwimFriction * dt);
         }
+        velX_ = std::clamp(velX_, -kSwimMaxSpeed, kSwimMaxSpeed);
+        return;
     }
 
-    velX_ = std::clamp(velX_, -maxSpeed, maxSpeed);
+    const float speed = std::abs(velX_);
+    const float moving = velX_ > 0.0f ? 1.0f : (velX_ < 0.0f ? -1.0f : 0.0f);
+    if (grounded_) {
+        const bool running = input.down(Action::Run);
+        const float maxSpeed = running ? kMaxRunSpeed : kMaxWalkSpeed;
+        if (dir == 0) {
+            // Soltar: frena hasta cero sin pasarse.
+            velX_ = moving * std::max(0.0f, speed - kFriction * dt);
+        } else if (moving != 0.0f && static_cast<float>(dir) != moving) {
+            // Patinando: frena fuerte; por debajo de kSkidTurnSpeed ya da la
+            // vuelta y arranca para el otro lado.
+            const float remaining = speed - kSkidDecel * dt;
+            velX_ = remaining > kSkidTurnSpeed ? moving * remaining : static_cast<float>(dir) * kMinWalkSpeed;
+        } else {
+            const float accel = running ? kRunAccel : kWalkAccel;
+            float next = std::max(speed, kMinWalkSpeed) + accel * dt;
+            // Ya iba mas rapido que el tope (solto correr): baja de a poco
+            // con la friccion, no de golpe.
+            if (next > maxSpeed) next = std::max(maxSpeed, speed - kFriction * dt);
+            velX_ = static_cast<float>(dir) * next;
+        }
+        takeoffSpeed_ = std::abs(velX_);
+        return;
+    }
+
+    // En el aire: el tope es el del despegue y soltar no frena.
+    const float airMax = takeoffSpeed_ > kMaxWalkSpeed ? kMaxRunSpeed : kMaxWalkSpeed;
+    if (dir == 0) return;
+    const bool forward = moving == 0.0f || static_cast<float>(dir) == moving;
+    float accel;
+    if (forward) {
+        accel = speed < kMaxWalkSpeed ? kWalkAccel : kRunAccel;
+    } else if (speed >= kMaxWalkSpeed) {
+        accel = kRunAccel;
+    } else {
+        accel = takeoffSpeed_ >= kAirBackFastTakeoff ? kFriction : kWalkAccel;
+    }
+    velX_ += static_cast<float>(dir) * accel * dt;
+    velX_ = std::clamp(velX_, -std::max(airMax, speed), std::max(airMax, speed));
 }
 
 void Mario::updateVertical(float dt, Input& input) {
@@ -699,6 +733,7 @@ void Mario::updateAnimation(float dt, const Input& input) {
 }
 
 void Mario::render(SDL_Renderer* renderer, float cameraX) const {
+    if (benched_) return;
     if (hasFinishedLevel()) return;  // ya entro al castillo
     // Entrando al castillo: en los ultimos px antes de la puerta se funde a
     // negro (a pedido). Se restaura al salir de render, sea por donde sea.

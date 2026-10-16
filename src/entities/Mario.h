@@ -111,6 +111,10 @@ public:
     // vez de a una altura arbitraria (mismo punto de referencia que usa el
     // original para esto, Player_Y_Position).
     float spriteTopY() const { return y_ - static_cast<float>(currentSpriteFrameHeight() - currentHeight()); }
+    // Donde se ve la cabeza (el hitbox no la incluye, ver kBigHitboxHeight):
+    // para lo que tiene que pegar en cuanto toca el dibujo (el fuego de
+    // Bowser). Agachado el frame tiene aire arriba: un poco nomas.
+    float headTopY() const { return isDucking_ ? y_ - 4.0f : spriteTopY(); }
     // Altura fija de Mario/Luigi chico (a diferencia de height(), que
     // depende del tamano actual) -- publica porque Blooper.h la usa como
     // distancia de referencia para frenar antes de tocar el piso (ver
@@ -282,6 +286,18 @@ public:
     }
     bool isWaitingAtFlagpoleBottom() const { return flagpolePhase_ == FlagpolePhase::Bottom; }
     bool isSlidingFlagpole() const { return flagpolePhase_ == FlagpolePhase::Slide; }
+    // 2 a la vez: se quedo sin vidas y mira hasta el proximo nivel (no se
+    // mueve, no se dibuja y queda lejos de todo para no chocar con nada).
+    void setBenched(bool benched) {
+        benched_ = benched;
+        if (benched) {
+            x_ = -10000.0f;
+            y_ = -10000.0f;
+            velX_ = 0.0f;
+            velY_ = 0.0f;
+        }
+    }
+    bool isBenched() const { return benched_; }
     // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34) y la
     // de la estrella (las 12 paletas, ver gen_mario_hammer.py).
     bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
@@ -323,14 +339,22 @@ private:
     // JumpMForceData/FallMForceData/PlayerYSpdData en subpixeles por frame a
     // 60fps, convertidas a px/s y px/s^2) -- investigado a pedido del
     // usuario para reemplazar los valores aproximados que habia antes.
-    static constexpr float kMaxWalkSpeed = 90.0f;         // px/s (0x18 = 1.5px/frame)
-    static constexpr float kMaxRunSpeed = 150.0f;         // px/s, con Action::Run mantenido (0x28 = 2.5px/frame)
-    // El original usa el MISMO valor para acelerar caminando y para frenar
-    // (soltar todo o patinar en sentido contrario): no hay una constante de
-    // friccion separada de verdad, kFriction = kWalkAccel a proposito.
-    static constexpr float kWalkAccel = 133.59375f;       // px/s^2 (0x98/256 subpixel/frame, /16 y *3600)
-    static constexpr float kRunAccel = 200.390625f;       // px/s^2 (0xe4, con Action::Run mantenido)
-    static constexpr float kFriction = kWalkAccel;        // px/s^2, frenar/patinar (mismo valor que caminar)
+    // Movimiento horizontal del original (valores en px.subpx.subsubpx por
+    // cuadro, 1 px = 16 subpx = 256 subsubpx; x60 o x3600 a px/s y px/s^2).
+    // Antes frenaba y patinaba con la aceleracion de caminar y resbalaba
+    // mucho: el original frena mas fuerte al soltar y el doble al patinar.
+    static constexpr float kMaxWalkSpeed = 93.75f;        // px/s (0x01900 = 1,5625 px/cuadro)
+    static constexpr float kMaxRunSpeed = 153.75f;        // px/s, con Action::Run mantenido (0x02900)
+    static constexpr float kMinWalkSpeed = 4.453125f;     // px/s, arranca desde quieto con esto (0x00130)
+    static constexpr float kWalkAccel = 133.59375f;       // px/s^2 (0x00098)
+    static constexpr float kRunAccel = 200.390625f;       // px/s^2 (0x000E4, con Action::Run mantenido)
+    static constexpr float kFriction = 182.8125f;         // px/s^2, soltar todo en el piso (0x000D0)
+    static constexpr float kSkidDecel = 365.625f;         // px/s^2, apretar para el otro lado en el piso (0x001A0)
+    static constexpr float kSkidTurnSpeed = 33.75f;       // px/s, patinando por debajo de esto da la vuelta (0x00900)
+    // En el aire: sin friccion (soltar no frena) y el tope es el de cuando
+    // salio del piso (caminando no pasa de kMaxWalkSpeed aunque apriete
+    // correr). Hacia atras frena mas si salio rapido (0x01D00).
+    static constexpr float kAirBackFastTakeoff = 108.75f; // px/s
     // Gravedad y velocidad inicial de salto: el original usa dos juegos de
     // valores segun que tan rapido se este moviendo Mario AL SALTAR (mas de
     // 5 umbrales en realidad, ver JumpMForceData/PlayerYSpdData en el
@@ -486,6 +510,9 @@ private:
     int platformIndex_ = -1;
 
     FlagpolePhase flagpolePhase_ = FlagpolePhase::None;
+    // Velocidad horizontal (absoluta) con la que dejo el piso: decide el
+    // tope y el frenado en el aire (ver kAirBackFastTakeoff).
+    float takeoffSpeed_ = 0.0f;
     float flagpolePoleX_ = 0.0f;
     float flagpoleBottomY_ = 0.0f;
     float flagpoleExitX_ = 0.0f;
@@ -509,4 +536,5 @@ private:
     static constexpr float kFlagpoleFlipDuration = 0.4f;  // s del otro lado del palo antes de bajarse
     static constexpr float kFlagpoleWalkMaxDuration = 4.0f; // s maximos caminando hacia el castillo
     static inline bool sWorldPalettes = false;
+    bool benched_ = false;
 };

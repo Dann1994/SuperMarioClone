@@ -25,6 +25,13 @@
 //   (FrameCounter & 8), por eso el reloj es compartido (advanceWaddle).
 class Goomba {
 public:
+    // Le cayo encima al caparazon del traje de Hammer Bro: rebota para
+    // arriba. true si recien rebota (venia cayendo), para el sonido.
+    bool bounceUp(float velY) {
+        const bool wasFalling = velY_ >= 0.0f;
+        velY_ = velY;
+        return wasFalling;
+    }
     // Reloj comun del bamboleo: Game lo avanza una vez por cuadro (y no en
     // pausa), como el FrameCounter del original.
     static void advanceWaddle(float dt);

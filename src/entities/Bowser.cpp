@@ -47,6 +47,7 @@ void Bowser::spawn(float x, float y, bool movingRight) {
     hammerBurstRemaining_ = 0;
     hammerBurstTimer_ = 0.0f;
     fireballHits_ = 0;
+    hammerHits_ = 0;
     animTimer_ = 0.0f;
     animFrame_ = 0;
 }
@@ -74,6 +75,14 @@ void Bowser::killByFireball(bool flyRight) {
     if (!isDangerous()) return;
     ++fireballHits_;
     if (fireballHits_ >= kFireballsToDefeat) {
+        defeated_ = true;
+        killFalling(flyRight);
+    }
+}
+
+void Bowser::hitByHammer(bool flyRight) {
+    if (!isDangerous()) return;
+    if (++hammerHits_ >= kHammersToDefeat) {
         defeated_ = true;
         killFalling(flyRight);
     }
@@ -172,13 +181,15 @@ void Bowser::update(float dt, int screenHeight) {
         // Patrulla dentro de kPatrolRange alrededor del spawn (ver el
         // comentario de la clase): rebota en esos bordes, no en tiles --
         // sigue caminando aunque este en el aire de un salto.
+        // Solo se da vuelta contra el borde hacia el que camina y sin
+        // moverlo de lugar: antes, si el recorrido nuevo salia mas chico,
+        // el borde del otro lado le quedaba atras y lo "teletransportaba"
+        // hasta ahi de un cuadro al otro. Ahora vuelve caminando.
         x_ += velX_ * dt;
-        if (x_ <= spawnX_ - patrolRange_) {
-            x_ = spawnX_ - patrolRange_;
+        if (velX_ < 0.0f && x_ <= spawnX_ - patrolRange_) {
             velX_ = kWalkSpeed;
             patrolRange_ = randomPatrolRange();
-        } else if (x_ >= spawnX_ + patrolRange_) {
-            x_ = spawnX_ + patrolRange_;
+        } else if (velX_ > 0.0f && x_ >= spawnX_ + patrolRange_) {
             velX_ = -kWalkSpeed;
             patrolRange_ = randomPatrolRange();
         }

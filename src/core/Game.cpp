@@ -95,7 +95,11 @@ constexpr float kIntroPipeDuration = 160.0f / 60.0f;  // ChangeAreaTimer 0xA0
 constexpr float kPipeEnterDuration = 48.0f / 60.0f;
 constexpr float kPipeSideEnterDuration = 52.0f / 60.0f;
 constexpr float kPipeVerticalSpeed = 60.0f;
+// Lo que le cae encima al caparazon del traje de Hammer Bro sale rebotando.
+constexpr float kShellBounce = -260.0f;
 constexpr float kPipeSideSpeed = 30.0f;
+// Escena del cano: lo que camina el segundo hasta la boca (caminar a fondo).
+constexpr float kIntroWalkSpeed = 93.75f;
 constexpr float kPipeCenterTolerance = 6.0f;
 
 // Castillo: cada cuanto se cae un tramo del puente y cuanto se espera
@@ -705,6 +709,9 @@ void Game::startScenario(TestScenario scenario) {
     playerCoins_ = {};
     scorer_ = 0;
     livesCount_ = kStartingLives;
+    luigiLives_ = kStartingLives;
+    mario_.setBenched(false);
+    luigi_.setBenched(false);
     checkpointCol_ = -1;
     // "Probar desde aca" del editor: la columna pedida cuenta como checkpoint.
     if (scenario == TestScenario::CustomLevel && customStartCol_ >= 0) checkpointCol_ = customStartCol_;
@@ -712,6 +719,12 @@ void Game::startScenario(TestScenario scenario) {
 }
 
 void Game::loadScenario(TestScenario scenario) {
+    pipePartner_ = nullptr;
+    introPartner_ = nullptr;
+    introPartnerInside_ = false;
+    deathPending_ = {};
+    const bool marioBenched = mario_.isBenched();
+    const bool luigiBenched = luigi_.isBenched();
     levelUndamaged_ = true;   // cada intento del nivel arranca sin dano
     // La estrella infinita dura solo el nivel en que se puso.
     if (infiniteStarActive_) {
@@ -946,6 +959,19 @@ void Game::loadScenario(TestScenario scenario) {
     input1_.setScripted(cutscene_, {Action::MoveRight});
     input2_.setScripted(cutscene_, {Action::MoveRight});
     appStateTimer_ = kLevelIntroDuration;
+    // 2 a la vez: el que esta afuera sigue afuera (spawn lo habia traido).
+    if (marioBenched) mario_.setBenched(true);
+    if (luigiBenched) luigi_.setBenched(true);
+    // Niveles de prueba con "start_size" (por ejemplo test_hammer_shell.json).
+    if (!level_.startSize().empty()) {
+        const std::string& size = level_.startSize();
+        const MarioSize start = size == "hammer" ? MarioSize::Hammer
+                                : size == "fire" ? MarioSize::Fire
+                                : size == "big"  ? MarioSize::Big
+                                                 : MarioSize::Small;
+        mario_.setSize(start);
+        luigi_.setSize(start);
+    }
 }
 
 void Game::processEvents() {
@@ -1166,6 +1192,12 @@ void Game::resolveCharacterCollision() {
     // Ninguno de los dos empuja/pisa/choca al otro mientras alguno esta en
     // su secuencia de muerte (ver el mismo criterio en checkGoombaCollision).
     if (mario_.isInDeathSequence() || luigi_.isInDeathSequence()) return;
+    // Titilando (despues de un golpe o al reaparecer): no chocan.
+    if (mario_.isHurtInvincible() || luigi_.isHurtInvincible()) return;
+    if (mario_.isBenched() || luigi_.isBenched()) return;
+    // En la bandera (desde que la agarra hasta que entra al castillo): no
+    // chocan, asi el otro puede agarrarla o pasar sin empujarlo.
+    if (mario_.isOnFlagpole() || luigi_.isOnFlagpole()) return;
 
     const float ax = mario_.x(), ay = mario_.y();
     const float aw = static_cast<float>(mario_.width()), ah = static_cast<float>(mario_.height());
@@ -1297,7 +1329,7 @@ void Game::checkMushroomPickup(Mario& character) {
     if (!overlap) return;
 
     if (mushroom_.isOneUp()) {
-        ++livesCount_;
+        addLife();
         spawnScorePopup(mushroom_.x(), mushroom_.y(), "1UP");
         mushroom_.collect();
         audio_.play(Sfx::OneUp);
@@ -1414,6 +1446,10 @@ void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*
         killEnemyFalling(goomba, character.x() <= goomba.x());
         return;
     }
+    if (shellBlocksFromAbove(character, box.y + box.h)) {
+        if (goomba.bounceUp(kShellBounce)) shellBounceFeedback(character);
+        return;
+    }
     if (!beginContact(&goomba, &character)) return;
     if (handleUnderwaterContactDamage(character)) return;
 
@@ -1471,6 +1507,7 @@ void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, f
         killEnemyFalling(enemy, character.x() <= enemy.x());
         return;
     }
+    if (shellBlocksFromAbove(character, enemy.y() + static_cast<float>(enemy.height()))) return;
     if (!beginContact(&enemy, &character)) return;
     if (handleUnderwaterContactDamage(character)) return;
     if (isStompContact(character, enemy.y(), rule)) {
@@ -1483,6 +1520,12 @@ void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, f
         return;
     }
     applyContactDamage(character);
+}
+
+void Game::shellBounceFeedback(const Mario& character) {
+    // Rebote contra el caparazon del traje: golpe seco y vibracion corta.
+    audio_.play(Sfx::Bump);
+    stompRumble(character);
 }
 
 void Game::checkFireballGoombaCollision(Fireball& fireball, Goomba& goomba) {
@@ -1655,6 +1698,10 @@ void Game::resolveShellEnemyContact(Mario& character, Shell& enemy, bool shellId
     // Con estrella: lo voltea en cualquier estado.
     if (character.isInvincible()) {
         killEnemyFalling(enemy, character.x() <= enemy.x());
+        return;
+    }
+    if (shellBlocksFromAbove(character, enemy.y() + static_cast<float>(enemy.height()))) {
+        if (enemy.bounceUp(kShellBounce)) shellBounceFeedback(character);
         return;
     }
     if (enemy.isTouching(&character)) return;
@@ -1878,6 +1925,7 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     // Con estrella no hace dano (el personaje ya esta protegido, no hace
     // falta nada especial aca -- Mario::takeDamage() ya se encarga).
     if (character.isInvincible()) return;
+    if (shellBlocksFromAbove(character, hammer.y() + static_cast<float>(hammer.height()))) return;
 
     applyContactDamage(character);
 }
@@ -1919,6 +1967,10 @@ void Game::checkSpinyCollision(Mario& character, Spiny& spiny) {
     if (character.isInvincible()) {
         const bool flyRight = character.x() <= spiny.x();
         killEnemyFalling(spiny, flyRight);
+        return;
+    }
+    if (shellBlocksFromAbove(character, spiny.y() + static_cast<float>(Spiny::kSize))) {
+        if (spiny.bounceUp(kShellBounce)) shellBounceFeedback(character);
         return;
     }
 
@@ -2066,6 +2118,11 @@ void Game::checkFireballBulletBillCollision(Fireball& fireball, BulletBill& bull
                           fireball.y() + Fireball::kSize > bulletBill.y();
     if (!overlap) return;
 
+    // El martillo lo mata (ver Fireball::spawnHammer).
+    if (fireball.isHammer()) {
+        killEnemyFalling(bulletBill, fireball.x() <= bulletBill.x());
+        return;
+    }
     // Como el original (HandleEnemyFBallCol): la bola explota contra el Bill
     // Bala pero no le hace nada.
     fireball.explode();
@@ -2138,7 +2195,13 @@ void Game::checkFireballBowserCollision(Fireball& fireball) {
     // A diferencia del resto del elenco: no lo mata de una, solo cuenta
     // para las cinco que hacen falta (ver Bowser::killByFireball).
     const bool flyRight = fireball.x() <= bowser_.x();
-    bowser_.killByFireball(flyRight);
+    if (fireball.isHammer()) {
+        if (fireball.hasHitBowser()) return;
+        fireball.markHitBowser();
+        bowser_.hitByHammer(flyRight);
+    } else {
+        bowser_.killByFireball(flyRight);
+    }
     // El quinto fuego es el que lo derrota: ahi da los puntos. En los
     // mundos 1-7 era un disfraz: cae el enemigo que estaba adentro.
     if (bowser_.isFalling()) {
@@ -2155,9 +2218,11 @@ void Game::checkBowserFireCollision(Mario& character, BowserFire& fire) {
     if (character.isInDeathSequence()) return;
     if (!fire.isAlive()) return;
 
+    // Hasta la cabeza (el hitbox normal llega a la frente): si no, la llama
+    // le pasaba por la cabeza a la vista sin hacerle dano.
     const bool overlap =
         character.x() < fire.x() + fire.width() && character.x() + character.width() > fire.x() &&
-        character.y() < fire.y() + fire.height() && character.y() + character.height() > fire.y();
+        character.headTopY() < fire.y() + fire.height() && character.y() + character.height() > fire.y();
     if (!overlap) return;
 
     // No es un enemigo (no hace falta pisarlo ni matarlo) y no desaparece
@@ -2178,6 +2243,11 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
         character.x() < axe.x() + axe.width() && character.x() + character.width() > axe.x() &&
         character.y() < axe.y() + axe.height() && character.y() + character.height() > axe.y();
     if (!overlap) return;
+    // Hay que llegar a la altura del hacha (pararse en el escalon o saltar
+    // hasta ella): grande, caminando por el puente, chocaba la cabeza con
+    // el hacha al toparse con el escalon de abajo y ya la tocaba.
+    constexpr float kAxeFeetTolerance = 2.0f;
+    if (character.y() + character.height() > axe.y() + axe.height() + kAxeFeetTolerance) return;
 
     // Unica forma de derrotarlo de una sola vez sin ser de fuego (ver
     // Axe.h/Bowser.h): tambien vale si ya esta derrotado (por si llega
@@ -2188,6 +2258,15 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     levelFinisher_ = scorer_;
     castleMessage_ = true;
     if (level_.hasAnyBridge()) {
+        // Ya lo derrotaron con fuego: el hacha no corta el puente (no hace
+        // falta y en 2 a la vez tiraba a la lava al que seguia arriba).
+        if (bowser_.isDefeated()) {
+            bridgeChainGone_ = true;
+            frenzies_.clear();
+            for (BowserFire& fire : bowserFires_) fire.reset();
+            finishCastleFight();
+            return;
+        }
         startBridgeCollapse();
         return;
     }
@@ -2257,7 +2336,10 @@ void Game::checkSideWarp(Mario& character) {
         const float right = character.x() + static_cast<float>(character.width());
         const bool atMouth = right >= left - 1.0f && character.x() < left + 2.0f * ts;
         const bool fits = character.y() >= top - 1.0f && character.y() + character.height() <= top + 2.0f * ts + 1.0f;
-        if (!atMouth || !fits || !pushing) continue;
+        // Solo parado en el piso, como el original (CheckSideMTiles entra al
+        // cano de costado solo con Player_State 0): saltando contra la boca
+        // no entra.
+        if (!atMouth || !fits || !pushing || !character.isGrounded()) continue;
         if (cutscene_) {
             // Intro: se queda adentro (tapado por la tuberia) con el sonido
             // de tuberia; el jingle ya viene sonando desde que empezo a
@@ -2269,6 +2351,10 @@ void Game::checkSideWarp(Mario& character) {
             // hace finishIntroPipe, no la animacion.
             startPipeEnter(character, warp);
             pipeAnim_.timer = kIntroPipeDuration + 1.0f;
+            Mario& partner = &character == &mario_ ? luigi_ : mario_;
+            introPartner_ = nullptr;
+            introPartnerInside_ = false;
+            if (twoPlayerMode_ && !partner.isBenched() && !partner.isInDeathSequence()) introPartner_ = &partner;
         } else {
             startPipeEnter(character, warp);
         }
@@ -2321,7 +2407,24 @@ void Game::updatePipeAnim(float dt) {
     if (pipeAnim_.timer > 0.0f) return;
 
     if (pipeAnim_.exiting) {
-        // Termino de salir: sigue el juego.
+        // Termino de salir. En 2 a la vez, ahora sale el companero por el
+        // mismo cano; si no, sigue el juego.
+        if (pipePartner_) {
+            Mario& partner = *pipePartner_;
+            pipePartner_ = nullptr;
+            const float pipeTop = character.y() + static_cast<float>(character.height());
+            const float centerX = character.x() + static_cast<float>(character.width()) / 2.0f;
+            partner.spawn(centerX - static_cast<float>(partner.width()) / 2.0f, pipeTop);
+            partner.setGrounded(true);
+            audio_.play(Sfx::Pipe);
+            pipeAnim_ = PipeAnim{};
+            pipeAnim_.active = true;
+            pipeAnim_.exiting = true;
+            pipeAnim_.character = &partner;
+            pipeAnim_.velY = -kPipeVerticalSpeed;
+            pipeAnim_.timer = static_cast<float>(partner.height()) / kPipeVerticalSpeed;
+            return;
+        }
         pipeAnim_ = PipeAnim{};
         return;
     }
@@ -2359,6 +2462,13 @@ void Game::updatePipeAnim(float dt) {
             pipeAnim_.velX = 0.0f;
             pipeAnim_.velY = -kPipeVerticalSpeed;
             pipeAnim_.timer = static_cast<float>(character.height()) / kPipeVerticalSpeed;
+            // 2 a la vez: el companero sale despues, por este mismo cano
+            // (hasta entonces no se dibuja; queda abajo del tope).
+            Mario& partner = &character == &mario_ ? luigi_ : mario_;
+            if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+                pipePartner_ = &partner;
+                partner.spawn(character.x(), pipeTop + static_cast<float>(ts));
+            }
             return;
         }
         break;
@@ -2387,8 +2497,60 @@ void Game::keepCharacterInsideArea(Mario& character) {
     }
 }
 
+void Game::renderEnteringSidePipe(const Mario& character, const PipeWarp& warp) {
+    // Entrando de costado: las piezas del cuerpo de la tuberia horizontal
+    // tienen la fila de arriba y la de abajo transparentes, y Mario grande
+    // (32 px, lo mismo que la tuberia) asomaba por ahi la gorra y los pies.
+    // En la NES no pasa porque los sprites se ven 1 px mas abajo de su
+    // posicion. Aca: lo que ya paso la boca se recorta al interior de la
+    // tuberia.
+    const int ts = level_.tileSize();
+    const int mouthX = warp.col * ts - static_cast<int>(std::lround(cameraX_));
+    const int pipeTop = warp.row * ts;
+    SDL_Rect previousClip;
+    SDL_RenderGetClipRect(renderer_, &previousClip);
+    const bool hadClip = SDL_RenderIsClipEnabled(renderer_) == SDL_TRUE;
+    const SDL_Rect outside{0, 0, std::max(0, mouthX), kWorldViewBottom};
+    SDL_RenderSetClipRect(renderer_, &outside);
+    character.render(renderer_, cameraX_);
+    const SDL_Rect inside{mouthX, pipeTop + 1, std::max(0, gLogicalWidth - mouthX), 2 * ts - 2};
+    SDL_RenderSetClipRect(renderer_, &inside);
+    character.render(renderer_, cameraX_);
+    SDL_RenderSetClipRect(renderer_, hadClip ? &previousClip : nullptr);
+}
+
+void Game::updateIntroPartner(float dt) {
+    if (!introPartner_) return;
+    Mario& partner = *introPartner_;
+    const float ts = static_cast<float>(level_.tileSize());
+    const float mouth = static_cast<float>(pendingWarp_.col) * ts;
+    const float inside = static_cast<float>(pendingWarp_.col + 2) * ts;
+    partner.setFacingRight(true);
+    partner.setGrounded(true);
+    if (!introPartnerInside_) {
+        // Camina hasta la boca, como venia.
+        partner.nudgeX(std::min(kIntroWalkSpeed * dt, mouth - (partner.x() + partner.width())));
+        partner.stepWalkAnimation(dt);
+        if (partner.x() + static_cast<float>(partner.width()) >= mouth - 0.5f) {
+            introPartnerInside_ = true;
+            audio_.play(Sfx::Pipe);
+        }
+        return;
+    }
+    // Adentro: igual que el primero (updatePipeAnim), despacio hasta quedar
+    // tapado y ahi quieto.
+    if (partner.x() < inside) {
+        partner.nudgeX(std::min(kPipeSideSpeed * dt, inside - partner.x()));
+        partner.stepWalkAnimation(dt);
+    } else {
+        partner.standStill();
+    }
+}
+
 void Game::finishIntroPipe() {
     cutscene_ = false;
+    introPartner_ = nullptr;
+    introPartnerInside_ = false;
     pipeAnim_ = PipeAnim{};
     input1_.setScripted(false);
     input2_.setScripted(false);
@@ -2832,7 +2994,8 @@ void Game::updateCamera(float dt) {
     // Tampoco cuenta el que ya se bajo de la bandera y camina al castillo
     // (o ya entro): sale de pantalla a proposito.
     auto followable = [](const Mario& character) {
-        return !character.isInDeathSequence() && (!character.isOnFlagpole() || character.isHoldingFlagpole());
+        return !character.isBenched() && !character.isInDeathSequence() &&
+               (!character.isOnFlagpole() || character.isHoldingFlagpole());
     };
     const bool marioActive = followable(mario_);
     const bool luigiActive = twoPlayerMode_ && followable(luigi_);
@@ -2970,16 +3133,20 @@ void Game::keepCharactersOnScreen() {
     for (Mario* character : {&mario_, &luigi_}) {
         // El que cae muerto sale de pantalla a proposito (y despues
         // reaparece), no se lo frena.
-        if (character->isInDeathSequence()) continue;
+        if (character->isInDeathSequence() || character->isBenched()) continue;
         // Idem el que esta en la secuencia de la bandera (la camara ya lo
         // tenia en pantalla al agarrarla, y despues se va al castillo).
         if (character->isOnFlagpole()) continue;
+        // Tocada la bandera la camara queda quieta (ver updateCamera): el
+        // otro puede salir por la derecha para llegar al mastil/castillo,
+        // aunque la pantalla haya quedado atras.
+        const bool flagReached = levelEnding_ && !castleMessage_;
         const float minX = cameraX_;
         const float maxX = cameraX_ + static_cast<float>(gLogicalWidth - character->width());
         if (character->x() < minX) {
             character->nudgeX(minX - character->x());
             if (character->velocityX() < 0.0f) character->setVelocityX(0.0f);
-        } else if (character->x() > maxX) {
+        } else if (character->x() > maxX && !flagReached) {
             character->nudgeX(maxX - character->x());
             if (character->velocityX() > 0.0f) character->setVelocityX(0.0f);
         }
@@ -3044,6 +3211,7 @@ void Game::update(float dt) {
         // Intro: Mario se mete caminando en la tuberia y todo lo demas queda
         // quieto hasta que termina el jingle.
         if (pipeAnim_.active) updatePipeAnim(dt);
+        if (cutscene_) updateIntroPartner(dt);
         pipeTransitionTimer_ -= dt;
         if (pipeTransitionTimer_ <= 0.0f) finishIntroPipe();
         return;
@@ -3064,8 +3232,11 @@ void Game::update(float dt) {
     // cuenta como "murieron todos" y tambien congela.
     const bool damageOrGrowFrozen = mario_.isInDamageSequence() || mario_.isInGrowSequence() ||
         (twoPlayerMode_ && (luigi_.isInDamageSequence() || luigi_.isInGrowSequence()));
+    const auto down = [&](const Mario& character, int index) {
+        return character.isInDeathSequence() || character.isBenched() || deathPending_[static_cast<size_t>(index)];
+    };
     const bool everyoneDying = twoPlayerMode_
-        ? (mario_.isInDeathSequence() && luigi_.isInDeathSequence())
+        ? (down(mario_, 0) && down(luigi_, 1) && !(mario_.isBenched() && luigi_.isBenched()))
         : mario_.isInDeathSequence();
 
     if (damageOrGrowFrozen || everyoneDying) {
@@ -3077,17 +3248,20 @@ void Game::update(float dt) {
         mario_.updateDamageSequence(dt);
         mario_.updateGrowSequence(dt);
         mario_.updateDeathSequence(dt);
-        mario_.consumeDeathFinished();
+        if (mario_.consumeDeathFinished()) deathPending_[0] = true;
         if (twoPlayerMode_) {
             luigi_.updateDamageSequence(dt);
             luigi_.updateGrowSequence(dt);
             luigi_.updateDeathSequence(dt);
-            luigi_.consumeDeathFinished();
+            if (luigi_.consumeDeathFinished()) deathPending_[1] = true;
         }
         // Recien cuando terminaron TODAS las secuencias de muerte (en 2P
         // uno pudo haber muerto un poco despues que el otro).
         const bool stillDying = mario_.isInDeathSequence() || (twoPlayerMode_ && luigi_.isInDeathSequence());
-        if (everyoneDying && !stillDying) onAllPlayersDied();
+        if (everyoneDying && !stillDying) {
+            deathPending_ = {};
+            onAllPlayersDied();
+        }
         return;
     }
 
@@ -3124,9 +3298,7 @@ void Game::update(float dt) {
     // Solo se llega aca muriendo en 2P con el otro todavia vivo (en 1P o en
     // "murieron los dos" ya se atendio arriba): reaparece en la plataforma
     // mas cercana en vez del spawn del nivel, sin pausar nada.
-    if (mario_.consumeDeathFinished()) {
-        respawnNearestPlatform(mario_);
-    }
+    if (mario_.consumeDeathFinished()) onCoopPlayerDied(mario_);
 
     if (twoPlayerMode_) {
         luigi_.update(dt, input2_, level_);
@@ -3139,9 +3311,7 @@ void Game::update(float dt) {
             audio_.play(luigi_.size() == MarioSize::Small ? Sfx::JumpSmall : Sfx::Jump);
         }
         if (luigi_.consumeSwimStrokeSoundRequest()) audio_.play(Sfx::StompKill);
-        if (luigi_.consumeDeathFinished()) {
-            respawnNearestPlatform(luigi_);
-        }
+        if (luigi_.consumeDeathFinished()) onCoopPlayerDied(luigi_);
         resolveCharacterCollision();
     }
 
@@ -3628,28 +3798,10 @@ void Game::render() {
     // El que esta entrando/saliendo de una tuberia va detras del escenario
     // (como el original, que le baja la prioridad al sprite): la tuberia y
     // el piso lo tapan mientras se hunde o sale.
+    if (introPartner_ && introPartnerInside_) renderEnteringSidePipe(*introPartner_, pendingWarp_);
     if (pipeAnim_.active && pipeAnim_.character) {
         if (pipeAnim_.warp.side && !pipeAnim_.exiting) {
-            // Entrando de costado: las piezas del cuerpo de la tuberia
-            // horizontal tienen la fila de arriba y la de abajo
-            // transparentes, y Mario grande (32 px, lo mismo que la
-            // tuberia) asomaba por ahi la gorra y los pies. En la NES no
-            // pasa porque los sprites se ven 1 px mas abajo de su posicion.
-            // Aca: lo que ya paso la boca se recorta al interior de la
-            // tuberia.
-            const int ts = level_.tileSize();
-            const int mouthX = pipeAnim_.warp.col * ts - static_cast<int>(std::lround(cameraX_));
-            const int pipeTop = pipeAnim_.warp.row * ts;
-            SDL_Rect previousClip;
-            SDL_RenderGetClipRect(renderer_, &previousClip);
-            const bool hadClip = SDL_RenderIsClipEnabled(renderer_) == SDL_TRUE;
-            const SDL_Rect outside{0, 0, std::max(0, mouthX), kWorldViewBottom};
-            SDL_RenderSetClipRect(renderer_, &outside);
-            pipeAnim_.character->render(renderer_, cameraX_);
-            const SDL_Rect inside{mouthX, pipeTop + 1, std::max(0, gLogicalWidth - mouthX), 2 * ts - 2};
-            SDL_RenderSetClipRect(renderer_, &inside);
-            pipeAnim_.character->render(renderer_, cameraX_);
-            SDL_RenderSetClipRect(renderer_, hadClip ? &previousClip : nullptr);
+            renderEnteringSidePipe(*pipeAnim_.character, pipeAnim_.warp);
         } else {
             pipeAnim_.character->render(renderer_, cameraX_);
         }
@@ -3803,7 +3955,10 @@ void Game::render() {
         retainerSprite_.draw(renderer_, 0, frame, retainer_.x * ts - static_cast<int>(std::lround(cameraX_)),
                              (retainer_.y + 1) * ts - 24, false);
     }
-    if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &mario_)) renderCharacter(mario_, marioPlatform_);
+    if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &mario_) && pipePartner_ != &mario_ &&
+        !(introPartner_ == &mario_ && introPartnerInside_)) {
+        renderCharacter(mario_, marioPlatform_);
+    }
     // Jugando solo con Luigi, el personaje 1 es Luigi: su fuego tambien es verde.
     {
         const bool luigiFire = playAsLuigi_ && !twoPlayerMode_;
@@ -3812,7 +3967,10 @@ void Game::render() {
         for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_, &hammerSprite_);
     }
     if (twoPlayerMode_) {
-        if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_)) renderCharacter(luigi_, luigiPlatform_);
+        if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_) && pipePartner_ != &luigi_ &&
+            !(introPartner_ == &luigi_ && introPartnerInside_)) {
+            renderCharacter(luigi_, luigiPlatform_);
+        }
         for (const Fireball& fireball : luigiFireballs_) {
             fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_, &hammerSprite_);
         }
@@ -4351,7 +4509,7 @@ void Game::collectCoin() {
     ++coins;
     if (coins >= 100) {
         coins -= 100;
-        ++livesCount_;
+        addLife();
         audio_.play(Sfx::OneUp);
     }
 }
@@ -4416,10 +4574,20 @@ void Game::renderHud() {
     };
 
     if (twoPlayerMode_ && !onTitle) {
+        // El que se quedo sin vidas: GAME OVER debajo de su puntaje, en lugar
+        // de sus monedas (al lado del nombre no entra en la pantalla 4:3).
         drawPlayer(marioX, "MARIO", marioRed, playerScore_[0]);
-        drawCoins(marioX, kCoinsY, playerCoins_[0]);
+        if (mario_.isBenched()) {
+            DebugFont::drawTextOutlined(renderer_, marioX, kCoinsY, "GAME OVER", 2, white);
+        } else {
+            drawCoins(marioX, kCoinsY, playerCoins_[0]);
+        }
         drawPlayer(luigiX, "LUIGI", luigiGreen, playerScore_[1]);
-        drawCoins(luigiX, kCoinsY, playerCoins_[1]);
+        if (luigi_.isBenched()) {
+            DebugFont::drawTextOutlined(renderer_, luigiX, kCoinsY, "GAME OVER", 2, white);
+        } else {
+            drawCoins(luigiX, kCoinsY, playerCoins_[1]);
+        }
     } else {
         if (playAsLuigi_ && !onTitle) {
             drawPlayer(marioX, "LUIGI", luigiGreen, score_);
@@ -4493,7 +4661,39 @@ bool Game::passTurn() {
     return true;
 }
 
+void Game::onCoopPlayerDied(Mario& character) {
+    int& lives = livesOf(character);
+    --lives;
+    if (lives > 0) {
+        respawnNearestPlatform(character);
+        return;
+    }
+    lives = 0;
+    character.setBenched(true);   // GAME OVER de este: mira hasta el proximo nivel
+}
+
 void Game::onAllPlayersDied() {
+    if (coopLives()) {
+        // 2 a la vez: cada uno que estaba jugando pierde una vida; el que se
+        // queda sin vidas queda afuera. Si no queda ninguno, GAME OVER.
+        for (Mario* character : {&mario_, &luigi_}) {
+            if (character->isBenched()) continue;
+            int& lives = livesOf(*character);
+            if (--lives <= 0) {
+                lives = 0;
+                character->setBenched(true);
+            }
+        }
+        if (mario_.isBenched() && luigi_.isBenched()) {
+            saveTopScore();
+            appState_ = AppState::GameOver;
+            appStateTimer_ = kGameOverDuration;
+            audio_.playMusic(Music::GameOver, false);
+            return;
+        }
+        loadScenario(scenario_);
+        return;
+    }
     --livesCount_;
     if (turnMode_) {
         saveTurnState();
@@ -4559,10 +4759,35 @@ void Game::renderLevelIntro() {
     const SDL_Color white{255, 255, 255, 255};
     const std::string world = std::string(tr(Txt::HudWorld)) + " " + level_.name();
     DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(world.size()) * 8) / 2, 80, world, 2, white);
+    char text[32];
+    if (coopLives()) {
+        // 2 a la vez: los dos, cada uno con su nombre y sus vidas (o GAME
+        // OVER si se quedo sin vidas).
+        const int x = gLogicalWidth / 2 - 64;
+        const struct {
+            const SpriteSheet* sprite;
+            const char* name;
+            SDL_Color color;
+            const Mario* character;
+            int lives;
+        } rows[2] = {{&introMarioSprite_, "MARIO", SDL_Color{248, 56, 0, 255}, &mario_, livesCount_},
+                     {&introLuigiSprite_, "LUIGI", SDL_Color{0, 200, 0, 255}, &luigi_, luigiLives_}};
+        for (int i = 0; i < 2; ++i) {
+            const int y = 104 + i * 24;
+            rows[i].sprite->draw(renderer_, 0, 0, x, y, false);
+            DebugFont::drawText(renderer_, x + 24, y + 4, rows[i].name, 2, rows[i].color);
+            if (rows[i].character->isBenched() || rows[i].lives <= 0) {
+                DebugFont::drawText(renderer_, x + 72, y + 4, "GAME OVER", 2, white);
+            } else {
+                std::snprintf(text, sizeof(text), "x  %d", rows[i].lives);
+                DebugFont::drawText(renderer_, x + 72, y + 4, text, 2, white);
+            }
+        }
+        return;
+    }
     // Mario chico parado, una "x" y las vidas (como el original).
     const int x = gLogicalWidth / 2 - 28;
     (playAsLuigi_ ? introLuigiSprite_ : introMarioSprite_).draw(renderer_, 0, 0, x, 108, false);
-    char text[16];
     std::snprintf(text, sizeof(text), "x  %d", livesCount_);
     DebugFont::drawText(renderer_, x + 24, 112, text, 2, white);
 }
@@ -4574,7 +4799,7 @@ void Game::renderGameOver() {
 void Game::awardIndexedPoints(float x, float y, int index) {
     static const char* const kPoints[] = {"100", "200", "400", "500", "800", "1000", "2000", "4000", "5000", "8000"};
     if (index >= 11) {
-        ++livesCount_;
+        addLife();
         audio_.play(Sfx::OneUp);
         spawnScorePopup(x, y, "1UP");
         return;
@@ -5118,8 +5343,11 @@ void Game::execLoopback(int backCols) {
 }
 
 void Game::updateFrenzies(float dt) {
-    const float px = mario_.x();
+    // El que va mas adelante (en 2 a la vez Mario puede estar afuera).
+    float px = mario_.isBenched() ? luigi_.x() : mario_.x();
+    if (twoPlayerMode_ && !luigi_.isBenched()) px = std::max(px, luigi_.x());
     for (Frenzy& frenzy : frenzies_) {
+        if (frenzy.stopped) continue;
         if (px < frenzy.startX || px > frenzy.endX) continue;
         frenzy.timer -= dt;
         if (frenzy.timer > 0.0f) continue;
@@ -5148,8 +5376,10 @@ void Game::updateFrenzies(float dt) {
             case Frenzy::Kind::Flame: {
                 // Llamas de Bowser antes de llegar al puente (original:
                 // SetFlameTimer + 0x20 cuadros entre una y otra).
-                if (bowser_.isAlive()) {
-                    frenzy.timer = 1.0f;
+                // Llegando a Bowser se terminan para siempre (antes volvian
+                // a salir al derrotarlo, cuando caia fuera de la pantalla).
+                if (bowser_.isAlive() || bowser_.isDefeated()) {
+                    frenzy.stopped = true;
                     break;
                 }
                 static const float kTable[8] = {3.18f, 1.07f, 3.18f, 3.18f, 3.18f, 1.07f, 1.07f, 3.18f};
@@ -5158,8 +5388,9 @@ void Game::updateFrenzies(float dt) {
                 if (!enemySlotFree()) break;
                 for (BowserFire& fire : bowserFires_) {
                     if (fire.isAlive()) continue;
-                    // El fuego se acomoda a 32/48/64 px por encima de maxY.
-                    fire.spawn(right, 144.0f, -75.0f, 192.0f);
+                    // El fuego se acomoda a 16/32/48 px por encima de maxY
+                    // (el puente): $90/$80/$70 del original.
+                    fire.spawn(right, 144.0f, -75.0f, 176.0f);
                     audio_.play(Sfx::BowserFire);
                     break;
                 }
@@ -5444,6 +5675,49 @@ void Game::updateBridgeCollapse(float dt) {
         bowser_.killByAxe(false);
         audio_.play(Sfx::BowserFall);
     }
+    landOnAxeGround();
+    finishCastleFight();
+}
+
+void Game::landOnAxeGround() {
+    // El que toco el hacha saltando quedo quieto en el aire mientras caia el
+    // puente; si abajo ya no hay nada (solo la lava), al seguir el juego
+    // caia y moria. Lo dejamos parado en el piso del hacha (en 2 a la vez,
+    // el segundo al lado), que es donde termina la caminata del original.
+    const int ts = level_.tileSize();
+    const int axeCol = static_cast<int>(axe_.x() + axe_.width() / 2.0f) / ts;
+    int groundRow = -1;
+    for (int row = std::max(0, static_cast<int>(axe_.y()) / ts); row < level_.heightTiles(); ++row) {
+        if (level_.isSolidTile(axeCol, row)) {
+            groundRow = row;
+            break;
+        }
+    }
+    if (groundRow < 0) return;
+    auto overGap = [&](const Mario& character) {
+        const int col0 = static_cast<int>(std::floor(character.x() / ts));
+        const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
+        const int feetRow = std::max(0, static_cast<int>(character.y() + character.height()) / ts);
+        for (int col = col0; col <= col1; ++col) {
+            for (int row = feetRow; row < level_.heightTiles(); ++row) {
+                if (level_.isSolidTile(col, row)) return false;
+            }
+        }
+        return true;
+    };
+    int placed = 0;
+    for (Mario* character : {&mario_, &luigi_}) {
+        if (character == &luigi_ && !twoPlayerMode_) continue;
+        if (character->isBenched() || character->isInDeathSequence()) continue;
+        if (!overGap(*character)) continue;
+        const float x = static_cast<float>((axeCol + placed) * ts);
+        character->spawn(x, static_cast<float>(groundRow * ts - character->height()));
+        character->setFacingRight(true);
+        ++placed;
+    }
+}
+
+void Game::finishCastleFight() {
     castleClearTimer_ = kCastleClearDelay;
     if (retainer_.x >= 0) {
         // Camina solo hasta el Toad / la princesa (sin control del jugador).

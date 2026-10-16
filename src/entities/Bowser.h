@@ -92,6 +92,8 @@ public:
     // el llamador segun de que lado vino el golpe/toque.
     void killByFireball(bool flyRight);
     void killByAxe(bool flyRight);
+    // Martillo del traje de Hammer Bro: lo derrota con kHammersToDefeat.
+    void hitByHammer(bool flyRight);
 
     // Mientras dura el amague (boca cerrada, ver kAttackWindupDuration):
     // Game.cpp puede usarlo igual que HammerBro::isWindingUp().
@@ -171,6 +173,7 @@ private:
     static constexpr float kFallKillHopImpulse = -180.0f;
     static constexpr float kFallKillHorizontalSpeed = 60.0f;
     static constexpr int kFireballsToDefeat = 5;
+    static constexpr int kHammersToDefeat = 2;
 
     void killFalling(bool flyRight);
 
@@ -201,6 +204,7 @@ private:
     int hammerBurstRemaining_ = 0;
     float hammerBurstTimer_ = 0.0f;
     int fireballHits_ = 0;
+    int hammerHits_ = 0;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
 };

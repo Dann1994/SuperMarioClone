@@ -159,6 +159,9 @@ public:
     int startPointCol() const { return startPointCol_; }
     int startPointRow() const { return startPointRow_; }
     bool startFacingLeft() const { return startFacingLeft_; }
+    // Niveles de prueba: con que forma arrancan los personajes ("big",
+    // "fire", "hammer"; vacio = la que traian).
+    const std::string& startSize() const { return startSize_; }
 
     // Solido invisible ('X'): bloquea como '#' pero no se dibuja (la parte
     // de una escenografia que tiene que frenar, como el tramo vertical de la
@@ -397,6 +400,7 @@ private:
     int startPointCol_ = -1;
     int startPointRow_ = -1;
     bool startFacingLeft_ = false;
+    std::string startSize_;
     std::vector<uint8_t> scenery_;       // row-major, el caracter ('t', 'K'...) o 0
     std::vector<uint8_t> lava_;          // row-major, 1 = lava ('L')
     std::vector<uint8_t> bridge_;        // row-major, 1 = tramo de puente sin derrumbar ('b')

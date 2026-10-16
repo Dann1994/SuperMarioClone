@@ -101,6 +101,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
     }
     introArea_ = json.contains("intro") ? json["intro"].value("area", -1) : -1;
     startCol_ = json.value("start_col", -1);
+    startSize_ = json.value("start_size", std::string());
     startPointCol_ = -1;
     startPointRow_ = -1;
     startFacingLeft_ = false;

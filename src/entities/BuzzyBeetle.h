@@ -54,6 +54,13 @@ enum class BuzzyBeetleState {
 
 class BuzzyBeetle {
 public:
+    // Le cayo encima al caparazon del traje de Hammer Bro: rebota para
+    // arriba. true si recien rebota (venia cayendo), para el sonido.
+    bool bounceUp(float velY) {
+        const bool wasFalling = velY_ >= 0.0f;
+        velY_ = velY;
+        return wasFalling;
+    }
     void spawn(float x, float y, bool movingRight);
     // Lo desactiva sin ninguna animacion de muerte: para cuando se cambia
     // de escenario de prueba y este no tiene que seguir vivo.

@@ -40,6 +40,13 @@ enum class SpinyState {
 
 class Spiny {
 public:
+    // Le cayo encima al caparazon del traje de Hammer Bro: rebota para
+    // arriba. true si recien rebota (venia cayendo), para el sonido.
+    bool bounceUp(float velY) {
+        const bool wasFalling = velY_ >= 0.0f;
+        velY_ = velY;
+        return wasFalling;
+    }
     // velX/velY: impulso inicial mientras esta en Egg (ver el comentario de
     // la clase) -- lo tira Lakitu, no lo elige este spawn.
     void spawn(float x, float y, float velX, float velY);

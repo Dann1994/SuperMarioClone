@@ -73,6 +73,13 @@ enum class KoopaColor {
 
 class Koopa {
 public:
+    // Le cayo encima al caparazon del traje de Hammer Bro: rebota para
+    // arriba. true si recien rebota (venia cayendo), para el sonido.
+    bool bounceUp(float velY) {
+        const bool wasFalling = velY_ >= 0.0f;
+        velY_ = velY;
+        return wasFalling;
+    }
     // Especie/color: se fija una sola vez (no cambia en la vida del Koopa,
     // a diferencia de KoopaState). Verde por defecto -- solo hace falta
     // llamar esto para instancias rojas.

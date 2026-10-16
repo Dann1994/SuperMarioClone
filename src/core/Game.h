@@ -378,6 +378,12 @@ private:
     // suba (Lakitu, Bill Bala, Cheep Cheep, Blooper); Never = siempre lastima.
     enum class StompRule { Falling, FallingOrBelow, Never };
     static bool isStompContact(const Mario& character, float enemyTop, StompRule rule);
+    // Agachado con el traje de Hammer Bro: lo que le cae por arriba (el
+    // borde de abajo en la mitad de arriba del caparazon) no lo lastima.
+    static bool shellBlocksFromAbove(const Mario& character, float objectBottom) {
+        return character.isHammerShell() &&
+               objectBottom <= character.y() + static_cast<float>(character.height()) / 2.0f;
+    }
     // Contacto generico con un enemigo que al pisarlo cae volteado
     // (killFalling): estrella lo voltea, pisoton lo voltea con rebote,
     // si no lastima. Un contacto por encuentro (ver beginContact).
@@ -528,6 +534,12 @@ private:
     // a los kCastleClearDelay segundos arranca el cierre del nivel (cuenta
     // del tiempo + cartel, ver updateLevelClear).
     void startBridgeCollapse();
+    // Pelea terminada (puente caido o hacha con Bowser ya derrotado): la
+    // musica del castillo y la caminata hasta el Toad / la princesa.
+    void finishCastleFight();
+    // Al terminar de caer el puente: el que quedo sobre el hueco (toco el
+    // hacha saltando) va parado al piso del hacha.
+    void landOnAxeGround();
     void updateBridgeCollapse(float dt);
     // Vuelve el castillo de prueba al estado inicial (teclas Y/T).
     void resetCastleSequence();
@@ -752,6 +764,8 @@ private:
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
     // Vibracion leve al pisar un enemigo (si la vibracion esta activada).
     void stompRumble(const Mario& character);
+    // Le rebota un enemigo en el caparazon del traje de Hammer Bro.
+    void shellBounceFeedback(const Mario& character);
     // Vibraciones con ritmo (una secuencia de pulsos por jugador, la nueva
     // reemplaza a la que estaba sonando): la de agarrar un item sigue las
     // notas de powerup.wav / 1up.wav, la de ser golpeado las de
@@ -892,6 +906,17 @@ private:
         PipeWarp warp{};
     };
     PipeAnim pipeAnim_;
+    // 2 a la vez: el companero espera escondido adentro del cano de destino
+    // y sale despues del que entro (uno a la vez, por el mismo cano).
+    Mario* pipePartner_ = nullptr;
+    // Escena del cano (x-2) de a 2: el que no entro primero sigue caminando
+    // y se mete detras (en vez de quedar congelado afuera).
+    Mario* introPartner_ = nullptr;
+    bool introPartnerInside_ = false;
+    void updateIntroPartner(float dt);
+    // Dibuja a alguien entrando de costado a un cano: lo que paso la boca,
+    // recortado al interior (ver renderCharacters).
+    void renderEnteringSidePipe(const Mario& character, const PipeWarp& warp);
     bool hurryMusic_ = false;
     float hurryJingleTimer_ = 0.0f;
     // El tema de fin de nivel (bandera o castillo) ya sono.
@@ -1007,6 +1032,18 @@ private:
     // Pares (enemigo, personaje) que se estan tocando ahora (ver beginContact).
     std::vector<std::pair<const void*, const void*>> enemyContacts_;
     int livesCount_ = 0;
+    // 2 a la vez: las vidas de Luigi (las de Mario son livesCount_).
+    int luigiLives_ = 0;
+    // 2 a la vez, murieron los dos: el que termino su animacion de muerte
+    // antes que el otro queda esperando (si no, el juego seguia, volvia a
+    // morir por el pozo una y otra vez y el nivel no se reiniciaba).
+    std::array<bool, 2> deathPending_{};
+    bool coopLives() const { return twoPlayerMode_ && !turnMode_; }
+    int& livesOf(const Mario& character) { return (coopLives() && &character == &luigi_) ? luigiLives_ : livesCount_; }
+    // Vida extra para el que la gano (scorer_).
+    void addLife() { (coopLives() && scorer_ == 1) ? ++luigiLives_ : ++livesCount_; }
+    // Murio uno con el otro vivo: pierde una vida; reaparece o queda afuera.
+    void onCoopPlayerDied(Mario& character);
     int score_ = 0;
     // Columna del checkpoint mas adelantado alcanzado en este nivel (-1 =
     // ninguno, se arranca del principio). Sobrevive a perder una vida,
@@ -1506,6 +1543,7 @@ private:
         float startX = 0.0f;
         float endX = 0.0f;
         float timer = 1.0f;
+        bool stopped = false;   // llamas: aparecio Bowser, no salen mas
     };
     // Balanzas (BalancePlatform del original): dos plataformas colgadas de
     // la misma soga; la que se pisa baja y la otra sube lo mismo. Si la que

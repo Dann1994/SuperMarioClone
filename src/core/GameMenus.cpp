@@ -1335,6 +1335,12 @@ void Game::onLevelCleared() {
     campaignLevel_ = level;
     customLevelPath_ = next;
     checkpointCol_ = -1;
+    // 2 a la vez: el que se habia quedado sin vidas vuelve con 1.
+    for (Mario* character : {&mario_, &luigi_}) {
+        if (!character->isBenched()) continue;
+        character->setBenched(false);
+        livesOf(*character) = 1;
+    }
     loadScenario(TestScenario::CustomLevel);  // conserva puntaje, monedas y vidas
 }
 
