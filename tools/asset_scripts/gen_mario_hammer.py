@@ -126,7 +126,9 @@ def star_sheet(sheet, suit_color):
     return out
 
 
-def main():
+def build_frames():
+    """Los cuadros del traje en el orden de filas de Mario, sin recolorear
+    (tambien los usa gen_mario_boomerang.py)."""
     sheet = Image.open(SOURCE).convert("RGBA")
     out = Image.new("RGBA", (W * 5, H * 8), (0, 0, 0, 0))
     for row, frames in LAYOUT.items():
@@ -134,6 +136,12 @@ def main():
             xs = COL_X_SHIFTED.get(src_row, COL_X)
             x0, y0 = xs[src_col], ROW_Y[src_row]
             out.paste(clean(sheet.crop((x0, y0, x0 + W, y0 + H))), (col * W, row * H))
+    return out
+
+
+def main():
+    sheet = Image.open(SOURCE).convert("RGBA")
+    out = build_frames()
     mario = recolor(out, MARIO_PINK)
     luigi = recolor(out, LUIGI_GREEN)
     mario.save(OUT)

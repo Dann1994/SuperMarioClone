@@ -53,11 +53,14 @@ constexpr DecorationInfo kDecorations[] = {
 };
 
 // Contenidos posibles de un bloque '?'/'D'/'H' (campo "item" de "blocks").
-const char* const kBlockItems[] = {"coin", "powerup", "mushroom", "fire_flower", "star", "one_up"};
+const char* const kBlockItems[] = {"coin",  "powerup", "mushroom",      "fire_flower",
+                                   "star",  "one_up",  "hammer_flower", "boomerang_flower"};
 std::string blockItemShort(const std::string& item) {
     if (item == "powerup") return "P";
     if (item == "mushroom") return "M";
     if (item == "fire_flower") return "F";
+    if (item == "hammer_flower") return "HM";
+    if (item == "boomerang_flower") return "BM";
     if (item == "star") return "E";
     if (item == "one_up") return "1UP";
     return "C";
@@ -250,6 +253,8 @@ bool LevelEditor::initResources() {
               oneUpSprite_.loadFromFile(renderer_, dir + "oneup_mushroom.png", 16, 16) &&
               fireFlowerSprite_.loadFromFile(renderer_, dir + "fire_flower.png", 16, 16) &&
               starSprite_.loadFromFile(renderer_, dir + "star_item.png", 16, 16);
+    hammerFlowerSprite_.loadFromFile(renderer_, dir + "hammer_flower.png", 16, 20);
+    boomerangFlowerSprite_.loadFromFile(renderer_, dir + "boomerang_flower.png", 20, 20);
     // Los de los enemigos son opcionales: si falta alguno se ve el rotulo.
     buzzySprite_.loadFromFile(renderer_, dir + "buzzy_beetle.png", 16, 16);
     piranhaSprite_.loadFromFile(renderer_, dir + "piranha_plant.png", 16, 24);
@@ -309,6 +314,8 @@ bool LevelEditor::initResources() {
     tools_.push_back({ToolKind::Item, Tab::Items, 0, "fire_flower", "", 1, "FLOR DE FUEGO"});
     tools_.push_back({ToolKind::Item, Tab::Items, 0, "star", "", 1, "ESTRELLA"});
     tools_.push_back({ToolKind::Item, Tab::Items, 0, "one_up", "", 1, "HONGO 1-UP"});
+    tools_.push_back({ToolKind::Item, Tab::Items, 0, "hammer_flower", "", 1, "FLOR MARTILLO"});
+    tools_.push_back({ToolKind::Item, Tab::Items, 0, "boomerang_flower", "", 1, "FLOR BUMERAN"});
     tools_.push_back({ToolKind::Item, Tab::Items, 0, "coin", "", 1, "MONEDA"});
     tools_.push_back({ToolKind::Item, Tab::Items, 0, "coin", "", 10, "10 MONEDAS"});
 
@@ -2658,6 +2665,16 @@ void LevelEditor::drawToolIcon(const Tool& tool, const SDL_Rect& cell, int level
             if (tool.type == "fire_flower") sprite = &fireFlowerSprite_;
             if (tool.type == "star") sprite = &starSprite_;
             if (tool.type == "one_up") sprite = &oneUpSprite_;
+            if (tool.type == "hammer_flower" || tool.type == "boomerang_flower") {
+                // Flores de los trajes: una sola fila, sin paletas por mundo.
+                const SpriteSheet& flower = tool.type == "hammer_flower" ? hammerFlowerSprite_ : boomerangFlowerSprite_;
+                if (flower.isLoaded()) {
+                    flower.drawScaled(renderer_, 0, 0, icon);
+                } else {
+                    drawText(icon.x + 2, icon.y + 4, blockItemShort(tool.type), kYellow);
+                }
+                break;
+            }
             sprite->drawScaled(renderer_, levelRow, 0, icon);
             if (tool.type == "powerup") drawText(icon.x + 12, icon.y + 12, "F", kYellow);
             if (tool.hits > 1) drawText(icon.x + 8, icon.y + 13, "x" + std::to_string(tool.hits), kYellow);

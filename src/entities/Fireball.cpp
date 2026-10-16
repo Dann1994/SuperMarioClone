@@ -4,6 +4,7 @@
 
 void Fireball::spawn(float x, float y, bool movingRight) {
     hammer_ = false;
+    boomerang_ = false;
     movingRight_ = movingRight;
     x_ = x;
     y_ = y;
@@ -26,6 +27,15 @@ void Fireball::spawnHammer(float x, float y, bool movingRight) {
     movingRight_ = movingRight;
     velX_ = movingRight ? kHammerSpeedX : -kHammerSpeedX;
     velY_ = kHammerSpeedY;
+}
+
+void Fireball::spawnBoomerang(float x, float y, bool movingRight) {
+    spawnHammer(x, y, movingRight);
+    boomerang_ = true;
+    boomerangTime_ = 0.0f;
+    boomerangStartX_ = x;
+    boomerangStartY_ = y;
+    lifetime_ = kBoomerangLifetime;
 }
 
 void Fireball::explode() {
@@ -66,6 +76,15 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
     animTimer_ += dt * 15.0f;
     frame_ = static_cast<int>(animTimer_) % 4;
 
+    if (boomerang_) {
+        // Ida y vuelta por el mismo camino, sin chocar con nada (ver spawnBoomerang).
+        boomerangTime_ += dt;
+        const float t = boomerangTime_;
+        const float dir = movingRight_ ? 1.0f : -1.0f;
+        x_ = boomerangStartX_ + dir * (kBoomerangSpeed * t - kBoomerangDecel * t * t / 2.0f);
+        y_ = boomerangStartY_ - kBoomerangLift * std::sin(3.14159265f * std::min(t / (2.0f * kBoomerangTurnTime), 1.0f));
+        return;
+    }
     if (hammer_) {
         // Arco sin chocar con nada; se va al caer por debajo del nivel.
         velY_ += kHammerGravity * dt;
@@ -123,7 +142,8 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
 }
 
 void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
-                       const SpriteSheet& explosionSprite, float cameraX, const SpriteSheet* hammerSprite) const {
+                       const SpriteSheet& explosionSprite, float cameraX, const SpriteSheet* hammerSprite,
+                       const SpriteSheet* boomerangSprite) const {
     if (!alive_) return;
 
     if (exploding_) {
@@ -137,6 +157,13 @@ void Fireball::render(SDL_Renderer* renderer, const SpriteSheet& projectileSprit
         return;
     }
 
+    if (boomerang_ && boomerangSprite) {
+        // 16x16 centrado en la caja de 8 (como el martillo), girando.
+        const int offset = (kHammerSpriteSize - kSize) / 2;
+        boomerangSprite->draw(renderer, 0, frame_, static_cast<int>(std::lround(x_ - cameraX)) - offset,
+                              static_cast<int>(std::lround(y_)) - offset, !movingRight_);
+        return;
+    }
     if (hammer_ && hammerSprite) {
         // El sprite del martillo (16x16, girando) centrado en la caja de 8x8.
         const int offset = (kHammerSpriteSize - kSize) / 2;

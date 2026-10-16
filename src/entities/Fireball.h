@@ -16,7 +16,17 @@ public:
     // atraviesa el escenario y a los enemigos (los mata de un golpe, tambien
     // a los inmunes al fuego; a Bowser con 2) y desaparece al salir del nivel.
     void spawnHammer(float x, float y, bool movingRight);
+    // Bumeran del traje de Boomerang Bro: sale hacia adelante frenando, a
+    // las ~6 baldosas se da vuelta y vuelve por el mismo camino (con una
+    // curva suave hacia arriba); atraviesa el escenario. Mata igual que el
+    // martillo (isHammer() tambien es true) y quien lo tiro lo atrapa al
+    // volver (Game lo saca con remove()).
+    void spawnBoomerang(float x, float y, bool movingRight);
+    // "Proyectil de traje": atraviesa todo y mata de un golpe (martillo o bumeran).
     bool isHammer() const { return hammer_; }
+    bool isBoomerang() const { return boomerang_; }
+    // Ya se dio vuelta y viene de regreso (se puede atrapar).
+    bool isReturning() const { return boomerang_ && boomerangTime_ > kBoomerangTurnTime; }
     // Un martillo cuenta un solo golpe a Bowser aunque lo atraviese varios cuadros.
     bool hasHitBowser() const { return hitBowser_; }
     void markHitBowser() { hitBowser_ = true; }
@@ -24,7 +34,7 @@ public:
     // cameraX: ver Game::cameraX_, se resta a la posicion en X antes de dibujar.
     void render(SDL_Renderer* renderer, const SpriteSheet& projectileSprite,
                 const SpriteSheet& explosionSprite, float cameraX = 0.0f,
-                const SpriteSheet* hammerSprite = nullptr) const;
+                const SpriteSheet* hammerSprite = nullptr, const SpriteSheet* boomerangSprite = nullptr) const;
     // Sigue "viva" (ocupando uno de los 2 slots del jugador) mientras dura la
     // explosion, no solo mientras vuela.
     bool isAlive() const { return alive_; }
@@ -86,4 +96,15 @@ private:
     static constexpr float kHammerSpeedY = -300.0f;   // px/s hacia arriba al salir
     static constexpr float kHammerGravity = 900.0f;   // px/s^2
     static constexpr int kHammerSpriteSize = 16;
+    bool boomerang_ = false;
+    float boomerangTime_ = 0.0f;
+    float boomerangStartX_ = 0.0f;
+    float boomerangStartY_ = 0.0f;
+    // Ida y vuelta: x(t) = x0 + dir * (v0 t - a t^2 / 2); llega a lo mas lejos
+    // (v0^2 / 2a = 96 px, 6 baldosas) en kBoomerangTurnTime y vuelve.
+    static constexpr float kBoomerangSpeed = 240.0f;                       // px/s al salir
+    static constexpr float kBoomerangTurnTime = 0.8f;                      // s hasta darse vuelta
+    static constexpr float kBoomerangDecel = kBoomerangSpeed / kBoomerangTurnTime;
+    static constexpr float kBoomerangLift = 14.0f;                         // px que sube en la curva
+    static constexpr float kBoomerangLifetime = 3.2f;                      // s, si nadie lo atrapa
 };

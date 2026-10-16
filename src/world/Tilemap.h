@@ -31,7 +31,7 @@
 struct LevelBlock {          // "blocks": contenido de un '?' / 'D'
     int col = 0;
     int row = 0;
-    std::string item;        // coin, powerup, mushroom, fire_flower, star, one_up
+    std::string item;        // coin, powerup, mushroom, fire_flower, star, one_up, hammer_flower, boomerang_flower
     int hits = 1;            // golpes antes de quedar usado (bloque de N monedas)
     int destCol = -1;        // vine: adonde lleva trepar hasta arriba (-1: a ningun lado)
     int destRow = -1;        //       fila donde quedan los pies al llegar trepando

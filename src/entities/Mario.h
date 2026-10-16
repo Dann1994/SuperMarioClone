@@ -30,7 +30,13 @@ enum class MarioSize {
     // Traje de Hammer Bro (como en Mario 3): tira martillos con el boton de
     // correr y agachado se mete en el caparazon (no le hace dano el fuego).
     Hammer,
+    // Traje de Boomerang Bro: igual que el de Hammer Bro (mismo caparazon),
+    // pero tira bumeranes que van y vuelven.
+    Boomerang,
 };
+
+// Los dos trajes (Hammer y Boomerang): mismos cuadros (16x34), caparazon y pose de tirar.
+inline bool isSuitSize(MarioSize size) { return size == MarioSize::Hammer || size == MarioSize::Boomerang; }
 
 // Mario chico/grande/fuego (seccion 5.1 de la especificacion): movimiento
 // (correr, salto de altura variable, friccion, gravedad, patinada al
@@ -301,8 +307,10 @@ public:
     // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34) y la
     // de la estrella (las 12 paletas, ver gen_mario_hammer.py).
     bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
+    // Traje de Boomerang Bro: mario_boomerang.png y su estrella (gen_mario_boomerang.py).
+    bool loadBoomerangSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
     // Agachado con el traje de Hammer Bro: el caparazon lo cubre del fuego.
-    bool isHammerShell() const { return size_ == MarioSize::Hammer && isDucking_; }
+    bool isHammerShell() const { return isSuitSize(size_) && isDucking_; }
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
 
@@ -462,6 +470,8 @@ private:
     SpriteSheet spriteFire_;
     SpriteSheet spriteHammer_;
     SpriteSheet spriteHammerStar_;
+    SpriteSheet spriteBoomerang_;
+    SpriteSheet spriteBoomerangStar_;
     // Paletas por tipo de mundo: la activa vive en spriteSmall_/Big_/Fire_ y
     // su lugar aca queda vacio; cambiar de paleta es intercambiar texturas.
     std::array<std::array<SpriteSheet, 3>, 4> paletteSprites_;

@@ -138,6 +138,9 @@ enum class BlockItem {
     PowerUp,
     // Enredadera: crece hacia arriba desde el bloque (ver Game::Vine).
     Vine,
+    // Flores de los trajes (no son del original): martillo y bumeran.
+    HammerFlower,
+    BoomerangFlower,
 };
 
 struct QuestionBlockSpawn {
@@ -305,6 +308,7 @@ private:
     void renderGameOver();
     void trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPerPlayer>& pool);
     void resolveCharacterCollision();
+    void catchBoomerang(const Mario& thrower, Fireball& fireball);
     void checkMushroomPickup(Mario& character);
     void checkFireFlowerPickup(Mario& character);
     void checkStarPickup(Mario& character);
@@ -1194,6 +1198,14 @@ private:
     HammerBro& hammerBro_ = hammerBros_[0];
     SpriteSheet hammerSprite_;
     SpriteSheet hammerFlowerSprite_;   // la flor martillo (icono del item)
+    SpriteSheet boomerangSprite_;      // el bumeran del traje (4 cuadros de giro)
+    SpriteSheet boomerangFlowerSprite_;   // la flor bumeran (20x20)
+    // Flor de traje (martillo o bumeran) salida de un bloque: no se mueve,
+    // como la de fuego; suitFlowerSize_ es el traje que pone.
+    FireFlower suitFlower_;
+    MarioSize suitFlowerSize_ = MarioSize::Hammer;
+    void checkSuitFlowerPickup(Mario& character);
+    void renderSuitFlower();
     std::array<Hammer, kMaxHammers> hammers_;
 
     // Lakitu de prueba (seccion 5.2, sexto enemigo): escenario propio

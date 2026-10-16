@@ -48,7 +48,7 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
 // progress: que cuenta para el logro (y su meta), para mostrar el avance.
 enum class ExtraProgress { None, FlawlessLevels };
 // item: el item que da en la pausa (ITEMS) cuando esta activado.
-enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit };
+enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit, BoomerangSuit };
 struct ExtraContent {
     const char* id;
     const char* nameEs;
@@ -81,6 +81,8 @@ constexpr ExtraContent kExtraContent[] = {
      ExtraItem::InfiniteStar},
     {"item_hammer", "ITEM: TRAJE HAMMER BRO", "ITEM: HAMMER SUIT", "CONDICION POR DEFINIR",
      "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::HammerSuit},
+    {"item_boomerang", "ITEM: TRAJE BOOMERANG BRO", "ITEM: BOOMERANG SUIT", "CONDICION POR DEFINIR",
+     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::BoomerangSuit},
 };
 constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
 
@@ -442,6 +444,7 @@ void Game::renderUnlockToast() {
         case ExtraItem::Mushroom: mushroomSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
         case ExtraItem::FireFlower: fireFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
         case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY - 2, false); break;
+        case ExtraItem::BoomerangSuit: boomerangFlowerSprite_.draw(renderer_, 0, 0, iconX - 2, iconY - 2, false); break;
         case ExtraItem::InfiniteStar:
             starSprite_.draw(renderer_, 0, static_cast<int>(now / 70) % 4, iconX, iconY, false);
             break;
@@ -890,6 +893,9 @@ void Game::applyCheatItem(int extraIndex) {
             break;
         case ExtraItem::HammerSuit:
             character.startGrow(MarioSize::Hammer);
+            break;
+        case ExtraItem::BoomerangSuit:
+            character.startGrow(MarioSize::Boomerang);
             break;
         case ExtraItem::InfiniteStar:
             // Lo que queda del nivel: se apaga al cargar el siguiente (o al
@@ -1717,6 +1723,9 @@ void Game::renderPauseMenu() {
                 case ExtraItem::Star: starSprite_.draw(renderer_, 0, 2, iconX, y, false); break;   // la amarilla
                 case ExtraItem::InfiniteStar: starSprite_.draw(renderer_, 0, starCycle, iconX, y, false); break;
                 case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, y - 4, false); break;
+                case ExtraItem::BoomerangSuit:
+                    boomerangFlowerSprite_.draw(renderer_, 0, 0, iconX - 2, y - 4, false);
+                    break;
                 case ExtraItem::None: break;
             }
             DebugFont::drawText(renderer_, box.x + 36, y + 4, name, 2, selected ? kMenuWhite : kMenuYellow);

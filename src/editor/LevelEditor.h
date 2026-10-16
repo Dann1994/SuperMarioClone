@@ -348,6 +348,8 @@ private:
     SpriteSheet mushroomSprite_;
     SpriteSheet oneUpSprite_;
     SpriteSheet fireFlowerSprite_;
+    SpriteSheet hammerFlowerSprite_;     // flores de los trajes (opcionales)
+    SpriteSheet boomerangFlowerSprite_;
     SpriteSheet starSprite_;
     // Enemigos y objetos de nivel (los mismos sprites que el juego).
     SpriteSheet buzzySprite_;

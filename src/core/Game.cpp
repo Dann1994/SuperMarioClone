@@ -311,7 +311,8 @@ MarioSize nextSize(MarioSize size) {
         case MarioSize::Small: return MarioSize::Big;
         case MarioSize::Big: return MarioSize::Fire;
         case MarioSize::Fire: return MarioSize::Hammer;
-        case MarioSize::Hammer: default: return MarioSize::Small;
+        case MarioSize::Hammer: return MarioSize::Boomerang;
+        case MarioSize::Boomerang: default: return MarioSize::Small;
     }
 }
 
@@ -511,6 +512,10 @@ bool Game::init() {
     mario_.loadHammerSprite(renderer_, "assets/sprites/mario_hammer.png", "assets/sprites/mario_hammer_star.png");
     luigi_.loadHammerSprite(renderer_, "assets/sprites/luigi_hammer.png", "assets/sprites/luigi_hammer_star.png");
     hammerFlowerSprite_.loadFromFile(renderer_, "assets/sprites/hammer_flower.png", 16, 20);
+    mario_.loadBoomerangSprite(renderer_, "assets/sprites/mario_boomerang.png", "assets/sprites/mario_boomerang_star.png");
+    luigi_.loadBoomerangSprite(renderer_, "assets/sprites/luigi_boomerang.png", "assets/sprites/luigi_boomerang_star.png");
+    boomerangSprite_.loadFromFile(renderer_, "assets/sprites/boomerang.png", 16, 16);
+    boomerangFlowerSprite_.loadFromFile(renderer_, "assets/sprites/boomerang_flower.png", 20, 20);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
     for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},
@@ -865,6 +870,7 @@ void Game::loadScenario(TestScenario scenario) {
     // y pone en pie solo lo que corresponde al elegido.
     mushroom_.collect();
     fireFlower_.collect();
+    suitFlower_.collect();
     star_.collect();
     coin_.collect();
     blockCoin_.reset();
@@ -965,7 +971,8 @@ void Game::loadScenario(TestScenario scenario) {
     // Niveles de prueba con "start_size" (por ejemplo test_hammer_shell.json).
     if (!level_.startSize().empty()) {
         const std::string& size = level_.startSize();
-        const MarioSize start = size == "hammer" ? MarioSize::Hammer
+        const MarioSize start = size == "hammer"      ? MarioSize::Hammer
+                                : size == "boomerang" ? MarioSize::Boomerang
                                 : size == "fire" ? MarioSize::Fire
                                 : size == "big"  ? MarioSize::Big
                                                  : MarioSize::Small;
@@ -1176,6 +1183,8 @@ void Game::trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPe
         const float spawnY = shooter.spriteTopY() + kHandYOffset;
         if (shooter.size() == MarioSize::Hammer) {
             fireball.spawnHammer(spawnX, spawnY, right);
+        } else if (shooter.size() == MarioSize::Boomerang) {
+            fireball.spawnBoomerang(spawnX, spawnY, right);
         } else {
             fireball.spawn(spawnX, spawnY, right);
         }
@@ -1185,6 +1194,16 @@ void Game::trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPe
     }
     // Los dos slots estan ocupados: como en el original, no se tira una tercera
     // (y no se reproduce la animacion de tirar, ya que no se tiro nada).
+}
+
+void Game::catchBoomerang(const Mario& thrower, Fireball& fireball) {
+    // El bumeran que vuelve lo atrapa quien lo tiro (si no, sigue de largo
+    // hasta salir de la pantalla).
+    if (!fireball.isAlive() || !fireball.isReturning()) return;
+    const bool overlap = fireball.x() < thrower.x() + thrower.width() && fireball.x() + Fireball::kSize > thrower.x() &&
+                         fireball.y() < thrower.y() + thrower.height() &&
+                         fireball.y() + Fireball::kSize > thrower.spriteTopY();
+    if (overlap) fireball.remove();
 }
 
 void Game::resolveCharacterCollision() {
@@ -1372,6 +1391,35 @@ void Game::checkFireFlowerPickup(Mario& character) {
     fireFlower_.collect();
     audio_.play(Sfx::PowerUp);
     startRumble(character, RumbleKind::Item);
+}
+
+void Game::checkSuitFlowerPickup(Mario& character) {
+    setScorer(character);
+    if (character.isInDeathSequence()) return;
+    if (!suitFlower_.isAlive()) return;
+    const bool overlap =
+        character.x() < suitFlower_.x() + FireFlower::kSize && character.x() + character.width() > suitFlower_.x() &&
+        character.y() < suitFlower_.y() + FireFlower::kSize && character.y() + character.height() > suitFlower_.y();
+    if (!overlap) return;
+    // El traje se pone desde cualquier forma (chico tambien), con la misma
+    // secuencia de crecer.
+    character.startGrow(suitFlowerSize_);
+    spawnScorePopup(suitFlower_.x(), suitFlower_.y(), "1000");
+    suitFlower_.collect();
+    audio_.play(Sfx::PowerUp);
+    startRumble(character, RumbleKind::Item);
+}
+
+void Game::renderSuitFlower() {
+    if (!suitFlower_.isAlive()) return;
+    // Dibujos mas altos que la caja de 16: apoyados abajo y centrados.
+    const bool hammer = suitFlowerSize_ == MarioSize::Hammer;
+    const SpriteSheet& sprite = hammer ? hammerFlowerSprite_ : boomerangFlowerSprite_;
+    const int w = hammer ? 16 : 20;
+    const int h = 20;
+    const int x = static_cast<int>(std::lround(suitFlower_.x() - cameraX_)) - (w - FireFlower::kSize) / 2;
+    const int y = static_cast<int>(std::lround(suitFlower_.y())) - (h - FireFlower::kSize);
+    sprite.draw(renderer_, 0, 0, x, y, false);
 }
 
 void Game::checkStarPickup(Mario& character) {
@@ -2857,6 +2905,12 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool h
             itemEmerge_.endY = blockTopY - static_cast<float>(FireFlower::kSize);
             fireFlower_.spawn(itemEmerge_.x, itemEmerge_.startY);
             break;
+        case BlockItem::HammerFlower:
+        case BlockItem::BoomerangFlower:
+            itemEmerge_.endY = blockTopY - static_cast<float>(FireFlower::kSize);
+            suitFlowerSize_ = item == BlockItem::HammerFlower ? MarioSize::Hammer : MarioSize::Boomerang;
+            suitFlower_.spawn(itemEmerge_.x, itemEmerge_.startY);
+            break;
         case BlockItem::Star:
             itemEmerge_.endY = blockTopY - static_cast<float>(StarItem::kSize);
             star_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight);
@@ -3349,6 +3403,10 @@ void Game::update(float dt) {
             case BlockItem::FireFlower:
                 fireFlower_.spawn(itemEmerge_.x, currentY);
                 break;
+            case BlockItem::HammerFlower:
+            case BlockItem::BoomerangFlower:
+                suitFlower_.spawn(itemEmerge_.x, currentY);
+                break;
             case BlockItem::Star:
                 star_.spawn(itemEmerge_.x, currentY, itemEmerge_.movingRight);
                 break;
@@ -3376,6 +3434,11 @@ void Game::update(float dt) {
         fireFlower_.update(dt);
         checkFireFlowerPickup(mario_);
         if (twoPlayerMode_) checkFireFlowerPickup(luigi_);
+    }
+    if (!(itemEmerge_.active &&
+          (itemEmerge_.item == BlockItem::HammerFlower || itemEmerge_.item == BlockItem::BoomerangFlower))) {
+        checkSuitFlowerPickup(mario_);
+        if (twoPlayerMode_) checkSuitFlowerPickup(luigi_);
     }
 
     if (!(itemEmerge_.active && itemEmerge_.item == BlockItem::Star)) {
@@ -3675,6 +3738,7 @@ void Game::update(float dt) {
     trySpawnFireball(mario_, marioFireballs_);
     for (Fireball& fireball : marioFireballs_) {
         fireball.update(dt, level_, level_.widthPixels());
+        catchBoomerang(mario_, fireball);
         // Como el original: la bola que sale de la pantalla desaparece (si
         // no, seguia "viva" adelante y no dejaba tirar otra).
         if (fireball.isAlive() && !fireball.isExploding() &&
@@ -3704,6 +3768,7 @@ void Game::update(float dt) {
         trySpawnFireball(luigi_, luigiFireballs_);
         for (Fireball& fireball : luigiFireballs_) {
             fireball.update(dt, level_, level_.widthPixels());
+            catchBoomerang(luigi_, fireball);
         // Como el original: la bola que sale de la pantalla desaparece (si
         // no, seguia "viva" adelante y no dejaba tirar otra).
         if (fireball.isAlive() && !fireball.isExploding() &&
@@ -3828,6 +3893,7 @@ void Game::render() {
     // con el bloque, da igual el orden.
     mushroom_.render(renderer_, mushroom_.isOneUp() ? oneUpSprite_ : mushroomSprite_, worldRow, cameraX_);
     fireFlower_.render(renderer_, fireFlowerSprite_, worldRow, cameraX_);
+    renderSuitFlower();
     star_.render(renderer_, starSprite_, worldRow, cameraX_);
     coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
     // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
@@ -3961,7 +4027,7 @@ void Game::render() {
         const bool luigiFire = playAsLuigi_ && !twoPlayerMode_;
         const SpriteSheet& ball = luigiFire ? fireballGreenSprite_ : fireballSprite_;
         const SpriteSheet& boom = luigiFire ? fireballExplosionGreenSprite_ : fireballExplosionSprite_;
-        for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_, &hammerSprite_);
+        for (const Fireball& fireball : marioFireballs_) fireball.render(renderer_, ball, boom, cameraX_, &hammerSprite_, &boomerangSprite_);
     }
     if (twoPlayerMode_) {
         if (!dumping_ && !(pipeAnim_.active && pipeAnim_.character == &luigi_) && pipePartner_ != &luigi_ &&
@@ -3969,7 +4035,8 @@ void Game::render() {
             renderCharacter(luigi_, luigiPlatform_);
         }
         for (const Fireball& fireball : luigiFireballs_) {
-            fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_, &hammerSprite_);
+            fireball.render(renderer_, fireballGreenSprite_, fireballExplosionGreenSprite_, cameraX_, &hammerSprite_,
+                            &boomerangSprite_);
         }
     }
     renderDecorations(true);
@@ -4838,6 +4905,8 @@ BlockItem parseBlockItem(const std::string& name) {
     if (name == "powerup") return BlockItem::PowerUp;
     if (name == "mushroom") return BlockItem::Mushroom;
     if (name == "fire_flower") return BlockItem::FireFlower;
+    if (name == "hammer_flower") return BlockItem::HammerFlower;
+    if (name == "boomerang_flower") return BlockItem::BoomerangFlower;
     if (name == "star") return BlockItem::Star;
     if (name == "one_up") return BlockItem::OneUp;
     if (name == "vine") return BlockItem::Vine;

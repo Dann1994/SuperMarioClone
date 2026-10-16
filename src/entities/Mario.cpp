@@ -36,6 +36,11 @@ bool Mario::loadHammerSprite(SDL_Renderer* renderer, const std::string& path, co
     return spriteHammer_.loadFromFile(renderer, path, kSpriteFrameWidth, kHammerHeight);
 }
 
+bool Mario::loadBoomerangSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath) {
+    if (!starPath.empty()) spriteBoomerangStar_.loadFromFile(renderer, starPath, kSpriteFrameWidth, kHammerHeight);
+    return spriteBoomerang_.loadFromFile(renderer, path, kSpriteFrameWidth, kHammerHeight);
+}
+
 int Mario::currentHeight() const {
     if (size_ == MarioSize::Small) return kSmallHitboxHeight;
     return isDucking_ ? kCrouchHitboxHeight : kBigHitboxHeight;
@@ -50,7 +55,7 @@ int Mario::currentWidth() const {
 // currentHeight() no cambia al agacharse, la pose de agachado esta dibujada
 // DENTRO del mismo frame de siempre.
 int Mario::currentSpriteFrameHeight() const {
-    if (size_ == MarioSize::Hammer) return kHammerHeight;
+    if (isSuitSize(size_)) return kHammerHeight;
     return size_ == MarioSize::Small ? kSmallHeight : kBigHeight;
 }
 
@@ -116,6 +121,7 @@ const SpriteSheet& Mario::currentSprite() const {
         case MarioSize::Big: return spriteBig_;
         case MarioSize::Fire: return spriteFire_;
         case MarioSize::Hammer: return spriteHammer_;
+        case MarioSize::Boomerang: return spriteBoomerang_;
         case MarioSize::Small: default: return spriteSmall_;
     }
 }
@@ -125,6 +131,7 @@ const SpriteSheet& Mario::currentStarSprite() const {
         case MarioSize::Big: return spriteBigStar_;
         case MarioSize::Fire: return spriteFireStar_;
         case MarioSize::Hammer: return spriteHammerStar_;
+        case MarioSize::Boomerang: return spriteBoomerangStar_;
         case MarioSize::Small: default: return spriteSmallStar_;
     }
 }
@@ -179,11 +186,14 @@ bool Mario::startGrow(MarioSize targetSize) {
     // maximo, y no tiene sentido "crecer" al mismo tamano que ya tiene.
     // El traje de Hammer Bro se pone desde cualquier forma.
     if (size_ == targetSize) return false;
-    if (size_ == MarioSize::Fire && targetSize != MarioSize::Hammer) return false;
-    if (size_ == MarioSize::Hammer && targetSize != MarioSize::Fire) return false;
-    const SpriteSheet& targetSprite = targetSize == MarioSize::Fire     ? spriteFire_
-                                      : targetSize == MarioSize::Hammer ? spriteHammer_
-                                                                        : spriteBig_;
+    // Entre fuego y los trajes se puede pasar de uno a otro; de ahi no se
+    // vuelve a grande ni a chico creciendo.
+    const auto topForm = [](MarioSize size) { return size == MarioSize::Fire || isSuitSize(size); };
+    if (topForm(size_) && !topForm(targetSize)) return false;
+    const SpriteSheet& targetSprite = targetSize == MarioSize::Fire        ? spriteFire_
+                                      : targetSize == MarioSize::Hammer    ? spriteHammer_
+                                      : targetSize == MarioSize::Boomerang ? spriteBoomerang_
+                                                                           : spriteBig_;
     if (!targetSprite.isLoaded()) return false;
     if (inDamageSequence_ || inGrowSequence_) return false;
 
@@ -251,6 +261,7 @@ void Mario::setSize(MarioSize newSize) {
     if (newSize == MarioSize::Big && !spriteBig_.isLoaded()) return;
     if (newSize == MarioSize::Fire && !spriteFire_.isLoaded()) return;
     if (newSize == MarioSize::Hammer && !spriteHammer_.isLoaded()) return;
+    if (newSize == MarioSize::Boomerang && !spriteBoomerang_.isLoaded()) return;
 
     const int oldHeight = currentHeight();
     size_ = newSize;
@@ -305,7 +316,7 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
 
         // El boton de correr tambien tira fuego (tocado, no mantenido) cuando
         // se es Mario/Luigi fuego, igual que en el juego original.
-        if ((size_ == MarioSize::Fire || size_ == MarioSize::Hammer) && input.consumePress(Action::Run)) {
+        if ((size_ == MarioSize::Fire || isSuitSize(size_)) && input.consumePress(Action::Run)) {
             wantsThrow_ = true;
         }
 
@@ -814,11 +825,12 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
             const int currentDrawY = static_cast<int>(std::lround(y_)) - spriteYOffset;
             currentSprite().draw(renderer, row, col, drawXBase, currentDrawY, !facingRight_);
         } else {
-            const int targetFrameH = growTargetSize_ == MarioSize::Hammer ? kHammerHeight : kBigHeight;
+            const int targetFrameH = isSuitSize(growTargetSize_) ? kHammerHeight : kBigHeight;
             const int targetDrawY = static_cast<int>(std::lround(y_)) - (targetFrameH - currentHeight());
-            const SpriteSheet& targetSprite = growTargetSize_ == MarioSize::Fire     ? spriteFire_
-                                              : growTargetSize_ == MarioSize::Hammer ? spriteHammer_
-                                                                                     : spriteBig_;
+            const SpriteSheet& targetSprite = growTargetSize_ == MarioSize::Fire        ? spriteFire_
+                                              : growTargetSize_ == MarioSize::Hammer    ? spriteHammer_
+                                              : growTargetSize_ == MarioSize::Boomerang ? spriteBoomerang_
+                                                                                        : spriteBig_;
             targetSprite.draw(renderer, row, col, drawXBase, targetDrawY, !facingRight_);
         }
         return;
@@ -841,14 +853,16 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         ? (static_cast<int>(worldType_) * 3 + (starCycleIndex_ - 1)) * currentSprite().rowCount()
         : 0;
 
-    if (throwAnimTimer_ > 0.0f && size_ == MarioSize::Hammer && !isDucking_) {
-        // Traje de Hammer Bro: como el de fuego, la pose de tirar (2 cuadros)
-        // solo pone la parte de arriba del cuerpo; las piernas siguen con el
-        // movimiento que este haciendo (el 2do cuadro de la hoja no las trae).
+    if (throwAnimTimer_ > 0.0f && isSuitSize(size_) && !isDucking_) {
+        // Trajes de Hammer/Boomerang Bro: como el de fuego, la pose de tirar
+        // (2 cuadros) solo pone la parte de arriba del cuerpo; las piernas
+        // siguen con el movimiento que este haciendo (el 2do cuadro de la
+        // hoja no las trae). Con estrella, en su paleta (rowOffset).
         const int throwFrame = throwAnimTimer_ > kThrowAnimDuration / 2.0f ? 0 : 1;
-        sprite.drawSlice(renderer, kAnimRowThrow, throwFrame, 0, kHammerThrowTopHeight, drawX, drawY, !facingRight_);
-        sprite.drawSlice(renderer, row, col, kHammerThrowTopHeight, kHammerHeight - kHammerThrowTopHeight, drawX, drawY,
+        sprite.drawSlice(renderer, kAnimRowThrow + rowOffset, throwFrame, 0, kHammerThrowTopHeight, drawX, drawY,
                          !facingRight_);
+        sprite.drawSlice(renderer, row + rowOffset, col, kHammerThrowTopHeight, kHammerHeight - kHammerThrowTopHeight,
+                         drawX, drawY, !facingRight_);
         return;
     }
     if (throwAnimTimer_ > 0.0f && size_ == MarioSize::Fire) {
