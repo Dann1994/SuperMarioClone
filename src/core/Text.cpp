@@ -107,7 +107,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"ACTIVADO", "ON"},
     {"DESACTIVADO", "OFF"},
     {"TODAVIA NO HAY CONTENIDO", "NO CONTENT YET"},
-    {"ENTER / A: ACTIVAR    ESC / B: VOLVER", "ENTER / A: TOGGLE    ESC / B: BACK"},
+    {"ENTER / A: COMPRAR O ACTIVAR    ESC / B: VOLVER", "ENTER / A: BUY OR TOGGLE    ESC / B: BACK"},
     {"DESBLOQUEADO:", "UNLOCKED:"},
     {"YA ESTA EN EL MENU EXTRAS", "NOW IN THE EXTRAS MENU"},
     {"ITEMS", "ITEMS"},
@@ -120,6 +120,12 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"NO", "NO"},
     {"PARTIDA NUEVA", "NEW GAME"},
     {"ELEGI CUAL REEMPLAZAR", "CHOOSE ONE TO REPLACE"},
+    {"MONEDAS", "COINS"},
+    {"PRECIO:", "PRICE:"},
+    {"ENTER / A: COMPRAR", "ENTER / A: BUY"},
+    {"TE FALTAN", "YOU NEED"},
+    {"COMPRAR POR", "BUY FOR"},
+    {"DESBLOQUEADO! A LA VENTA", "UNLOCKED! FOR SALE"},
 }};
 
 }  // namespace

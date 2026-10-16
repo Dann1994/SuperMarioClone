@@ -35,8 +35,15 @@ struct Settings {
     // campana pasados sin recibir dano ("1-1").
     std::vector<std::string> flawlessLevels;
     std::vector<std::string> enabledExtras;
+    // Tienda: lo desbloqueado hay que comprarlo con las monedas juntadas en
+    // las partidas (coinBank, la "alcancia").
+    std::vector<std::string> purchasedExtras;
+    int coinBank = 0;
     bool extraUnlocked(const std::string& id) const;
     bool extraEnabled(const std::string& id) const;
+    bool extraPurchased(const std::string& id) const;
+    // Desbloqueado y comprado: ya se puede usar.
+    bool extraOwned(const std::string& id) const { return extraUnlocked(id) && extraPurchased(id); }
     // Partidas guardadas, hasta 3 espacios: se guarda al pasar cada nivel.
     // world-level: desde donde sigue CONTINUAR (world 0 = espacio vacio).
     // mode: "solo", "coop" (2 a la vez) o "turns" (2 por turnos).

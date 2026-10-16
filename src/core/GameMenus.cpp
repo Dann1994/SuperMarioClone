@@ -59,6 +59,7 @@ struct ExtraContent {
     ExtraProgress progress = ExtraProgress::None;
     int target = 0;
     ExtraItem item = ExtraItem::None;
+    int price = 0;   // monedas, una vez desbloqueado
 };
 constexpr int kCampaignLevels = 32;   // 1-1 ... 8-4
 constexpr ExtraContent kExtraContent[] = {
@@ -69,20 +70,21 @@ constexpr ExtraContent kExtraContent[] = {
     {"item_mushroom", "ITEM: SUPER CHAMPIÑON", "ITEM: SUPER MUSHROOM",
      "COMPLETA EL JUEGO SIN AGARRAR NI UN SUPER CHAMPIÑON", "BEAT THE GAME WITHOUT GETTING A SINGLE SUPER MUSHROOM",
      false,
-     ExtraProgress::None, 0, ExtraItem::Mushroom},
+     ExtraProgress::None, 0, ExtraItem::Mushroom, 2000},
     {"item_flower", "ITEM: FLOR DE FUEGO", "ITEM: FIRE FLOWER", "COMPLETA EL JUEGO SIN AGARRAR NI UNA FLOR DE FUEGO",
-     "BEAT THE GAME WITHOUT GETTING A SINGLE FIRE FLOWER", false, ExtraProgress::None, 0, ExtraItem::FireFlower},
+     "BEAT THE GAME WITHOUT GETTING A SINGLE FIRE FLOWER", false, ExtraProgress::None, 0, ExtraItem::FireFlower,
+     3000},
     {"item_star", "ITEM: ESTRELLA", "ITEM: STAR", "COMPLETA CADA NIVEL SIN RECIBIR DAÑO",
      "CLEAR EVERY LEVEL WITHOUT TAKING DAMAGE", false, ExtraProgress::FlawlessLevels, kCampaignLevels,
-     ExtraItem::Star},
+     ExtraItem::Star, 5000},
     {"item_infinite_star", "ITEM: ESTRELLA INFINITA", "ITEM: ENDLESS STAR",
      "COMPLETA EL JUEGO SIN MORIR NI RECIBIR DAÑO Y SIN AGARRAR ESTRELLAS",
      "BEAT THE GAME WITHOUT DYING, TAKING DAMAGE OR GETTING A STAR", false, ExtraProgress::None, 0,
-     ExtraItem::InfiniteStar},
+     ExtraItem::InfiniteStar, 10000},
     {"item_hammer", "ITEM: TRAJE HAMMER BRO", "ITEM: HAMMER SUIT", "CONDICION POR DEFINIR",
-     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::HammerSuit},
+     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::HammerSuit, 4000},
     {"item_boomerang", "ITEM: TRAJE BOOMERANG BRO", "ITEM: BOOMERANG SUIT", "CONDICION POR DEFINIR",
-     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::BoomerangSuit},
+     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::BoomerangSuit, 4000},
 };
 constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
 
@@ -194,6 +196,7 @@ bool Game::enterEditor(EditorEntry entry) {
 }
 
 void Game::openTitle() {
+    settings_.save();   // la alcancia, por si se sale de la partida a mitad de nivel
     if (editorReturn_) {
         editorReturn_ = false;
         if (enterEditor(EditorEntry::Resume)) return;
@@ -210,6 +213,7 @@ void Game::openTitle() {
     confirmingDelete_ = false;
     worldSelectFlow_ = false;
     extraContentOpen_ = false;
+    confirmingPurchase_ = false;
     titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
@@ -529,9 +533,31 @@ void Game::handleSlotPickerInput(MenuInput input) {
 }
 
 void Game::handleTitleInput(MenuInput input) {
+    if (extraContentOpen_ && confirmingPurchase_) {
+        // "COMPRAR POR N MONEDAS?": SI / NO (arranca en NO).
+        if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
+            input == MenuInput::Down) {
+            purchaseChoice_ = 1 - purchaseChoice_;
+            audio_.play(Sfx::TimeTally);
+        } else if (input == MenuInput::Confirm && purchaseChoice_ == 0) {
+            const ExtraContent& content = kExtraContent[extraContentSelection_];
+            confirmingPurchase_ = false;
+            if (settings_.coinBank >= content.price) {
+                settings_.coinBank -= content.price;
+                settings_.purchasedExtras.push_back(content.id);
+                settings_.save();
+                audio_.play(Sfx::OneUp);
+            }
+        } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
+            confirmingPurchase_ = false;
+            audio_.play(Sfx::Bump);
+        }
+        return;
+    }
     if (extraContentOpen_) {
         // CONTENIDO EXTRA: arriba/abajo recorre la lista; en uno
-        // desbloqueado, confirmar lo activa o desactiva.
+        // desbloqueado, confirmar lo compra (si todavia no) o lo activa o
+        // desactiva.
         if (input == MenuInput::Back) {
             extraContentOpen_ = false;
             audio_.play(Sfx::Bump);
@@ -540,8 +566,24 @@ void Game::handleTitleInput(MenuInput input) {
             extraContentSelection_ = (extraContentSelection_ + delta) % kExtraContentCount;
             audio_.play(Sfx::TimeTally);
         } else if (input == MenuInput::Confirm && kExtraContentCount > 0) {
-            const std::string id = kExtraContent[extraContentSelection_].id;
-            if (!settings_.extraUnlocked(id) || kExtraContent[extraContentSelection_].menuOption) {
+            const ExtraContent& content = kExtraContent[extraContentSelection_];
+            const std::string id = content.id;
+            if (!settings_.extraUnlocked(id)) {
+                audio_.play(Sfx::Bump);
+                return;
+            }
+            if (content.price > 0 && !settings_.extraPurchased(id)) {
+                // A la venta: con monedas suficientes pregunta; si no, nada.
+                if (settings_.coinBank >= content.price) {
+                    confirmingPurchase_ = true;
+                    purchaseChoice_ = 1;   // NO: que no se compre sin querer
+                    audio_.play(Sfx::TimeTally);
+                } else {
+                    audio_.play(Sfx::Bump);
+                }
+                return;
+            }
+            if (content.menuOption) {
                 audio_.play(Sfx::Bump);
                 return;
             }
@@ -862,7 +904,7 @@ std::vector<int> Game::enabledItemExtras() const {
     if (!campaign_ || !gPrimaryHardMode) return result;
     for (int i = 0; i < kExtraContentCount; ++i) {
         const ExtraContent& item = kExtraContent[i];
-        if (item.item != ExtraItem::None && settings_.extraUnlocked(item.id) && settings_.extraEnabled(item.id)) {
+        if (item.item != ExtraItem::None && settings_.extraOwned(item.id) && settings_.extraEnabled(item.id)) {
             result.push_back(i);
         }
     }
@@ -1253,6 +1295,7 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
 }
 
 void Game::onLevelCleared() {
+    settings_.save();   // la alcancia (las monedas del nivel)
     // Logro de la estrella: este nivel de la campana, pasado sin dano.
     if (campaign_ && levelUndamaged_ && campaignWorld_ >= 1 && campaignWorld_ <= 8) {
         const std::string id = std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_);
@@ -1387,7 +1430,9 @@ void Game::refreshSlotPreviews() {
 void Game::renderExtraContent() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
     SDL_RenderFillRect(renderer_, nullptr);
-    drawCentered(10, tr(Txt::ExtraOptions), 2, kMenuWhite);
+    drawCentered(6, tr(Txt::ExtraOptions), 2, kMenuWhite);
+    // La alcancia: las monedas juntadas para comprar.
+    drawCentered(19, std::string(tr(Txt::Coins)) + ": " + std::to_string(settings_.coinBank), 2, kMenuYellow);
     const int listX = gLogicalWidth / 2 - 100;
     if (kExtraContentCount == 0) {
         drawCentered(100, tr(Txt::ExtrasEmpty), 2, kMenuGray);
@@ -1399,7 +1444,7 @@ void Game::renderExtraContent() {
     for (int i = first; i < std::min(kExtraContentCount, first + kVisible); ++i) {
         const ExtraContent& item = kExtraContent[i];
         const bool unlocked = settings_.extraUnlocked(item.id);
-        const int y = 32 + (i - first) * 14;
+        const int y = 34 + (i - first) * 14;
         if (i == extraContentSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 12, y, false);
         if (!unlocked) {
             DebugFont::drawText(renderer_, listX, y, "?????", 2, kMenuGray);
@@ -1413,6 +1458,16 @@ void Game::renderExtraContent() {
             continue;
         }
         DebugFont::drawText(renderer_, listX, y, isEnglish() ? item.nameEn : item.nameEs, 2, kMenuWhite);
+        const std::string price = std::to_string(item.price);
+        const int right = gLogicalWidth / 2 + 116;
+        const int nameEnd = listX + DebugFont::length(isEnglish() ? item.nameEn : item.nameEs) * 8;
+        if (item.price > 0 && !settings_.extraPurchased(item.id) &&
+            nameEnd + 8 <= right - static_cast<int>(price.size()) * 8) {
+            // A la venta: el precio a la derecha (gris si no alcanza); si el
+            // nombre es largo, solo en el cuadro de abajo.
+            DebugFont::drawText(renderer_, right - static_cast<int>(price.size()) * 8, y, price, 2,
+                                settings_.coinBank >= item.price ? kMenuYellow : kMenuGray);
+        }
     }
     // Cuadro de abajo: la condicion (bloqueado) o el estado (desbloqueado).
     const SDL_Rect box{(gLogicalWidth - 240) / 2, 162, 240, 56};
@@ -1421,7 +1476,21 @@ void Game::renderExtraContent() {
     SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
     SDL_RenderDrawRect(renderer_, &box);
     const ExtraContent& item = kExtraContent[extraContentSelection_];
-    if (settings_.extraUnlocked(item.id) && item.menuOption) {
+    if (settings_.extraUnlocked(item.id) && item.price > 0 && !settings_.extraPurchased(item.id)) {
+        // Desbloqueado, a la venta: precio y si alcanza.
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ShopForSale), 2, kMenuYellow);
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 19,
+                            std::string(tr(Txt::ShopPrice)) + " " + std::to_string(item.price) + " " + tr(Txt::Coins),
+                            2, kMenuWhite);
+        if (settings_.coinBank >= item.price) {
+            DebugFont::drawText(renderer_, box.x + 6, box.y + 33, tr(Txt::ShopBuy), 2, kMenuWhite);
+        } else {
+            DebugFont::drawText(renderer_, box.x + 6, box.y + 33,
+                                std::string(tr(Txt::ShopMissing)) + " " + std::to_string(item.price - settings_.coinBank) +
+                                    " " + tr(Txt::Coins),
+                                2, kMenuGray);
+        }
+    } else if (settings_.extraUnlocked(item.id) && item.menuOption) {
         DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ExtrasInMenu1), 2, kMenuYellow);
         DebugFont::drawText(renderer_, box.x + 6, box.y + 19, tr(Txt::ExtrasInMenu2), 2, kMenuWhite);
     } else if (settings_.extraUnlocked(item.id)) {
@@ -1437,6 +1506,20 @@ void Game::renderExtraContent() {
         }
     }
     drawCentered(222, tr(Txt::ExtrasHowTo), 1, kMenuDim);
+    if (confirmingPurchase_) {
+        const SDL_Rect ask{(gLogicalWidth - 220) / 2, 90, 220, 62};
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+        SDL_RenderFillRect(renderer_, &ask);
+        SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
+        SDL_RenderDrawRect(renderer_, &ask);
+        drawCentered(98, tr(Txt::ShopConfirm), 2, kMenuWhite);
+        drawCentered(110, std::to_string(item.price) + " " + tr(Txt::Coins) + "?", 2, kMenuYellow);
+        const int yesX = gLogicalWidth / 2 - 48;
+        const int noX = gLogicalWidth / 2 + 24;
+        DebugFont::drawText(renderer_, yesX, 132, tr(Txt::Yes), 2, kMenuWhite);
+        DebugFont::drawText(renderer_, noX, 132, tr(Txt::No), 2, kMenuWhite);
+        titleCursorSprite_.draw(renderer_, 0, 0, (purchaseChoice_ == 0 ? yesX : noX) - 12, 132, false);
+    }
 }
 
 void Game::renderSlotPicker() {

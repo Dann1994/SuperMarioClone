@@ -1421,6 +1421,8 @@ private:
     // borrar).
     // CONTENIDO EXTRA (EXTRAS): la lista de lo desbloqueable.
     bool extraContentOpen_ = false;
+    bool confirmingPurchase_ = false;
+    int purchaseChoice_ = 1;             // 0 SI, 1 NO
     int extraContentSelection_ = 0;
     void renderExtraContent();
     // Logros: la partida en curso va desde el 1-1 sin recibir dano.

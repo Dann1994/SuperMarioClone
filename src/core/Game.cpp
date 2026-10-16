@@ -4218,6 +4218,7 @@ Game::Game() = default;
 Game::~Game() = default;
 
 void Game::shutdown() {
+    settings_.save();
     if (editor_) {
         editor_->shutdownEmbedded();
         editor_.reset();
@@ -4566,6 +4567,9 @@ void Game::renderFireworks() {
 }
 
 void Game::collectCoin() {
+    // Las monedas de las partidas (no las del editor ni los escenarios de
+    // prueba) van a la alcancia de la tienda (CONTENIDO EXTRA).
+    if (campaign_) ++settings_.coinBank;
     ++coinCount_;
     ++coinTallyForOneUps_;
     addScore(200);

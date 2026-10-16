@@ -42,6 +42,8 @@ bool Settings::load() {
     try {
         unlockedExtras = json.value("unlocked_extras", std::vector<std::string>{});
         enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
+        purchasedExtras = json.value("purchased_extras", std::vector<std::string>{});
+        coinBank = json.value("coin_bank", 0);
         flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
     } catch (const std::exception&) {
     }
@@ -85,6 +87,10 @@ bool Settings::extraUnlocked(const std::string& id) const {
     return std::find(unlockedExtras.begin(), unlockedExtras.end(), id) != unlockedExtras.end();
 }
 
+bool Settings::extraPurchased(const std::string& id) const {
+    return std::find(purchasedExtras.begin(), purchasedExtras.end(), id) != purchasedExtras.end();
+}
+
 bool Settings::extraEnabled(const std::string& id) const {
     return std::find(enabledExtras.begin(), enabledExtras.end(), id) != enabledExtras.end();
 }
@@ -117,6 +123,8 @@ bool Settings::save() const {
         {"player_world_palettes", playerWorldPalettes},
         {"unlocked_extras", unlockedExtras},
         {"enabled_extras", enabledExtras},
+        {"purchased_extras", purchasedExtras},
+        {"coin_bank", coinBank},
         {"flawless_levels", flawlessLevels},
         {"saves", savesJson()},
         {"keys", keys},
