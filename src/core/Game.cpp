@@ -96,6 +96,8 @@ constexpr float kPipeEnterDuration = 48.0f / 60.0f;
 constexpr float kPipeSideEnterDuration = 52.0f / 60.0f;
 constexpr float kPipeVerticalSpeed = 60.0f;
 // Lo que le cae encima al caparazon del traje de Hammer Bro sale rebotando.
+// Saltito del personaje parado sobre un bloque que el otro golpea desde abajo.
+constexpr float kCharacterBumpHop = -200.0f;
 constexpr float kShellBounce = -260.0f;
 constexpr float kPipeSideSpeed = 30.0f;
 // Escena del cano: lo que camina el segundo hasta la boca (caminar a fondo).
@@ -452,6 +454,7 @@ bool Game::init() {
     // Configuracion guardada (seccion 10.2): la proporcion define el ancho
     // logico, y tiene que estar antes de crear la ventana.
     settings_.load();
+    countHiddenOneUps();
     Mario::setWorldPalettesEnabled(settings_.playerWorldPalettes);
     if (settings_.gameCompleted && !settings_.extraUnlocked("new_game_plus")) {
         settings_.unlockedExtras.push_back("new_game_plus");
@@ -1541,6 +1544,7 @@ void Game::checkGoombaCollision(Mario& character, Goomba& goomba, float /*prevY*
     // contacto), si no lastima.
     if (isStompContact(character, goomba.y(), StompRule::Falling)) {
         goomba.squish();
+        noteEnemyKilled();
         character.setVelocityY(kKoopaStompBounce);
         audio_.play(Sfx::StompKill);
         stompRumble(character);
@@ -1599,6 +1603,7 @@ void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, f
             audio_.play(Sfx::StompKill);
             awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
             noteStompKill(enemy);
+            noteEnemyKilled();
         }
         character.setVelocityY(bounce);
         stompRumble(character);
@@ -2290,6 +2295,7 @@ void Game::checkFireballBowserCollision(Fireball& fireball) {
     // El quinto fuego es el que lo derrota: ahi da los puntos. En los
     // mundos 1-7 era un disfraz: cae el enemigo que estaba adentro.
     if (bowser_.isFalling()) {
+        noteEnemyKilled();
         awardEnemyPoints(bowser_.x(), bowser_.y(), 5000);
         audio_.play(Sfx::BowserFall);
         const std::string& name = level_.name();
@@ -2357,6 +2363,7 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     }
     // Sin puente (castillo armado a mano): cae de una, como antes.
     const bool flyRight = character.x() <= bowser_.x();
+    if (bowser_.isDangerous()) noteEnemyKilled();
     bowser_.killByAxe(flyRight);
     audio_.play(Sfx::BowserFall);
     castleClearTimer_ = kCastleClearDelay;
@@ -2783,6 +2790,17 @@ void Game::killEnemyOnTopOfTile(int col, int row) {
     if (star_.isAlive() && onTop(star_.x(), star_.y(), StarItem::kSize, StarItem::kSize)) {
         star_.bumpFromBelow(awayFromHitter(star_.x(), StarItem::kSize));
     }
+    // 2 a la vez: el otro personaje parado encima pega un saltito, como los
+    // items (no le hace dano).
+    if (twoPlayerMode_ && !turnMode_) {
+        for (Mario* character : {&mario_, &luigi_}) {
+            if (character == &hitter || character->isInDeathSequence() || character->isBenched()) continue;
+            if (!character->isGrounded()) continue;
+            if (!onTop(character->x(), character->y(), character->width(), character->height())) continue;
+            character->setVelocityY(kCharacterBumpHop);
+            character->setGrounded(false);
+        }
+    }
 }
 
 BlockBump* Game::startBlockBump(int col, int row) {
@@ -2934,6 +2952,7 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool h
             mushroom_.spawn(itemEmerge_.x, itemEmerge_.startY, itemEmerge_.movingRight);
             break;
         case BlockItem::OneUp:
+            noteOneUpFound(col, row);   // logro VIDAS INFINITAS
             // Mismo hongo, misma fisica (ver Mushroom::isOneUp): solo cambia
             // el sprite y el efecto al agarrarlo (checkMushroomPickup).
             itemEmerge_.endY = blockTopY - static_cast<float>(Mushroom::kSize);
@@ -3262,6 +3281,9 @@ bool Game::isAreaFree(float x, float y, int width, int height) const {
 
 void Game::update(float dt) {
     if (appState_ == AppState::Title) return;
+    // Reloj de la partida (logro TIEMPO INFINITO): jugando y en las
+    // pantallas negras entre niveles; la pausa y los menus no cuentan.
+    if (campaign_ && (appState_ == AppState::Playing || appState_ == AppState::LevelIntro)) campaignTime_ += dt;
     if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
         appStateTimer_ -= dt;
         if (appStateTimer_ > 0.0f) return;
@@ -3285,6 +3307,12 @@ void Game::update(float dt) {
                 // Sin vidas: se reinicia desde el principio del mundo (seccion
                 // 6), tambien en el espacio de guardado.
                 writeCurrentSlot(campaignWorld_, 1);
+                if (currentSlot_ >= 0) {
+                    Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
+                    slot.scoreMario = 0;
+                    slot.scoreLuigi = 0;
+                    settings_.save();
+                }
                 campaign_ = false;
                 openTitle();
                 return;
@@ -3294,6 +3322,17 @@ void Game::update(float dt) {
         return;
     }
     if (appState_ != AppState::Playing) return;
+    if (campaign_) {
+        // Resumen del final: una muerte por cada vez que alguno arranca su
+        // secuencia de muerte (por turnos, del jugador de turno).
+        const auto note = [&](const Mario& character, int slot, int player) {
+            const bool dying = character.isInDeathSequence();
+            if (dying && !wasDying_[static_cast<size_t>(slot)]) ++campaignDeaths_[static_cast<size_t>(player)];
+            wasDying_[static_cast<size_t>(slot)] = dying;
+        };
+        note(mario_, 0, turnMode_ ? turnPlayer_ : 0);
+        if (twoPlayerMode_ && !turnMode_) note(luigi_, 1, 1);
+    }
     updateRumble(dt);
     updateMusic(dt);
     if (pipeTransitionTimer_ > 0.0f) {
@@ -3839,12 +3878,15 @@ void Game::render() {
     SDL_RenderClear(renderer_);
 
     if (appState_ == AppState::Title || appState_ == AppState::Settings || appState_ == AppState::Controls ||
-        appState_ == AppState::Credits || appState_ == AppState::DemoEnd) {
+        appState_ == AppState::Credits || appState_ == AppState::DemoEnd || appState_ == AppState::Summary ||
+        appState_ == AppState::HighScores) {
         switch (appState_) {
             case AppState::Title: renderTitle(); break;
             case AppState::Settings: renderSettings(); break;
             case AppState::Controls: renderControls(); break;
             case AppState::Credits: renderCredits(); break;
+            case AppState::Summary: renderSummary(); break;
+            case AppState::HighScores: renderHighScores(30); break;
             default: renderDemoEnd(); break;
         }
         renderFpsCorner();
@@ -4257,6 +4299,7 @@ Game::Game() = default;
 Game::~Game() = default;
 
 void Game::shutdown() {
+    storeSlotPlayTime();
     settings_.save();
     if (editor_) {
         editor_->shutdownEmbedded();
@@ -4327,7 +4370,8 @@ void Game::finishFinalEnding() {
     finalEnding_ = false;
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
-    checkAllHammerBrosCleared();   // el 8-4 no pasa por onLevelCleared
+    markLevelCleared();            // el 8-4 no pasa por onLevelCleared
+    checkAllHammerBrosCleared();
     if (campaign_) {
         if (levelUndamaged_ && campaignWorld_ == 8) {
             const std::string id = "8-" + std::to_string(campaignLevel_);
@@ -4341,10 +4385,13 @@ void Game::finishFinalEnding() {
         if (campaignNoMushroom_) unlockExtra("item_mushroom");
         if (campaignNoFlower_) unlockExtra("item_flower");
             if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
+            if (campaignNoSkip_ && campaignTime_ < kInfiniteTimeLimit) unlockExtra("infinite_time");
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
         settings_.save();
+        openSummary();
+        return;
     }
     audio_.stopMusic();
     openTitle();
@@ -4610,7 +4657,7 @@ void Game::renderFireworks() {
 void Game::collectCoin() {
     // Las monedas de las partidas (no las del editor ni los escenarios de
     // prueba) van a la alcancia de la tienda (CONTENIDO EXTRA).
-    if (campaign_) ++settings_.coinBank;
+    if (campaign_ && settings_.coinBank < Settings::kMaxCoinBank) ++settings_.coinBank;
     ++coinCount_;
     ++coinTallyForOneUps_;
     addScore(200);
@@ -4630,6 +4677,8 @@ void Game::resetLevelTimer() {
 
 void Game::updateLevelTimer(float dt) {
     if (timeRemaining_ <= 0.0f || levelEnding_ || cutscene_) return;
+    // TIEMPO INFINITO (comprado y activado): en las partidas el reloj no baja.
+    if (campaign_ && settings_.extraOwned("infinite_time") && settings_.extraEnabled("infinite_time")) return;
     timeRemaining_ = std::max(0.0f, timeRemaining_ - dt / kTimeUnitSeconds);
     if (!hurryUpPlayed_ && timeRemaining_ <= kHurryUpThreshold) {
         hurryUpPlayed_ = true;
@@ -4772,7 +4821,7 @@ bool Game::passTurn() {
 
 void Game::onCoopPlayerDied(Mario& character) {
     int& lives = livesOf(character);
-    --lives;
+    if (!infiniteLives()) --lives;
     if (lives > 0) {
         respawnNearestPlatform(character);
         return;
@@ -4788,7 +4837,8 @@ void Game::onAllPlayersDied() {
         for (Mario* character : {&mario_, &luigi_}) {
             if (character->isBenched()) continue;
             int& lives = livesOf(*character);
-            if (--lives <= 0) {
+            if (!infiniteLives()) --lives;
+            if (lives <= 0) {
                 lives = 0;
                 character->setBenched(true);
             }
@@ -4803,7 +4853,7 @@ void Game::onAllPlayersDied() {
         loadScenario(scenario_);
         return;
     }
-    --livesCount_;
+    if (!infiniteLives()) --livesCount_;
     if (turnMode_) {
         saveTurnState();
         turnStates_[static_cast<size_t>(turnPlayer_)].size = MarioSize::Small;
@@ -5784,6 +5834,7 @@ void Game::updateBridgeCollapse(float dt) {
     // Ya no queda puente: Bowser cae a la lava y el juego sigue.
     bridgeCollapsing_ = false;
     if (bowser_.isDangerous()) {
+        noteEnemyKilled();
         bowser_.killByAxe(false);
         audio_.play(Sfx::BowserFall);
     }

@@ -25,17 +25,18 @@ const SDL_Color kMenuDim{180, 180, 200, 255};
 
 // Opciones del menu principal, en orden.
 // Menu principal (anidado): JUGAR abre el submenu de partidas.
-enum MainItem { kMainPlay, kMainSettings, kMainCredits, kMainQuit, kMainCount };
+enum MainItem { kMainPlay, kMainSettings, kMainScores, kMainQuit, kMainCount };
 // Submenu JUGAR.
 enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleExtras, kTitleCount };
 // Submenu EXTRAS.
 enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasOptions, kExtrasCount };
 
 // Que se puede elegir en EXTRAS: PARTIDA + y el editor, cuando se
-// desbloquean en CONTENIDO EXTRA; ELEGIR MUNDO (abierto mientras estamos en
-// pruebas) y CONTENIDO EXTRA, desde el principio.
+// desbloquean en CONTENIDO EXTRA; ELEGIR MUNDO, al pasar el primer nivel (y
+// ahi solo los niveles ya pasados); CONTENIDO EXTRA, desde el principio.
 std::vector<bool> extrasDisabled(const Settings& settings) {
     std::vector<bool> disabled(kExtrasCount, false);
+    disabled[kExtrasWorldSelect] = settings.clearedLevels.empty();
     disabled[kExtrasNewGamePlus] = !settings.extraUnlocked("new_game_plus");
     disabled[kExtrasEditor] = !settings.extraUnlocked("level_editor");
     return disabled;
@@ -46,7 +47,7 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
 // menuOption: al desbloquearse habilita una opcion del menu EXTRAS (no se
 // activa ni desactiva: queda disponible).
 // progress: que cuenta para el logro (y su meta), para mostrar el avance.
-enum class ExtraProgress { None, FlawlessLevels, HammerBroStomps, HammerBroStompsPlus };
+enum class ExtraProgress { None, FlawlessLevels, HammerBroStomps, HammerBroStompsPlus, HiddenOneUps };
 // item: el item que da en la pausa (ITEMS) cuando esta activado.
 enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit, BoomerangSuit };
 struct ExtraContent {
@@ -93,14 +94,27 @@ constexpr ExtraContent kExtraContent[] = {
     {"level_boomerang_flower", "FLOR BUMERAN (NIVELES)", "BOOMERANG FLOWER (LEVELS)",
      "COMPLETA UNA PARTIDA + ELIMINANDO A TODOS LOS HAMMER BRO", "BEAT NEW GAME + DEFEATING EVERY HAMMER BRO", false,
      ExtraProgress::None, 0, ExtraItem::None, 4000},
+    // Las vidas no bajan (en las partidas).
+    {"infinite_lives", "VIDAS INFINITAS", "INFINITE LIVES", "ENCUENTRA TODAS LAS VIDAS OCULTAS DEL JUEGO",
+     "FIND EVERY HIDDEN 1-UP IN THE GAME", false, ExtraProgress::HiddenOneUps, 0, ExtraItem::None, 5000},
+    // En las partidas el reloj del nivel no baja.
+    {"infinite_time", "TIEMPO INFINITO", "ENDLESS TIME", "COMPLETA LA PARTIDA EN MENOS DE 25 MINUTOS SIN SALTEAR NIVELES",
+     "BEAT THE GAME IN UNDER 25 MINUTES WITHOUT SKIPPING LEVELS", false, ExtraProgress::None, 0, ExtraItem::None, 5000},
 };
 constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
+
+int gHiddenOneUpTotal = 0;   // los 1-UP de los bloques de los 32 niveles (Game::init)
+
+int extraTarget(const ExtraContent& item) {
+    return item.progress == ExtraProgress::HiddenOneUps ? gHiddenOneUpTotal : item.target;
+}
 
 int extraProgressValue(const Settings& settings, ExtraProgress progress) {
     switch (progress) {
         case ExtraProgress::FlawlessLevels: return static_cast<int>(settings.flawlessLevels.size());
         case ExtraProgress::HammerBroStomps: return settings.hammerBroStomps;
         case ExtraProgress::HammerBroStompsPlus: return settings.hammerBroStompsPlus;
+        case ExtraProgress::HiddenOneUps: return static_cast<int>(settings.foundOneUps.size());
         case ExtraProgress::None: break;
     }
     return 0;
@@ -169,7 +183,8 @@ std::string volumeBar(int value) {
 
 bool Game::isMenuState() const {
     return appState_ == AppState::Title || appState_ == AppState::Paused || appState_ == AppState::Settings ||
-           appState_ == AppState::Controls || appState_ == AppState::Credits || appState_ == AppState::DemoEnd;
+           appState_ == AppState::Controls || appState_ == AppState::Credits || appState_ == AppState::DemoEnd ||
+           appState_ == AppState::Summary || appState_ == AppState::HighScores;
 }
 
 void Game::saveTopScore() {
@@ -206,7 +221,10 @@ bool Game::enterEditor(EditorEntry entry) {
 }
 
 void Game::openTitle() {
-    settings_.save();   // la alcancia, por si se sale de la partida a mitad de nivel
+    // Saliendo de una partida a mitad de nivel: el tiempo jugado queda en su
+    // espacio (el nivel, el de antes), y la alcancia.
+    storeSlotPlayTime();
+    settings_.save();
     if (editorReturn_) {
         editorReturn_ = false;
         if (enterEditor(EditorEntry::Resume)) return;
@@ -339,6 +357,8 @@ void Game::handleMenuEvent(const SDL_Event& event) {
         return;
     }
 
+    // Nombre para la tabla: las letras del teclado se escriben directo.
+    if (appState_ == AppState::Summary && summaryStage_ == 1 && handleNameTyping(event)) return;
     const MenuInput input = menuInputFromEvent(event);
     if (input == MenuInput::None) return;
     switch (appState_) {
@@ -350,6 +370,17 @@ void Game::handleMenuEvent(const SDL_Event& event) {
             if (input == MenuInput::Confirm || input == MenuInput::Back) openTitle();
             break;
         case AppState::DemoEnd:
+            if (input == MenuInput::Confirm || input == MenuInput::Back) {
+                if (summaryPending_) {
+                    summaryPending_ = false;
+                    openSummary();
+                } else {
+                    openTitle();
+                }
+            }
+            break;
+        case AppState::Summary: handleSummaryInput(input); break;
+        case AppState::HighScores:
             if (input == MenuInput::Confirm || input == MenuInput::Back) openTitle();
             break;
         default: break;
@@ -391,8 +422,8 @@ void Game::askSlotThen(std::function<void()> start) {
 void Game::checkExtraProgress() {
     // Los que se ganan por avance (cantidad o niveles): llegaron a la meta.
     for (const ExtraContent& item : kExtraContent) {
-        if (item.progress == ExtraProgress::None || item.target <= 0) continue;
-        if (extraProgressValue(settings_, item.progress) >= item.target) unlockExtra(item.id);
+        if (item.progress == ExtraProgress::None || extraTarget(item) <= 0) continue;
+        if (extraProgressValue(settings_, item.progress) >= extraTarget(item)) unlockExtra(item.id);
     }
 }
 
@@ -470,6 +501,14 @@ void Game::renderUnlockToast() {
     DebugFont::drawText(renderer_, x + 40, y + 31, isEnglish() ? item->nameEn : item->nameEs, 2, kMenuYellow);
 }
 
+void Game::storeSlotPlayTime() {
+    // Se sale de la partida (al titulo o cerrando el juego): el tiempo
+    // jugado queda en su espacio para seguir contando al continuarla.
+    if (!campaign_ || currentSlot_ < 0 || currentSlot_ >= Settings::kSaveSlots) return;
+    Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
+    if (slot.world > 0) slot.playTime = campaignTime_;
+}
+
 void Game::writeCurrentSlot(int world, int level) {
     if (currentSlot_ < 0 || currentSlot_ >= Settings::kSaveSlots) return;
     Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
@@ -484,6 +523,12 @@ void Game::writeCurrentSlot(int world, int level) {
     slot.noMushroom = campaignNoMushroom_;
     slot.noFlower = campaignNoFlower_;
     slot.allHammerBros = campaignAllHammerBros_;
+    slot.playTime = campaignTime_;
+    slot.enemies = campaignEnemies_;
+    slot.deathsMario = campaignDeaths_[0];
+    slot.deathsLuigi = campaignDeaths_[1];
+    slot.scoreMario = finalScore(0);
+    slot.scoreLuigi = finalScore(1);
     settings_.save();
 }
 
@@ -664,6 +709,22 @@ void Game::handleTitleInput(MenuInput input) {
             campaignNoMushroom_ = slot.noMushroom;
             campaignNoFlower_ = slot.noFlower;
             campaignAllHammerBros_ = slot.allHammerBros;
+            campaignTime_ = slot.playTime;   // sigue desde donde quedo
+            campaignEnemies_ = slot.enemies;
+            campaignDeaths_ = {slot.deathsMario, slot.deathsLuigi};
+            // El puntaje con el que iba (por turnos, el de cada uno).
+            if (turnMode_) {
+                turnStates_[0].score = slot.scoreMario;
+                turnStates_[1].score = slot.scoreLuigi;
+                score_ = turnStates_[static_cast<size_t>(turnPlayer_)].score;
+                playerScore_[0] = score_;
+            } else if (twoPlayerMode_) {
+                playerScore_ = {slot.scoreMario, slot.scoreLuigi};
+                score_ = slot.scoreMario + slot.scoreLuigi;
+            } else {
+                score_ = slot.scoreMario + slot.scoreLuigi;
+                playerScore_[0] = score_;
+            }
             writeCurrentSlot(startWorld_, startLevel_);   // guarda el modo nuevo
         }
         return;
@@ -737,7 +798,15 @@ void Game::handleTitleInput(MenuInput input) {
         if (input == MenuInput::Right) index += 1;
         if (input == MenuInput::Up || input == MenuInput::Down || input == MenuInput::Left ||
             input == MenuInput::Right) {
+            // Solo los niveles ya pasados: se saltean los otros en la misma
+            // direccion (de a uno, o de a mundo con arriba/abajo).
+            const int step = (input == MenuInput::Up || input == MenuInput::Left) ? -1 : 1;
+            const int start = (startWorld_ - 1) * 4 + (startLevel_ - 1);
             index = (index % 32 + 32) % 32;
+            for (int tries = 0; tries < 32 && !levelCleared(index / 4 + 1, index % 4 + 1); ++tries) {
+                index = ((index + step) % 32 + 32) % 32;
+            }
+            if (!levelCleared(index / 4 + 1, index % 4 + 1)) index = start;
             startWorld_ = index / 4 + 1;
             startLevel_ = index % 4 + 1;
             audio_.play(Sfx::TimeTally);
@@ -806,7 +875,10 @@ void Game::handleTitleInput(MenuInput input) {
                 titleSelection_ = kTitleOnePlayer;
                 break;
             case kMainSettings: openSettings(AppState::Title); break;
-            case kMainCredits: appState_ = AppState::Credits; break;
+            case kMainScores:
+                highlightScore_ = -1;
+                appState_ = AppState::HighScores;
+                break;
             case kMainQuit:
                 confirmingQuit_ = true;
                 quitChoice_ = 1;   // NO: que no se cierre sin querer
@@ -827,10 +899,18 @@ void Game::handleTitleInput(MenuInput input) {
         if (extrasDisabled(settings_)[extrasSelection_]) return;
         audio_.play(Sfx::Coin);
         switch (extrasSelection_) {
-            case kExtrasWorldSelect:
+            case kExtrasWorldSelect: {
+                // Arranca en el primero pasado (en el orden del juego).
                 secondQuestNext_ = false;
                 choosingLevel_ = true;
+                for (int index = 0; index < 32; ++index) {
+                    if (!levelCleared(index / 4 + 1, index % 4 + 1)) continue;
+                    startWorld_ = index / 4 + 1;
+                    startLevel_ = index % 4 + 1;
+                    break;
+                }
                 break;
+            }
             case kExtrasNewGamePlus:
                 // La segunda vuelta del original (los niveles mas dificiles):
                 // 1 o 2 jugadores.
@@ -1300,6 +1380,10 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaignNoFlower_ = campaignNoDamage_;
     campaignAllHammerBros_ = campaignNoDamage_;
     defeatedHammerBros_.clear();
+    campaignTime_ = 0.0f;
+    campaignEnemies_ = 0;
+    campaignDeaths_ = {};
+    wasDying_ = {};
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
     campaignWorld_ = startWorld_;
@@ -1310,7 +1394,41 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaign_ = true;
 }
 
+void Game::countHiddenOneUps() {
+    // VIDAS INFINITAS: cuantos 1-UP hay en los bloques de la campana (los de
+    // los bloques invisibles y los de los ladrillos), leidos de los niveles.
+    gHiddenOneUpTotal = 0;
+    for (int world = 1; world <= 8; ++world) {
+        for (int level = 1; level <= 4; ++level) {
+            Tilemap map;
+            if (!map.loadFromFile(campaignLevelPath(world, level))) continue;
+            for (const LevelBlock& block : map.blocks()) {
+                if (block.item == "one_up") ++gHiddenOneUpTotal;
+            }
+        }
+    }
+}
+
+void Game::noteOneUpFound(int col, int row) {
+    if (!campaign_ || campaignWorld_ < 1 || campaignWorld_ > 8) return;
+    const std::string id = std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_) + ":" +
+                           std::to_string(col) + "," + std::to_string(row);
+    auto& found = settings_.foundOneUps;
+    if (std::find(found.begin(), found.end(), id) != found.end()) return;
+    found.push_back(id);
+    checkExtraProgress();
+}
+
+void Game::markLevelCleared() {
+    // Pasado en una partida (no en el editor): queda para ELEGIR MUNDO.
+    if (!campaign_ || campaignWorld_ < 1 || campaignWorld_ > 8) return;
+    if (!levelCleared(campaignWorld_, campaignLevel_)) {
+        settings_.clearedLevels.push_back(std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_));
+    }
+}
+
 void Game::onLevelCleared() {
+    markLevelCleared();
     checkAllHammerBrosCleared();
     settings_.save();   // la alcancia (las monedas del nivel)
     // Logro de la estrella: este nivel de la campana, pasado sin dano.
@@ -1364,9 +1482,11 @@ void Game::onLevelCleared() {
             if (campaignNoMushroom_) unlockExtra("item_mushroom");
             if (campaignNoFlower_) unlockExtra("item_flower");
             if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
+            if (campaignNoSkip_ && campaignTime_ < kInfiniteTimeLimit) unlockExtra("infinite_time");
             settings_.gameCompleted = true;
             if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();
+            summaryPending_ = campaign_;
         }
         appState_ = AppState::DemoEnd;
         audio_.playMusic(Music::Ending, false);
@@ -1450,7 +1570,11 @@ void Game::renderExtraContent() {
     SDL_RenderFillRect(renderer_, nullptr);
     drawCentered(6, tr(Txt::ExtraOptions), 2, kMenuWhite);
     // La alcancia: las monedas juntadas para comprar.
-    drawCentered(19, std::string(tr(Txt::Coins)) + ": " + std::to_string(settings_.coinBank), 2, kMenuYellow);
+    // La alcancia: icono de moneda y "x" cantidad, como el HUD.
+    {
+        const std::string amount = "x" + std::to_string(settings_.coinBank);
+        drawCoinAmount((gLogicalWidth - 8 - static_cast<int>(amount.size()) * 8) / 2, 19, settings_.coinBank, kMenuYellow);
+    }
     const int listX = gLogicalWidth / 2 - 100;
     if (kExtraContentCount == 0) {
         drawCentered(100, tr(Txt::ExtrasEmpty), 2, kMenuGray);
@@ -1466,10 +1590,11 @@ void Game::renderExtraContent() {
         if (i == extraContentSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 12, y, false);
         if (!unlocked) {
             DebugFont::drawText(renderer_, listX, y, "?????", 2, kMenuGray);
-            if (item.progress != ExtraProgress::None && item.target > 0) {
-                const int value = std::min(item.target, extraProgressValue(settings_, item.progress));
-                const std::string text = std::to_string(value) + "/" + std::to_string(item.target) + " - " +
-                                         std::to_string(value * 100 / item.target) + "%";
+            const int target = extraTarget(item);
+            if (item.progress != ExtraProgress::None && target > 0) {
+                const int value = std::min(target, extraProgressValue(settings_, item.progress));
+                const std::string text = std::to_string(value) + "/" + std::to_string(target) + " - " +
+                                         std::to_string(value * 100 / target) + "%";
                 const int right = gLogicalWidth / 2 + 116;
                 DebugFont::drawText(renderer_, right - static_cast<int>(text.size()) * 8, y, text, 2, kMenuGray);
             }
@@ -1497,16 +1622,16 @@ void Game::renderExtraContent() {
     if (settings_.extraUnlocked(item.id) && item.price > 0 && !settings_.extraPurchased(item.id)) {
         // Desbloqueado, a la venta: precio y si alcanza.
         DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ShopForSale), 2, kMenuYellow);
-        DebugFont::drawText(renderer_, box.x + 6, box.y + 19,
-                            std::string(tr(Txt::ShopPrice)) + " " + std::to_string(item.price) + " " + tr(Txt::Coins),
-                            2, kMenuWhite);
+        const std::string priceLabel = std::string(tr(Txt::ShopPrice)) + " ";
+        DebugFont::drawText(renderer_, box.x + 6, box.y + 19, priceLabel, 2, kMenuWhite);
+        drawCoinAmount(box.x + 6 + DebugFont::length(priceLabel) * 8, box.y + 19, item.price, kMenuWhite);
         if (settings_.coinBank >= item.price) {
             DebugFont::drawText(renderer_, box.x + 6, box.y + 33, tr(Txt::ShopBuy), 2, kMenuWhite);
         } else {
-            DebugFont::drawText(renderer_, box.x + 6, box.y + 33,
-                                std::string(tr(Txt::ShopMissing)) + " " + std::to_string(item.price - settings_.coinBank) +
-                                    " " + tr(Txt::Coins),
-                                2, kMenuGray);
+            const std::string missingLabel = std::string(tr(Txt::ShopMissing)) + " ";
+            DebugFont::drawText(renderer_, box.x + 6, box.y + 33, missingLabel, 2, kMenuGray);
+            drawCoinAmount(box.x + 6 + DebugFont::length(missingLabel) * 8, box.y + 33, item.price - settings_.coinBank,
+                           kMenuGray);
         }
     } else if (settings_.extraUnlocked(item.id) && item.menuOption) {
         DebugFont::drawText(renderer_, box.x + 6, box.y + 5, tr(Txt::ExtrasInMenu1), 2, kMenuYellow);
@@ -1531,13 +1656,263 @@ void Game::renderExtraContent() {
         SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
         SDL_RenderDrawRect(renderer_, &ask);
         drawCentered(98, tr(Txt::ShopConfirm), 2, kMenuWhite);
-        drawCentered(110, std::to_string(item.price) + " " + tr(Txt::Coins) + "?", 2, kMenuYellow);
+        const std::string amount = "x" + std::to_string(item.price) + "?";
+        drawCoinAmount((gLogicalWidth - 8 - static_cast<int>(amount.size()) * 8) / 2, 110, item.price, kMenuYellow, "?");
         const int yesX = gLogicalWidth / 2 - 48;
         const int noX = gLogicalWidth / 2 + 24;
         DebugFont::drawText(renderer_, yesX, 132, tr(Txt::Yes), 2, kMenuWhite);
         DebugFont::drawText(renderer_, noX, 132, tr(Txt::No), 2, kMenuWhite);
         titleCursorSprite_.draw(renderer_, 0, 0, (purchaseChoice_ == 0 ? yesX : noX) - 12, 132, false);
     }
+}
+
+int Game::drawCoinAmount(int x, int y, int amount, SDL_Color color, const std::string& suffix) {
+    // Icono de moneda (el del HUD, girando) y "x" cantidad.
+    hudCoinSprite_.draw(renderer_, 0, questionBlockAnimFrame_, x, y, false);
+    const std::string text = "x" + std::to_string(amount) + suffix;
+    DebugFont::drawText(renderer_, x + 8, y, text, 2, color);
+    return 8 + static_cast<int>(text.size()) * 8;
+}
+
+int Game::finalScore(int player) const {
+    // Puntaje de cada jugador: por turnos, el de su estado; de a 2, el suyo;
+    // en 1 jugador, todo es del primero.
+    if (turnMode_) return player == turnPlayer_ ? score_ : turnStates_[static_cast<size_t>(player)].score;
+    if (twoPlayerMode_) return playerScore_[static_cast<size_t>(player)];
+    return player == 0 ? score_ : 0;
+}
+
+std::string Game::playerLabel(int player) const {
+    if (summary_.twoPlayers) return player == 0 ? "MARIO" : "LUIGI";
+    return summary_.luigi ? "LUIGI" : "MARIO";
+}
+
+void Game::openSummary() {
+    // Se termino la partida: el resumen (y despues el nombre para la tabla
+    // de quien entre en ella, y la tabla).
+    saveTopScore();
+    summary_ = SummaryData{};
+    summary_.enemies = campaignEnemies_;
+    summary_.deaths = campaignDeaths_;
+    summary_.twoPlayers = twoPlayerMode_ || turnMode_;
+    summary_.luigi = playAsLuigi_;
+    summary_.scores = {finalScore(0), summary_.twoPlayers ? finalScore(1) : 0};
+    summary_.time = campaignTime_;
+    summary_.plus = gPrimaryHardMode;
+    pendingNames_.clear();
+    for (int player = 0; player < (summary_.twoPlayers ? 2 : 1); ++player) {
+        if (summary_.scores[static_cast<size_t>(player)] > 0) pendingNames_.push_back(player);
+    }
+    // Quien no entra en la tabla (llena y con un puntaje menor) no escribe nombre.
+    const auto& table = settings_.highScores;
+    pendingNames_.erase(std::remove_if(pendingNames_.begin(), pendingNames_.end(),
+                                       [&](int player) {
+                                           return static_cast<int>(table.size()) >= Settings::kMaxHighScores &&
+                                                  summary_.scores[static_cast<size_t>(player)] <= table.back().score;
+                                       }),
+                        pendingNames_.end());
+    campaign_ = false;
+    summaryStage_ = 0;
+    highlightScore_ = -1;
+    appState_ = AppState::Summary;
+}
+
+void Game::startNameEntry() {
+    summaryStage_ = 1;
+    nameEntry_ = playerLabel(pendingNames_.front());
+    nameCursor_ = static_cast<int>(nameEntry_.size());
+}
+
+void Game::commitName() {
+    std::string name = nameEntry_;
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    while (!name.empty() && name.front() == ' ') name.erase(name.begin());
+    if (name.empty()) name = "???";
+    const int player = pendingNames_.front();
+    pendingNames_.erase(pendingNames_.begin());
+    auto& table = settings_.highScores;
+    const Settings::HighScore entry{name, summary_.scores[static_cast<size_t>(player)], summary_.plus};
+    auto it = std::find_if(table.begin(), table.end(), [&](const Settings::HighScore& row) { return row.score < entry.score; });
+    highlightScore_ = static_cast<int>(it - table.begin());
+    table.insert(it, entry);
+    if (static_cast<int>(table.size()) > Settings::kMaxHighScores) table.resize(Settings::kMaxHighScores);
+    if (highlightScore_ >= Settings::kMaxHighScores) highlightScore_ = -1;
+    settings_.save();
+    audio_.play(Sfx::Coin);
+    if (!pendingNames_.empty()) {
+        startNameEntry();
+    } else {
+        summaryStage_ = 2;
+    }
+}
+
+namespace {
+constexpr char kNameChars[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
+constexpr int kNameMax = 8;
+}  // namespace
+
+bool Game::handleNameTyping(const SDL_Event& event) {
+    if (event.type != SDL_KEYDOWN) return false;
+    const SDL_Keycode key = event.key.keysym.sym;
+    char typed = 0;
+    if (key >= SDLK_a && key <= SDLK_z) typed = static_cast<char>('A' + (key - SDLK_a));
+    if (key >= SDLK_0 && key <= SDLK_9) typed = static_cast<char>(key);
+    if (key == SDLK_MINUS) typed = '-';
+    if (key == SDLK_SPACE) typed = ' ';
+    if (typed == 0) return false;
+    if (nameCursor_ >= kNameMax) return true;
+    if (nameCursor_ < static_cast<int>(nameEntry_.size())) {
+        nameEntry_[static_cast<size_t>(nameCursor_)] = typed;
+    } else {
+        nameEntry_.push_back(typed);
+    }
+    nameCursor_ = std::min(nameCursor_ + 1, kNameMax);
+    audio_.play(Sfx::TimeTally);
+    return true;
+}
+
+void Game::handleSummaryInput(MenuInput input) {
+    if (summaryStage_ == 0) {
+        if (input != MenuInput::Confirm && input != MenuInput::Back) return;
+        audio_.play(Sfx::Coin);
+        if (!pendingNames_.empty()) {
+            startNameEntry();
+        } else {
+            summaryStage_ = 2;
+        }
+        return;
+    }
+    if (summaryStage_ == 2) {
+        if (input == MenuInput::Confirm || input == MenuInput::Back) openTitle();
+        return;
+    }
+    // Nombre: arriba/abajo cambia la letra, izquierda/derecha mueve,
+    // atras borra y confirmar lo guarda.
+    const std::string chars = kNameChars;
+    switch (input) {
+        case MenuInput::Up:
+        case MenuInput::Down: {
+            if (nameCursor_ >= static_cast<int>(nameEntry_.size())) {
+                if (nameCursor_ >= kNameMax) nameCursor_ = kNameMax - 1;
+                while (static_cast<int>(nameEntry_.size()) <= nameCursor_) nameEntry_.push_back(' ');
+            }
+            char& c = nameEntry_[static_cast<size_t>(nameCursor_)];
+            size_t index = chars.find(c);
+            if (index == std::string::npos) index = 0;
+            const int count = static_cast<int>(chars.size());
+            index = static_cast<size_t>((static_cast<int>(index) + (input == MenuInput::Up ? 1 : count - 1)) % count);
+            c = chars[index];
+            audio_.play(Sfx::TimeTally);
+            break;
+        }
+        case MenuInput::Left:
+            if (nameCursor_ > 0) --nameCursor_;
+            break;
+        case MenuInput::Right:
+            if (nameCursor_ < static_cast<int>(nameEntry_.size()) && nameCursor_ < kNameMax - 1) ++nameCursor_;
+            break;
+        case MenuInput::Back:
+            if (nameCursor_ > 0) {
+                --nameCursor_;
+                nameEntry_.erase(static_cast<size_t>(nameCursor_), 1);
+                audio_.play(Sfx::Bump);
+            }
+            break;
+        case MenuInput::Confirm: commitName(); break;
+        default: break;
+    }
+}
+
+namespace {
+std::string formatPlayTime(float seconds) {
+    const int total = static_cast<int>(seconds);
+    char text[16];
+    if (total >= 3600) {
+        std::snprintf(text, sizeof(text), "%d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60);
+    } else {
+        std::snprintf(text, sizeof(text), "%02d:%02d", total / 60, total % 60);
+    }
+    return text;
+}
+}  // namespace
+
+void Game::renderSummary() {
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer_, nullptr);
+    if (summaryStage_ == 2) {
+        renderHighScores(30);
+        return;
+    }
+    if (summaryStage_ == 1) {
+        // Nombre para la tabla.
+        const int player = pendingNames_.front();
+        drawCentered(50, tr(Txt::EnterName), 2, kMenuYellow);
+        drawCentered(74, playerLabel(player) + "  " + std::to_string(summary_.scores[static_cast<size_t>(player)]), 2,
+                     kMenuWhite);
+        const int x0 = (gLogicalWidth - kNameMax * 16) / 2;
+        for (int i = 0; i < kNameMax; ++i) {
+            const char c = i < static_cast<int>(nameEntry_.size()) ? nameEntry_[static_cast<size_t>(i)] : ' ';
+            const int x = x0 + i * 16 + 4;
+            DebugFont::drawText(renderer_, x, 110, std::string(1, c == ' ' ? ' ' : c), 2,
+                                i == nameCursor_ ? kMenuYellow : kMenuWhite);
+            const SDL_Color line = i == nameCursor_ ? kMenuYellow : kMenuGray;
+            SDL_SetRenderDrawColor(renderer_, line.r, line.g, line.b, 255);
+            const SDL_Rect under{x - 1, 120, 10, 2};
+            SDL_RenderFillRect(renderer_, &under);
+        }
+        drawCentered(222, tr(Txt::NameHint), 1, kMenuDim);
+        return;
+    }
+    // El resumen.
+    drawCentered(24, tr(Txt::SummaryTitle), 2, kMenuYellow);
+    if (summary_.plus) drawCentered(38, tr(Txt::NewGamePlus), 2, kMenuWhite);
+    const int left = gLogicalWidth / 2 - 112;
+    const int right = gLogicalWidth / 2 + 112;
+    int y = 60;
+    const auto row = [&](const std::string& label, const std::string& value, SDL_Color color) {
+        DebugFont::drawText(renderer_, left, y, label, 2, kMenuWhite);
+        DebugFont::drawText(renderer_, right - DebugFont::length(value) * 8, y, value, 2, color);
+        y += 16;
+    };
+    row(tr(Txt::SummaryEnemies), std::to_string(summary_.enemies), kMenuYellow);
+    if (summary_.twoPlayers) {
+        row(std::string(tr(Txt::SummaryDeaths)) + " MARIO", std::to_string(summary_.deaths[0]), kMenuYellow);
+        row(std::string(tr(Txt::SummaryDeaths)) + " LUIGI", std::to_string(summary_.deaths[1]), kMenuYellow);
+    } else {
+        row(tr(Txt::SummaryDeaths), std::to_string(summary_.deaths[0]), kMenuYellow);
+    }
+    row(tr(Txt::SummaryTime), formatPlayTime(summary_.time), kMenuYellow);
+    if (summary_.twoPlayers) {
+        row(std::string(tr(Txt::SummaryScore)) + " MARIO", std::to_string(summary_.scores[0]), kMenuYellow);
+        row(std::string(tr(Txt::SummaryScore)) + " LUIGI", std::to_string(summary_.scores[1]), kMenuYellow);
+    } else {
+        row(tr(Txt::SummaryScore), std::to_string(summary_.scores[0]), kMenuYellow);
+    }
+    drawCentered(222, tr(Txt::ContinueHint), 1, kMenuDim);
+}
+
+void Game::renderHighScores(int top) {
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer_, nullptr);
+    drawCentered(top - 18, tr(Txt::HighScoresTitle), 2, kMenuYellow);
+    const auto& table = settings_.highScores;
+    if (table.empty()) {
+        drawCentered(110, tr(Txt::HighScoresEmpty), 2, kMenuGray);
+    }
+    const int left = gLogicalWidth / 2 - 100;
+    const int right = gLogicalWidth / 2 + 100;
+    for (size_t i = 0; i < table.size(); ++i) {
+        const int y = top + static_cast<int>(i) * 17;
+        const SDL_Color color = static_cast<int>(i) == highlightScore_ ? kMenuYellow : kMenuWhite;
+        char rank[8];
+        std::snprintf(rank, sizeof(rank), "%2d.", static_cast<int>(i) + 1);
+        DebugFont::drawText(renderer_, left, y, rank, 2, color);
+        DebugFont::drawText(renderer_, left + 32, y, table[i].name, 2, color);
+        std::string score = std::to_string(table[i].score);
+        if (table[i].plus) score += "+";   // PARTIDA +
+        DebugFont::drawText(renderer_, right - DebugFont::length(score) * 8, y, score, 2, color);
+    }
+    drawCentered(222, tr(Txt::ContinueHint), 1, kMenuDim);
 }
 
 void Game::renderSlotPicker() {
@@ -1687,7 +2062,7 @@ void Game::renderTitle() {
             disabled.assign(ids.size(), false);
             selection = editorSelection_;
         } else {
-            ids = {Txt::Play, Txt::Options, Txt::Credits, Txt::Quit};
+            ids = {Txt::Play, Txt::Options, Txt::HighScoresMenu, Txt::Quit};
             disabled.assign(ids.size(), false);
             selection = mainSelection_;
         }
@@ -1709,8 +2084,15 @@ void Game::renderTitle() {
         DebugFont::drawText(renderer_, logoX, 122, tr(Txt::SecondQuest), 2, pink);
     }
     char top[24];
-    std::snprintf(top, sizeof(top), "TOP- %06d", std::min(std::max(settings_.topScore, score_), 999999));
-    drawCentered(196, top, 2, kMenuWhite);
+    const int best = std::min(std::max(settings_.topScore, score_), 999999);
+    std::snprintf(top, sizeof(top), "TOP- %06d", best);
+    // Con el nombre de quien lo tiene (el primero de la tabla de puntajes,
+    // si es ese mismo record).
+    std::string topLine = top;
+    if (!settings_.highScores.empty() && settings_.highScores.front().score >= best) {
+        topLine += " " + settings_.highScores.front().name;
+    }
+    drawCentered(196, topLine, 2, kMenuWhite);
 
     // Los personajes parados en el piso, como el original: Mario siempre,
     // Luigi tambien si esta marcada la opcion de 2 jugadores. Eligiendo

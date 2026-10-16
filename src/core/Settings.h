@@ -34,11 +34,26 @@ struct Settings {
     // Progreso de los logros (acumulado entre partidas): los niveles de la
     // campana pasados sin recibir dano ("1-1").
     std::vector<std::string> flawlessLevels;
+    // Niveles de la campana ya pasados ("1-2"): los que se pueden elegir en
+    // ELEGIR MUNDO.
+    std::vector<std::string> clearedLevels;
+    // Vidas ocultas (1-UP de los bloques) ya encontradas ("1-1:64,9"), logro
+    // VIDAS INFINITAS.
+    std::vector<std::string> foundOneUps;
     std::vector<std::string> enabledExtras;
     // Tienda: lo desbloqueado hay que comprarlo con las monedas juntadas en
     // las partidas (coinBank, la "alcancia").
     std::vector<std::string> purchasedExtras;
     int coinBank = 0;
+    static constexpr int kMaxCoinBank = 999999;   // tope de la alcancia
+    // Tabla de puntajes (al terminar una partida): los mejores, de mayor a menor.
+    struct HighScore {
+        std::string name;
+        int score = 0;
+        bool plus = false;   // PARTIDA +
+    };
+    static constexpr int kMaxHighScores = 10;
+    std::vector<HighScore> highScores;
     // Progreso de los logros de las flores: Hammer Bros eliminados
     // pisandolos en las partidas (y los de PARTIDA +).
     int hammerBroStomps = 0;
@@ -63,6 +78,14 @@ struct Settings {
         bool noMushroom = false; // ... sin super champinones (logro)
         bool noFlower = false;   // ... sin flores de fuego (logro)
         bool allHammerBros = false; // ... eliminando a todos los Hammer Bros (logro)
+        float playTime = 0.0f;      // segundos jugados de la partida (sin pausas, logro)
+        // Para el resumen del final: enemigos eliminados, muertes y puntaje
+        // de cada jugador (Mario / Luigi; en 1 jugador, el primero).
+        int enemies = 0;
+        int deathsMario = 0;
+        int deathsLuigi = 0;
+        int scoreMario = 0;
+        int scoreLuigi = 0;
     };
     static constexpr int kSaveSlots = 5;
     std::array<SaveSlot, kSaveSlots> saves{};
@@ -77,4 +100,5 @@ struct Settings {
     bool load();
     bool save() const;
     nlohmann::json savesJson() const;
+    nlohmann::json highScoresJson() const;
 };

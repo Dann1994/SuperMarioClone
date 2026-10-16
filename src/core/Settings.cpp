@@ -43,10 +43,21 @@ bool Settings::load() {
         unlockedExtras = json.value("unlocked_extras", std::vector<std::string>{});
         enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
         purchasedExtras = json.value("purchased_extras", std::vector<std::string>{});
-        coinBank = json.value("coin_bank", 0);
+        coinBank = std::clamp(json.value("coin_bank", 0), 0, kMaxCoinBank);
+        highScores.clear();
+        if (json.contains("high_scores") && json["high_scores"].is_array()) {
+            for (const auto& entry : json["high_scores"]) {
+                if (!entry.is_object()) continue;
+                highScores.push_back({entry.value("name", std::string("???")), entry.value("score", 0),
+                                      entry.value("plus", false)});
+                if (static_cast<int>(highScores.size()) >= kMaxHighScores) break;
+            }
+        }
         hammerBroStomps = json.value("hammer_bro_stomps", 0);
         hammerBroStompsPlus = json.value("hammer_bro_stomps_plus", 0);
         flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
+        clearedLevels = json.value("cleared_levels", std::vector<std::string>{});
+        foundOneUps = json.value("found_one_ups", std::vector<std::string>{});
     } catch (const std::exception&) {
     }
     const auto readSlot = [](const nlohmann::json& entry) {
@@ -63,6 +74,12 @@ bool Settings::load() {
         slot.noMushroom = entry.value("no_mushroom", false);
         slot.noFlower = entry.value("no_flower", false);
         slot.allHammerBros = entry.value("all_hammer_bros", false);
+        slot.playTime = std::max(0.0f, entry.value("play_time", 0.0f));
+        slot.enemies = entry.value("enemies", 0);
+        slot.deathsMario = entry.value("deaths_mario", 0);
+        slot.deathsLuigi = entry.value("deaths_luigi", 0);
+        slot.scoreMario = entry.value("score_mario", 0);
+        slot.scoreLuigi = entry.value("score_luigi", 0);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -98,6 +115,14 @@ bool Settings::extraEnabled(const std::string& id) const {
     return std::find(enabledExtras.begin(), enabledExtras.end(), id) != enabledExtras.end();
 }
 
+nlohmann::json Settings::highScoresJson() const {
+    nlohmann::json list = nlohmann::json::array();
+    for (const HighScore& entry : highScores) {
+        list.push_back({{"name", entry.name}, {"score", entry.score}, {"plus", entry.plus}});
+    }
+    return list;
+}
+
 nlohmann::json Settings::savesJson() const {
     nlohmann::json list = nlohmann::json::array();
     for (const SaveSlot& slot : saves) {
@@ -105,7 +130,10 @@ nlohmann::json Settings::savesJson() const {
                         {"second_quest", slot.secondQuest}, {"no_damage", slot.noDamage},
                         {"no_skip", slot.noSkip}, {"no_star", slot.noStar},
                         {"no_mushroom", slot.noMushroom}, {"no_flower", slot.noFlower},
-                        {"all_hammer_bros", slot.allHammerBros}});
+                        {"all_hammer_bros", slot.allHammerBros}, {"play_time", slot.playTime},
+                        {"enemies", slot.enemies}, {"deaths_mario", slot.deathsMario},
+                        {"deaths_luigi", slot.deathsLuigi}, {"score_mario", slot.scoreMario},
+                        {"score_luigi", slot.scoreLuigi}});
     }
     return list;
 }
@@ -129,9 +157,12 @@ bool Settings::save() const {
         {"enabled_extras", enabledExtras},
         {"purchased_extras", purchasedExtras},
         {"coin_bank", coinBank},
+        {"high_scores", highScoresJson()},
         {"hammer_bro_stomps", hammerBroStomps},
         {"hammer_bro_stomps_plus", hammerBroStompsPlus},
         {"flawless_levels", flawlessLevels},
+        {"cleared_levels", clearedLevels},
+        {"found_one_ups", foundOneUps},
         {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

@@ -256,6 +256,10 @@ enum class AppState {
     Credits,
     // Despues del ultimo nivel que existe: "fin de la demo".
     DemoEnd,
+    // Al terminar la partida: el resumen, el nombre para la tabla y la tabla.
+    Summary,
+    // La tabla de puntajes (PUNTAJES, desde el menu principal).
+    HighScores,
 };
 
 // Caja de choque enemigo-jugador del original (ver originalEnemyBox en Game.cpp).
@@ -350,6 +354,7 @@ private:
     template <typename T>
     void killEnemyFalling(T& enemy, bool flyRight) {
         if (!enemy.killFalling(flyRight)) return;
+        noteEnemyKilled();
         audio_.play(Sfx::Kick);
         awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
     }
@@ -403,6 +408,7 @@ private:
     template <typename T, typename Shell>
     void killByShell(T& enemy, bool flyRight, Shell& shell) {
         if (!enemy.killFalling(flyRight)) return;
+        noteEnemyKilled();
         audio_.play(Sfx::Kick);
         setScorerFromKicker(shell.kicker());
         awardIndexedPoints(enemy.x(), enemy.y(), shell.takeShellChain() + 4);
@@ -765,6 +771,19 @@ private:
     // Centrado con la fuente del juego, en dos renglones si no entra.
     void drawCenteredFit(int y, const std::string& text, SDL_Color color);
     static std::string campaignLevelPath(int world, int level);
+    // Ya se paso ese nivel de la campana (ELEGIR MUNDO).
+    bool levelCleared(int world, int level) const {
+        const std::string id = std::to_string(world) + "-" + std::to_string(level);
+        return std::find(settings_.clearedLevels.begin(), settings_.clearedLevels.end(), id) !=
+               settings_.clearedLevels.end();
+    }
+    void markLevelCleared();
+    void countHiddenOneUps();
+    void noteOneUpFound(int col, int row);
+    // VIDAS INFINITAS (comprado y activado): en las partidas no se pierden vidas.
+    bool infiniteLives() const {
+        return campaign_ && settings_.extraOwned("infinite_lives") && settings_.extraEnabled("infinite_lives");
+    }
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
     // Vibracion leve al pisar un enemigo (si la vibracion esta activada).
@@ -1426,6 +1445,7 @@ private:
     int purchaseChoice_ = 1;             // 0 SI, 1 NO
     int extraContentSelection_ = 0;
     void renderExtraContent();
+    int drawCoinAmount(int x, int y, int amount, SDL_Color color, const std::string& suffix = "");
     // Logros: la partida en curso va desde el 1-1 sin recibir dano.
     bool campaignNoDamage_ = false;
     // ... y sin saltearse niveles (sin zonas de warp).
@@ -1438,6 +1458,45 @@ private:
     // ... eliminando a todos los Hammer Bros: los de este nivel que ya cayeron
     // (por entidad, sobrevive a las muertes en el mismo nivel).
     bool campaignAllHammerBros_ = false;
+    // Tiempo jugado de la partida (logro TIEMPO INFINITO): no corre en la
+    // pausa ni fuera de la partida; el espacio lo guarda para seguir.
+    float campaignTime_ = 0.0f;
+    // Resumen del final: enemigos eliminados y muertes de cada jugador
+    // (0 Mario / el de 1 jugador, 1 Luigi); el espacio los guarda.
+    int campaignEnemies_ = 0;
+    std::array<int, 2> campaignDeaths_{};
+    std::array<bool, 2> wasDying_{};          // mario_ / luigi_ el cuadro anterior
+    void noteEnemyKilled() {
+        if (campaign_) ++campaignEnemies_;
+    }
+    int finalScore(int player) const;
+    // Resumen (summaryStage_ 0), nombre para la tabla (1) y la tabla (2).
+    struct SummaryData {
+        int enemies = 0;
+        std::array<int, 2> deaths{};
+        std::array<int, 2> scores{};
+        float time = 0.0f;
+        bool twoPlayers = false;
+        bool luigi = false;
+        bool plus = false;
+    };
+    SummaryData summary_;
+    int summaryStage_ = 0;
+    bool summaryPending_ = false;             // DemoEnd: al salir, el resumen
+    std::vector<int> pendingNames_;           // jugadores que entran en la tabla (0/1)
+    std::string nameEntry_;
+    int nameCursor_ = 0;
+    int highlightScore_ = -1;                 // la fila recien agregada
+    void openSummary();
+    void handleSummaryInput(MenuInput input);
+    bool handleNameTyping(const SDL_Event& event);
+    void startNameEntry();
+    void commitName();
+    void renderSummary();
+    void renderHighScores(int top);
+    std::string playerLabel(int player) const;
+    static constexpr float kInfiniteTimeLimit = 25.0f * 60.0f;
+    void storeSlotPlayTime();
     std::set<int> defeatedHammerBros_;
     void onHammerBroStomped();
     void checkAllHammerBrosCleared();
