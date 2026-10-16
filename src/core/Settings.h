@@ -52,7 +52,7 @@ struct Settings {
         bool noMushroom = false; // ... sin super champinones (logro)
         bool noFlower = false;   // ... sin flores de fuego (logro)
     };
-    static constexpr int kSaveSlots = 3;
+    static constexpr int kSaveSlots = 5;
     std::array<SaveSlot, kSaveSlots> saves{};
 
     // Teclas reasignadas por jugador y accion (orden de Action en Input.h);

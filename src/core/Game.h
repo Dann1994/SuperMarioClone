@@ -1396,17 +1396,13 @@ private:
     SpriteSheet bridgeChainSprite_;
     bool brickCoinTimerStarted_ = false;
     float brickCoinTimer_ = 0.0f;
-    // CONTINUAR: despues de un GAME OVER en la partida, se puede seguir desde
-    // el primer nivel de ese mundo (0 = no hay partida para continuar).
-    int continueWorld_ = 0;
-    // Desde que mundo sigue CONTINUAR: el GAME OVER de esta sesion o la
-    // partida guardada en settings.json (0 = nada).
-    int continueWorld() const;
-    // Espacios de guardado: la pantalla para elegir uno (para una partida
-    // nueva o para CONTINUAR), con la vista previa del nivel donde sigue.
+    // Partidas: la pantalla de los espacios de guardado (PARTIDA NUEVA
+    // arriba y abajo las guardadas, con la vista previa del nivel donde
+    // siguen). slotChoice_ -1 es PARTIDA NUEVA; replacingSlot_: estan todos
+    // ocupados y se elige cual reemplazar.
     bool choosingSlot_ = false;
-    bool slotForContinue_ = false;
-    int slotChoice_ = 0;
+    bool replacingSlot_ = false;
+    int slotChoice_ = -1;
     bool confirmingOverwrite_ = false;
     int overwriteChoice_ = 1;            // 0 SI, 1 NO
     // CONTINUAR: al elegir un espacio, CONTINUAR o BORRAR (y el SI/NO de
@@ -1453,7 +1449,8 @@ private:
     std::array<SDL_Texture*, Settings::kSaveSlots> slotPreviews_{};
     bool anySaveSlot() const;
     void askSlotThen(std::function<void()> start);
-    void openContinueSlots();
+    void handleSlotPickerInput(MenuInput input);
+    void startNewGameInSlot(int slot);
     void refreshSlotPreviews();
     SDL_Texture* renderLevelPreview(const std::string& path);
     void writeCurrentSlot(int world, int level);
@@ -1484,8 +1481,6 @@ private:
     void loadTurnState(int player);
     // Despues de morir: true si le paso el turno al otro.
     bool passTurn();
-    bool continueTwoPlayers_ = false;
-    bool continueAsLuigi_ = false;
     int coinTallyForOneUps_ = 0;
     std::vector<SDL_Point> hidden1Ups_;
     void updateHidden1Ups();

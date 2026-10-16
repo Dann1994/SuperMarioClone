@@ -118,6 +118,8 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"CERRAR EL JUEGO?", "TO QUIT THE GAME?"},
     {"SI", "YES"},
     {"NO", "NO"},
+    {"PARTIDA NUEVA", "NEW GAME"},
+    {"ELEGI CUAL REEMPLAZAR", "CHOOSE ONE TO REPLACE"},
 }};
 
 }  // namespace

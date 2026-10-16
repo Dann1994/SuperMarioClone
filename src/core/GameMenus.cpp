@@ -27,7 +27,7 @@ const SDL_Color kMenuDim{180, 180, 200, 255};
 // Menu principal (anidado): JUGAR abre el submenu de partidas.
 enum MainItem { kMainPlay, kMainSettings, kMainCredits, kMainQuit, kMainCount };
 // Submenu JUGAR.
-enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleContinue, kTitleExtras, kTitleCount };
+enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleExtras, kTitleCount };
 // Submenu EXTRAS.
 enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasOptions, kExtrasCount };
 
@@ -202,6 +202,7 @@ void Game::openTitle() {
     choosingTwoMode_ = false;
     confirmingQuit_ = false;
     choosingSlot_ = false;
+    replacingSlot_ = false;
     confirmingOverwrite_ = false;
     slotActions_ = false;
     confirmingDelete_ = false;
@@ -351,19 +352,7 @@ int stepSelection(int current, int delta, int count, const std::vector<bool>& di
     return current;
 }
 
-std::vector<bool> titleDisabled(bool canContinue) {
-    // CONTINUAR solo despues de un GAME OVER en la partida.
-    std::vector<bool> disabled(kTitleCount, false);
-    disabled[kTitleContinue] = !canContinue;
-    return disabled;
-}
-
 }  // namespace
-
-int Game::continueWorld() const {
-    // Solo el GAME OVER de esta sesion (las guardadas se eligen de a una).
-    return continueWorld_;
-}
 
 bool Game::anySaveSlot() const {
     for (const Settings::SaveSlot& slot : settings_.saves) {
@@ -373,32 +362,13 @@ bool Game::anySaveSlot() const {
 }
 
 void Game::askSlotThen(std::function<void()> start) {
-    // Partida nueva: en que espacio se guarda (arranca en el primero vacio).
+    // PARTIDAS: arriba PARTIDA NUEVA (la que se acaba de armar, start) y
+    // abajo las guardadas para CONTINUAR o BORRAR.
     pendingStart_ = std::move(start);
     choosingSlot_ = true;
-    slotForContinue_ = false;
+    replacingSlot_ = false;
     confirmingOverwrite_ = false;
-    slotChoice_ = 0;
-    for (int i = 0; i < Settings::kSaveSlots; ++i) {
-        if (settings_.saves[static_cast<size_t>(i)].world == 0) {
-            slotChoice_ = i;
-            break;
-        }
-    }
-    refreshSlotPreviews();
-}
-
-void Game::openContinueSlots() {
-    choosingSlot_ = true;
-    slotForContinue_ = true;
-    confirmingOverwrite_ = false;
-    slotChoice_ = 0;
-    for (int i = 0; i < Settings::kSaveSlots; ++i) {
-        if (settings_.saves[static_cast<size_t>(i)].world > 0) {
-            slotChoice_ = i;
-            break;
-        }
-    }
+    slotChoice_ = -1;
     refreshSlotPreviews();
 }
 
@@ -499,6 +469,62 @@ void Game::writeCurrentSlot(int world, int level) {
     settings_.save();
 }
 
+void Game::startNewGameInSlot(int slot) {
+    choosingSlot_ = false;
+    replacingSlot_ = false;
+    audio_.play(Sfx::Coin);
+    currentSlot_ = slot;
+    if (pendingStart_) pendingStart_();
+    writeCurrentSlot(startWorld_, startLevel_);
+}
+
+void Game::handleSlotPickerInput(MenuInput input) {
+    const auto filled = [&](int i) { return settings_.saves[static_cast<size_t>(i)].world > 0; };
+    if (input == MenuInput::Up || input == MenuInput::Down) {
+        // PARTIDA NUEVA (-1) y las ocupadas; eligiendo cual reemplazar,
+        // solo las ocupadas (estan todas).
+        const int delta = input == MenuInput::Up ? -1 : 1;
+        const int count = Settings::kSaveSlots + 1;
+        int next = slotChoice_;
+        for (int i = 0; i < count; ++i) {
+            next = (next + 1 + delta + count) % count - 1;
+            if (next == -1 ? !replacingSlot_ : filled(next)) break;
+        }
+        slotChoice_ = next;
+        audio_.play(Sfx::TimeTally);
+    } else if (input == MenuInput::Back) {
+        if (replacingSlot_) {
+            replacingSlot_ = false;
+            slotChoice_ = -1;
+        } else {
+            choosingSlot_ = false;
+        }
+        audio_.play(Sfx::Bump);
+    } else if (input == MenuInput::Confirm) {
+        if (replacingSlot_) {
+            confirmingOverwrite_ = true;   // "SOBRESCRIBIR ESTA PARTIDA?"
+            overwriteChoice_ = 1;
+            audio_.play(Sfx::TimeTally);
+        } else if (slotChoice_ >= 0) {
+            // CONTINUAR o BORRAR esta partida.
+            slotActions_ = true;
+            slotActionChoice_ = 0;
+            audio_.play(Sfx::TimeTally);
+        } else {
+            // PARTIDA NUEVA: en el primer espacio vacio; si no hay, se elige
+            // cual reemplazar.
+            for (int i = 0; i < Settings::kSaveSlots; ++i) {
+                if (filled(i)) continue;
+                startNewGameInSlot(i);
+                return;
+            }
+            replacingSlot_ = true;
+            slotChoice_ = 0;
+            audio_.play(Sfx::TimeTally);
+        }
+    }
+}
+
 void Game::handleTitleInput(MenuInput input) {
     if (extraContentOpen_) {
         // CONTENIDO EXTRA: arriba/abajo recorre la lista; en uno
@@ -541,11 +567,8 @@ void Game::handleTitleInput(MenuInput input) {
             settings_.save();
             if (currentSlot_ == slotChoice_) currentSlot_ = -1;
             audio_.play(Sfx::Bump);
-            if (!anySaveSlot()) {
-                choosingSlot_ = false;   // no queda nada para continuar
-            } else {
-                openContinueSlots();
-            }
+            slotChoice_ = -1;
+            refreshSlotPreviews();
         } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
             confirmingDelete_ = false;
             audio_.play(Sfx::Bump);
@@ -575,16 +598,15 @@ void Game::handleTitleInput(MenuInput input) {
             startWorld_ = slot.world;
             startLevel_ = slot.level;
             secondQuestNext_ = slot.secondQuest;
-            if (slot.mode == "turns") {
-                startTurnCampaign();
-            } else {
-                startCampaign(slot.mode == "coop", slot.luigi);
-            }
+            // Con los jugadores que se acaban de elegir (1 jugador con Mario
+            // o Luigi, 2 a la vez o por turnos), desde donde iba esa partida.
+            if (pendingStart_) pendingStart_();
             campaignNoDamage_ = slot.noDamage;
             campaignNoSkip_ = slot.noSkip;
             campaignNoStar_ = slot.noStar;
             campaignNoMushroom_ = slot.noMushroom;
             campaignNoFlower_ = slot.noFlower;
+            writeCurrentSlot(startWorld_, startLevel_);   // guarda el modo nuevo
         }
         return;
     }
@@ -595,11 +617,7 @@ void Game::handleTitleInput(MenuInput input) {
             audio_.play(Sfx::TimeTally);
         } else if (input == MenuInput::Confirm && overwriteChoice_ == 0) {
             confirmingOverwrite_ = false;
-            choosingSlot_ = false;
-            audio_.play(Sfx::Coin);
-            currentSlot_ = slotChoice_;
-            if (pendingStart_) pendingStart_();
-            writeCurrentSlot(startWorld_, startLevel_);
+            startNewGameInSlot(slotChoice_);
         } else if (input == MenuInput::Confirm || input == MenuInput::Back) {
             confirmingOverwrite_ = false;
             audio_.play(Sfx::Bump);
@@ -607,39 +625,7 @@ void Game::handleTitleInput(MenuInput input) {
         return;
     }
     if (choosingSlot_) {
-        const auto filled = [&](int i) { return settings_.saves[static_cast<size_t>(i)].world > 0; };
-        if (input == MenuInput::Up || input == MenuInput::Down) {
-            // Para CONTINUAR, solo los espacios con partida.
-            const int delta = input == MenuInput::Up ? -1 : 1;
-            int next = slotChoice_;
-            for (int i = 0; i < Settings::kSaveSlots; ++i) {
-                next = (next + delta + Settings::kSaveSlots) % Settings::kSaveSlots;
-                if (!slotForContinue_ || filled(next)) break;
-            }
-            slotChoice_ = next;
-            audio_.play(Sfx::TimeTally);
-        } else if (input == MenuInput::Back) {
-            choosingSlot_ = false;
-            audio_.play(Sfx::Bump);
-        } else if (input == MenuInput::Confirm) {
-            if (slotForContinue_) {
-                if (!filled(slotChoice_)) return;
-                // CONTINUAR o BORRAR esta partida.
-                slotActions_ = true;
-                slotActionChoice_ = 0;
-                audio_.play(Sfx::TimeTally);
-            } else if (filled(slotChoice_)) {
-                confirmingOverwrite_ = true;   // ya tiene una partida: preguntar
-                overwriteChoice_ = 1;
-                audio_.play(Sfx::TimeTally);
-            } else {
-                choosingSlot_ = false;
-                audio_.play(Sfx::Coin);
-                currentSlot_ = slotChoice_;
-                if (pendingStart_) pendingStart_();
-                writeCurrentSlot(startWorld_, startLevel_);
-            }
-        }
+        handleSlotPickerInput(input);
         return;
     }
     if (confirmingQuit_) {
@@ -838,8 +824,7 @@ void Game::handleTitleInput(MenuInput input) {
     }
     // Submenu JUGAR.
     if (input == MenuInput::Up || input == MenuInput::Down) {
-        titleSelection_ = stepSelection(titleSelection_, input == MenuInput::Up ? -1 : 1, kTitleCount,
-                                        titleDisabled(continueWorld() > 0 || anySaveSlot()));
+        titleSelection_ = (titleSelection_ + (input == MenuInput::Up ? kTitleCount - 1 : 1)) % kTitleCount;
         audio_.play(Sfx::TimeTally);
         return;
     }
@@ -859,16 +844,6 @@ void Game::handleTitleInput(MenuInput input) {
             startLevel_ = 1;
             choosingTwoMode_ = true;
             twoModeChoice_ = 0;
-            break;
-        case kTitleContinue:
-            startLevel_ = 1;
-            if (continueWorld_ > 0) {
-                // Despues de un GAME OVER en esta sesion (sigue en el mismo espacio).
-                startWorld_ = continueWorld_;
-                startCampaign(continueTwoPlayers_, continueAsLuigi_);
-            } else if (anySaveSlot()) {
-                openContinueSlots();
-            }
             break;
         case kTitleExtras:
             titleMenu_ = kMenuExtras;
@@ -1261,7 +1236,6 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaignNoStar_ = campaignNoDamage_;
     campaignNoMushroom_ = campaignNoDamage_;
     campaignNoFlower_ = campaignNoDamage_;
-    continueWorld_ = 0;   // una partida nueva (o la continuada) gasta el CONTINUAR
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
     campaignWorld_ = startWorld_;
@@ -1462,22 +1436,35 @@ void Game::renderExtraContent() {
 void Game::renderSlotPicker() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 240);
     SDL_RenderFillRect(renderer_, nullptr);
-    drawCentered(12, tr(Txt::ChooseSlot), 2, kMenuWhite);
-    const int boxW = 240;
+    drawCentered(6, tr(replacingSlot_ ? Txt::ChooseReplace : Txt::ChooseSlot), 2, kMenuWhite);
+    const int boxW = 260;
     const int boxX = (gLogicalWidth - boxW) / 2;
+    // PARTIDA NUEVA, siempre la primera.
+    {
+        const SDL_Rect box{boxX, 20, boxW, 18};
+        const bool selected = slotChoice_ == -1 && !replacingSlot_;
+        SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
+        SDL_RenderFillRect(renderer_, &box);
+        const SDL_Color border = selected ? kMenuYellow : SDL_Color{90, 90, 110, 255};
+        SDL_SetRenderDrawColor(renderer_, border.r, border.g, border.b, 255);
+        SDL_RenderDrawRect(renderer_, &box);
+        const std::string label = tr(Txt::NewGame);
+        DebugFont::drawText(renderer_, (gLogicalWidth - static_cast<int>(label.size()) * 8) / 2, 25, label, 2,
+                            replacingSlot_ ? kMenuGray : selected ? kMenuYellow : kMenuWhite);
+    }
+    // Las guardadas (las vacias, en gris).
     for (int i = 0; i < Settings::kSaveSlots; ++i) {
         const Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(i)];
-        const int y = 32 + i * 68;
-        const SDL_Rect box{boxX, y, boxW, 62};
+        const int y = 42 + i * 39;
+        const SDL_Rect box{boxX, y, boxW, 36};
         const bool selected = i == slotChoice_;
-        const bool usable = !slotForContinue_ || slot.world > 0;
         SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
         SDL_RenderFillRect(renderer_, &box);
         const SDL_Color border = selected ? kMenuYellow : SDL_Color{90, 90, 110, 255};
         SDL_SetRenderDrawColor(renderer_, border.r, border.g, border.b, 255);
         SDL_RenderDrawRect(renderer_, &box);
         // Vista previa: la franja de abajo de la primera pantalla (piso).
-        const SDL_Rect thumb{boxX + 4, y + 4, 96, 54};
+        const SDL_Rect thumb{boxX + 3, y + 3, 54, 30};
         if (slotPreviews_[static_cast<size_t>(i)]) {
             int previewH = 0;
             SDL_QueryTexture(slotPreviews_[static_cast<size_t>(i)], nullptr, nullptr, nullptr, &previewH);
@@ -1489,21 +1476,23 @@ void Game::renderSlotPicker() {
         }
         SDL_SetRenderDrawColor(renderer_, 90, 90, 110, 255);
         SDL_RenderDrawRect(renderer_, &thumb);
-        const SDL_Color text = usable ? kMenuWhite : kMenuGray;
-        const int tx = boxX + 108;
-        DebugFont::drawText(renderer_, tx, y + 6, std::string(tr(Txt::SlotLabel)) + " " + std::to_string(i + 1), 2,
-                            selected ? kMenuYellow : text);
+        const SDL_Color text = slot.world > 0 ? kMenuWhite : kMenuGray;
+        const int tx = boxX + 64;
+        std::string title = std::string(tr(Txt::SlotLabel)) + " " + std::to_string(i + 1);
+        if (slot.world > 0) title += "  " + std::to_string(slot.world) + "-" + std::to_string(slot.level);
+        DebugFont::drawText(renderer_, tx, y + 6, title, 2, selected ? kMenuYellow : text);
         if (slot.world <= 0) {
-            DebugFont::drawText(renderer_, tx, y + 24, tr(Txt::SlotEmpty), 2, text);
+            DebugFont::drawText(renderer_, tx, y + 20, tr(Txt::SlotEmpty), 2, text);
             continue;
         }
-        DebugFont::drawText(renderer_, tx, y + 20, std::string(tr(Txt::HudWorld)) + " " + std::to_string(slot.world) + "-" + std::to_string(slot.level),
-                            2, text);
         const Txt mode = slot.mode == "coop" ? Txt::ModeCoop : slot.mode == "turns" ? Txt::ModeTurns : Txt::OnePlayer;
         std::string line = tr(mode);
         if (slot.mode == "solo" && slot.luigi) line = "LUIGI";
-        DebugFont::drawText(renderer_, tx, y + 34, line, 2, text);
-        if (slot.secondQuest) DebugFont::drawText(renderer_, tx, y + 48, tr(Txt::NewGamePlus), 2, kMenuYellow);
+        DebugFont::drawText(renderer_, tx, y + 20, line, 2, text);
+        if (slot.secondQuest) {
+            const std::string plus = tr(Txt::NewGamePlus);
+            DebugFont::drawText(renderer_, boxX + boxW - 6 - static_cast<int>(plus.size()) * 8, y + 20, plus, 2, kMenuYellow);
+        }
     }
     if (slotActions_ && !confirmingDelete_) {
         const SDL_Rect box{(gLogicalWidth - 200) / 2, 96, 200, 44};
@@ -1575,8 +1564,8 @@ void Game::renderTitle() {
         std::vector<bool> disabled;
         int selection = 0;
         if (titleMenu_ == kMenuPlay) {
-            ids = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Continue, Txt::Extras};
-            disabled = titleDisabled(continueWorld() > 0 || anySaveSlot());
+            ids = {Txt::OnePlayer, Txt::TwoPlayers, Txt::Extras};
+            disabled.assign(ids.size(), false);
             selection = titleSelection_;
         } else if (titleMenu_ == kMenuExtras) {
             ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
@@ -1595,13 +1584,8 @@ void Game::renderTitle() {
             disabled.assign(ids.size(), false);
             selection = mainSelection_;
         }
-        // CONTINUAR dice desde donde sigue (ej. "CONTINUAR 3-1").
         std::vector<std::string> labels;
-        for (Txt id : ids) {
-            std::string label = tr(id);
-            if (id == Txt::Continue && continueWorld() > 0) label += " " + std::to_string(continueWorld()) + "-1";
-            labels.push_back(label);
-        }
+        for (Txt id : ids) labels.push_back(tr(id));
         int widest = 0;
         for (const std::string& label : labels) widest = std::max(widest, static_cast<int>(label.size()) * 8);
         const int x = (gLogicalWidth - widest) / 2;
