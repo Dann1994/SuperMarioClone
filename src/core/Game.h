@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include <array>
+#include <set>
 #include <memory>
 #include <functional>
 #include <vector>
@@ -1434,6 +1435,17 @@ private:
     // ... sin agarrar super champinones / flores de fuego (ni los del truco).
     bool campaignNoMushroom_ = false;
     bool campaignNoFlower_ = false;
+    // ... eliminando a todos los Hammer Bros: los de este nivel que ya cayeron
+    // (por entidad, sobrevive a las muertes en el mismo nivel).
+    bool campaignAllHammerBros_ = false;
+    std::set<int> defeatedHammerBros_;
+    void onHammerBroStomped();
+    void checkAllHammerBrosCleared();
+    template <typename T>
+    void noteStompKill(const T&) {}
+    void noteStompKill(const HammerBro&) { onHammerBroStomped(); }
+    // Flores de los trajes al azar en vez de la de fuego (si se compraron).
+    BlockItem rollSuitFlower(BlockItem item) const;
     // ITEM: ESTRELLA INFINITA puesta en este nivel.
     bool infiniteStarActive_ = false;
     static constexpr float kInfiniteStarDuration = 100000.0f;

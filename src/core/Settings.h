@@ -39,6 +39,10 @@ struct Settings {
     // las partidas (coinBank, la "alcancia").
     std::vector<std::string> purchasedExtras;
     int coinBank = 0;
+    // Progreso de los logros de las flores: Hammer Bros eliminados
+    // pisandolos en las partidas (y los de PARTIDA +).
+    int hammerBroStomps = 0;
+    int hammerBroStompsPlus = 0;
     bool extraUnlocked(const std::string& id) const;
     bool extraEnabled(const std::string& id) const;
     bool extraPurchased(const std::string& id) const;
@@ -58,6 +62,7 @@ struct Settings {
         bool noStar = false;     // desde el 1-1 sin agarrar estrellas (logro)
         bool noMushroom = false; // ... sin super champinones (logro)
         bool noFlower = false;   // ... sin flores de fuego (logro)
+        bool allHammerBros = false; // ... eliminando a todos los Hammer Bros (logro)
     };
     static constexpr int kSaveSlots = 5;
     std::array<SaveSlot, kSaveSlots> saves{};

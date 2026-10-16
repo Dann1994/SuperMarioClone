@@ -1196,6 +1196,42 @@ void Game::trySpawnFireball(Mario& shooter, std::array<Fireball, kMaxFireballsPe
     // (y no se reproduce la animacion de tirar, ya que no se tiro nada).
 }
 
+void Game::onHammerBroStomped() {
+    // Logros de las flores (ITEMS): Hammer Bros pisados en las partidas.
+    if (!campaign_) return;
+    ++settings_.hammerBroStomps;
+    if (gPrimaryHardMode) ++settings_.hammerBroStompsPlus;
+    checkExtraProgress();
+}
+
+void Game::checkAllHammerBrosCleared() {
+    // Paso el nivel: si quedo algun Hammer Bro sin eliminar (o ni aparecio),
+    // la partida ya no cuenta para el logro de las flores en los niveles.
+    if (campaign_ && campaignAllHammerBros_) {
+        const auto& entities = level_.entities();
+        for (size_t i = 0; i < entities.size(); ++i) {
+            if (entities[i].type != "hammer_bro") continue;
+            if (entities[i].hardOnly && !gPrimaryHardMode) continue;
+            if (!defeatedHammerBros_.count(static_cast<int>(i))) {
+                campaignAllHammerBros_ = false;
+                break;
+            }
+        }
+    }
+    defeatedHammerBros_.clear();
+}
+
+BlockItem Game::rollSuitFlower(BlockItem item) const {
+    // Compradas (y activadas) en CONTENIDO EXTRA: en las partidas, en vez
+    // de una flor de fuego sale una de traje con 10% cada una.
+    if (item != BlockItem::FireFlower || !campaign_) return item;
+    const float roll = randomRange(0.0f, 1.0f);
+    const auto active = [this](const char* id) { return settings_.extraOwned(id) && settings_.extraEnabled(id); };
+    if (active("level_hammer_flower") && roll < 0.1f) return BlockItem::HammerFlower;
+    if (active("level_boomerang_flower") && roll >= 0.1f && roll < 0.2f) return BlockItem::BoomerangFlower;
+    return item;
+}
+
 void Game::catchBoomerang(const Mario& thrower, Fireball& fireball) {
     // El bumeran que vuelve lo atrapa quien lo tiro (si no, sigue de largo
     // hasta salir de la pantalla).
@@ -1562,6 +1598,7 @@ void Game::resolveStompableContact(Mario& character, T& enemy, StompRule rule, f
         if (enemy.killFalling(character.x() <= enemy.x())) {
             audio_.play(Sfx::StompKill);
             awardEnemyPoints(enemy.x(), enemy.y(), enemyPoints(enemy));
+            noteStompKill(enemy);
         }
         character.setVelocityY(bounce);
         stompRumble(character);
@@ -2856,6 +2893,7 @@ void Game::checkQuestionBlockHit(Mario& character) {
 void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool hitterBig) {
     BlockItem item = findBlockSpawn(col, row).item;
     if (item == BlockItem::PowerUp) item = hitterBig ? BlockItem::FireFlower : BlockItem::Mushroom;
+    item = rollSuitFlower(item);
     if (item == BlockItem::Vine) {
         const QuestionBlockSpawn& spawn = findBlockSpawn(col, row);
         spawnVine(col, row, spawn.destCol, spawn.destRow);
@@ -3484,6 +3522,7 @@ void Game::update(float dt) {
 
     for (HammerBro& bro : hammerBros_) {
         bro.update(dt, level_, kWorldViewBottom);
+        if (bro.consumeDefeat() && bro.entityIndex() >= 0) defeatedHammerBros_.insert(bro.entityIndex());
         // Mira al personaje mas cercano (ver el comentario de faceTowards),
         // independiente de hacia donde este caminando.
         if (twoPlayerMode_ && std::abs(luigi_.x() - bro.x()) < std::abs(mario_.x() - bro.x())) {
@@ -4288,6 +4327,7 @@ void Game::finishFinalEnding() {
     finalEnding_ = false;
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
+    checkAllHammerBrosCleared();   // el 8-4 no pasa por onLevelCleared
     if (campaign_) {
         if (levelUndamaged_ && campaignWorld_ == 8) {
             const std::string id = "8-" + std::to_string(campaignLevel_);
@@ -4300,6 +4340,7 @@ void Game::finishFinalEnding() {
         if (campaignNoDamage_ && campaignNoStar_) unlockExtra("item_infinite_star");
         if (campaignNoMushroom_) unlockExtra("item_mushroom");
         if (campaignNoFlower_) unlockExtra("item_flower");
+            if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
@@ -5191,6 +5232,7 @@ void Game::spawnLevelEntities() {
         } else if (entity.type == "hammer_bro") {
             spawned = spawnInPool(hammerBros_, [&](HammerBro& bro) {
                 bro.spawn(x, feetY - static_cast<float>(HammerBro::kHeight), entity.movingRight);
+                bro.setEntityIndex(static_cast<int>(i));
             });
         } else if (entity.type == "lakitu") {
             if (!lakitu_.isAlive()) lakitu_.spawn(x, static_cast<float>(entity.row) * ts + entity.yOffset, entity.movingRight);

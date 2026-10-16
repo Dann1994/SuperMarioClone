@@ -21,6 +21,8 @@ bool randomChance(float probability) { return randomRange(0.0f, 1.0f) < probabil
 }  // namespace
 
 void HammerBro::spawn(float x, float y, bool movingRight) {
+    entityIndex_ = -1;
+    defeatCounted_ = false;
     x_ = x;
     y_ = y;
     velX_ = movingRight ? kWalkSpeed : -kWalkSpeed;

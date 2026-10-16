@@ -46,7 +46,7 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
 // menuOption: al desbloquearse habilita una opcion del menu EXTRAS (no se
 // activa ni desactiva: queda disponible).
 // progress: que cuenta para el logro (y su meta), para mostrar el avance.
-enum class ExtraProgress { None, FlawlessLevels };
+enum class ExtraProgress { None, FlawlessLevels, HammerBroStomps, HammerBroStompsPlus };
 // item: el item que da en la pausa (ITEMS) cuando esta activado.
 enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit, BoomerangSuit };
 struct ExtraContent {
@@ -81,16 +81,26 @@ constexpr ExtraContent kExtraContent[] = {
      "COMPLETA EL JUEGO SIN MORIR NI RECIBIR DAÑO Y SIN AGARRAR ESTRELLAS",
      "BEAT THE GAME WITHOUT DYING, TAKING DAMAGE OR GETTING A STAR", false, ExtraProgress::None, 0,
      ExtraItem::InfiniteStar, 10000},
-    {"item_hammer", "ITEM: TRAJE HAMMER BRO", "ITEM: HAMMER SUIT", "CONDICION POR DEFINIR",
-     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::HammerSuit, 4000},
-    {"item_boomerang", "ITEM: TRAJE BOOMERANG BRO", "ITEM: BOOMERANG SUIT", "CONDICION POR DEFINIR",
-     "CONDITION TO BE DEFINED", false, ExtraProgress::None, 0, ExtraItem::BoomerangSuit, 4000},
+    {"item_hammer", "ITEM: FLOR MARTILLO", "ITEM: HAMMER FLOWER", "ELIMINA A 10 HAMMER BRO PISANDOLOS",
+     "DEFEAT 10 HAMMER BROS BY STOMPING THEM", false, ExtraProgress::HammerBroStomps, 10, ExtraItem::HammerSuit, 4000},
+    {"item_boomerang", "ITEM: FLOR BUMERAN", "ITEM: BOOMERANG FLOWER",
+     "ELIMINA A 10 HAMMER BRO PISANDOLOS EN PARTIDA +", "DEFEAT 10 HAMMER BROS BY STOMPING THEM IN NEW GAME +", false,
+     ExtraProgress::HammerBroStompsPlus, 10, ExtraItem::BoomerangSuit, 4000},
+    // En los niveles: en vez de la flor de fuego, 10% de que salga esta.
+    {"level_hammer_flower", "FLOR MARTILLO (NIVELES)", "HAMMER FLOWER (LEVELS)",
+     "COMPLETA UNA PARTIDA ELIMINANDO A TODOS LOS HAMMER BRO", "BEAT A GAME DEFEATING EVERY HAMMER BRO", false,
+     ExtraProgress::None, 0, ExtraItem::None, 4000},
+    {"level_boomerang_flower", "FLOR BUMERAN (NIVELES)", "BOOMERANG FLOWER (LEVELS)",
+     "COMPLETA UNA PARTIDA + ELIMINANDO A TODOS LOS HAMMER BRO", "BEAT NEW GAME + DEFEATING EVERY HAMMER BRO", false,
+     ExtraProgress::None, 0, ExtraItem::None, 4000},
 };
 constexpr int kExtraContentCount = static_cast<int>(std::size(kExtraContent));
 
 int extraProgressValue(const Settings& settings, ExtraProgress progress) {
     switch (progress) {
         case ExtraProgress::FlawlessLevels: return static_cast<int>(settings.flawlessLevels.size());
+        case ExtraProgress::HammerBroStomps: return settings.hammerBroStomps;
+        case ExtraProgress::HammerBroStompsPlus: return settings.hammerBroStompsPlus;
         case ExtraProgress::None: break;
     }
     return 0;
@@ -473,6 +483,7 @@ void Game::writeCurrentSlot(int world, int level) {
     slot.noStar = campaignNoStar_;
     slot.noMushroom = campaignNoMushroom_;
     slot.noFlower = campaignNoFlower_;
+    slot.allHammerBros = campaignAllHammerBros_;
     settings_.save();
 }
 
@@ -545,6 +556,7 @@ void Game::handleTitleInput(MenuInput input) {
             if (settings_.coinBank >= content.price) {
                 settings_.coinBank -= content.price;
                 settings_.purchasedExtras.push_back(content.id);
+                if (!settings_.extraEnabled(content.id)) settings_.enabledExtras.push_back(content.id);   // ya activado
                 settings_.save();
                 audio_.play(Sfx::OneUp);
             }
@@ -651,6 +663,7 @@ void Game::handleTitleInput(MenuInput input) {
             campaignNoStar_ = slot.noStar;
             campaignNoMushroom_ = slot.noMushroom;
             campaignNoFlower_ = slot.noFlower;
+            campaignAllHammerBros_ = slot.allHammerBros;
             writeCurrentSlot(startWorld_, startLevel_);   // guarda el modo nuevo
         }
         return;
@@ -759,6 +772,7 @@ void Game::handleTitleInput(MenuInput input) {
                 campaignNoStar_ = false;
                 campaignNoMushroom_ = false;
                 campaignNoFlower_ = false;
+                campaignAllHammerBros_ = false;
             } else {
                 askSlotThen([this, luigi] { startCampaign(false, luigi); });
             }
@@ -1284,6 +1298,8 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaignNoStar_ = campaignNoDamage_;
     campaignNoMushroom_ = campaignNoDamage_;
     campaignNoFlower_ = campaignNoDamage_;
+    campaignAllHammerBros_ = campaignNoDamage_;
+    defeatedHammerBros_.clear();
     setPlayAsLuigi(!twoPlayers && asLuigi);
     twoPlayerMode_ = twoPlayers;
     campaignWorld_ = startWorld_;
@@ -1295,6 +1311,7 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
 }
 
 void Game::onLevelCleared() {
+    checkAllHammerBrosCleared();
     settings_.save();   // la alcancia (las monedas del nivel)
     // Logro de la estrella: este nivel de la campana, pasado sin dano.
     if (campaign_ && levelUndamaged_ && campaignWorld_ >= 1 && campaignWorld_ <= 8) {
@@ -1346,6 +1363,7 @@ void Game::onLevelCleared() {
             if (campaignNoDamage_ && campaignNoStar_) unlockExtra("item_infinite_star");
             if (campaignNoMushroom_) unlockExtra("item_mushroom");
             if (campaignNoFlower_) unlockExtra("item_flower");
+            if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
             settings_.gameCompleted = true;
             if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();

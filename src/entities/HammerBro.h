@@ -66,6 +66,15 @@ public:
     bool isAlive() const { return alive_; }
     bool isFalling() const { return falling_; }
     bool isDangerous() const { return alive_ && !falling_; }
+    // De que entidad del nivel salio (logro "todos los Hammer Bros").
+    void setEntityIndex(int index) { entityIndex_ = index; }
+    int entityIndex() const { return entityIndex_; }
+    // true una sola vez, cuando lo derrotan (de cualquier forma).
+    bool consumeDefeat() {
+        if (!falling_ || defeatCounted_) return false;
+        defeatCounted_ = true;
+        return true;
+    }
 
     // Pisoton, estrella o fuego: cualquiera lo mata igual (ver el
     // comentario de la clase), se da vuelta y sale disparado en parabola
@@ -166,4 +175,6 @@ private:
     bool throwRequested_ = false;
     float animTimer_ = 0.0f;
     int animFrame_ = 0;
+    int entityIndex_ = -1;
+    bool defeatCounted_ = false;
 };

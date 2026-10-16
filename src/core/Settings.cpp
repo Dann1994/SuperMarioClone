@@ -44,6 +44,8 @@ bool Settings::load() {
         enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
         purchasedExtras = json.value("purchased_extras", std::vector<std::string>{});
         coinBank = json.value("coin_bank", 0);
+        hammerBroStomps = json.value("hammer_bro_stomps", 0);
+        hammerBroStompsPlus = json.value("hammer_bro_stomps_plus", 0);
         flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
     } catch (const std::exception&) {
     }
@@ -60,6 +62,7 @@ bool Settings::load() {
         slot.noStar = entry.value("no_star", false);
         slot.noMushroom = entry.value("no_mushroom", false);
         slot.noFlower = entry.value("no_flower", false);
+        slot.allHammerBros = entry.value("all_hammer_bros", false);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -101,7 +104,8 @@ nlohmann::json Settings::savesJson() const {
         list.push_back({{"world", slot.world}, {"level", slot.level}, {"mode", slot.mode}, {"luigi", slot.luigi},
                         {"second_quest", slot.secondQuest}, {"no_damage", slot.noDamage},
                         {"no_skip", slot.noSkip}, {"no_star", slot.noStar},
-                        {"no_mushroom", slot.noMushroom}, {"no_flower", slot.noFlower}});
+                        {"no_mushroom", slot.noMushroom}, {"no_flower", slot.noFlower},
+                        {"all_hammer_bros", slot.allHammerBros}});
     }
     return list;
 }
@@ -125,6 +129,8 @@ bool Settings::save() const {
         {"enabled_extras", enabledExtras},
         {"purchased_extras", purchasedExtras},
         {"coin_bank", coinBank},
+        {"hammer_bro_stomps", hammerBroStomps},
+        {"hammer_bro_stomps_plus", hammerBroStompsPlus},
         {"flawless_levels", flawlessLevels},
         {"saves", savesJson()},
         {"keys", keys},
