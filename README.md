@@ -357,8 +357,8 @@ Falta definir cómo se elige el modo (probablemente desde el menú principal, se
 - **Editor de niveles como opción del juego** (cambia la sección 7 de la especificación, que lo dejaba fuera del build final): por ahora `mario_editor.exe` es la herramienta para armar los niveles principales; más adelante se integra al juego como una opción del menú (estilo Super Mario Maker), para que cualquiera arme y juegue sus propios niveles. Ya está pensado para eso: comparte el dibujo del nivel con el juego (`Tilemap`) y guarda el mismo JSON. Para integrarlo falta: pasarlo de ejecutable aparte a un estado/pantalla del juego, que los niveles del jugador se guarden en una carpeta propia (no en `levels/` del proyecto), y "probar" sin abrir otro proceso.
 
 - **EXTRAS como sistema de logros** (anotado el 2026-10-14): todo lo de EXTRAS son configuraciones y cosas que se desbloquean cumpliendo logros durante el juego ("haciendo tal cosa se desbloquea tal otra"). Lo que se va a poder desbloquear:
-  - **Trajes**: Hammer Bro, tanuki y rana (se programan más adelante).
-  - **Personajes**: Toad, la princesa y Luigi moderno (vuelve a entrar; el sprite está en `Documentaciones/Luigi_moderno.png`).
+  - **Trajes**: Hammer Bro y Boomerang Bro (hechos). Tanuki y rana quedaron cancelados.
+  - **Personajes**: Toad y la princesa (Luigi moderno y los colores modernos de Mario quedaron cancelados).
   - **Trucos**: sacar cuando se quiera un hongo, una flor, una estrella, los trajes especiales, etc.
   - Cada uno con su logro. Ejemplo: el truco de la estrella cuando quieras se gana terminando el juego sin recibir daño.
   - Falta definir la lista de logros y qué desbloquea cada uno, dónde se guardan (settings.json, como `game_completed`) y cómo se muestran en EXTRAS (bloqueado en gris con la pista de qué hay que hacer).
