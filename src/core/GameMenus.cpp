@@ -1565,6 +1565,127 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaign_ = true;
 }
 
+namespace {
+// Los secretos de un nivel de la campana, por id: las vidas ocultas
+// ("1up:col,row", todos los 1-UP de bloques), las enredaderas ("vine:col,row"),
+// los bloques invisibles con moneda ("hcoin"), los ladrillos de varias
+// monedas ("mcoin") y los ladrillos con estrella ("star"),
+// los canos que llevan a un cuarto de bonus ("pipe:col,row": del area
+// principal a otra de la que se vuelve por otro cano; no cuentan el de la
+// escena del x-2, los de salida ni los de los castillos) y las zonas de warp
+// ("warp:col", cada grupo de canos uno).
+int areaOf(const Tilemap& map, int col) {
+    const auto& areas = map.areas();
+    for (size_t i = 0; i < areas.size(); ++i) {
+        if (col >= areas[i].startCol && col <= areas[i].endCol) return static_cast<int>(i);
+    }
+    return areas.empty() ? 0 : -1;
+}
+
+// La primera columna del grupo de canos de warp zone donde esta col.
+int warpZoneGroupCol(const Tilemap& map, int col) {
+    std::vector<int> cols;
+    for (const LevelWarp& warp : map.warps()) {
+        if (!warp.level.empty()) cols.push_back(warp.col);
+    }
+    std::sort(cols.begin(), cols.end());
+    int groupStart = -1;
+    int prev = -100;
+    for (int c : cols) {
+        if (c - prev > 8) groupStart = c;
+        if (c == col) return groupStart;
+        prev = c;
+    }
+    return col;
+}
+
+std::vector<std::string> levelSecretIds(const Tilemap& map, int level) {
+    std::vector<std::string> ids;
+    const auto cell = [](int col, int row) { return std::to_string(col) + "," + std::to_string(row); };
+    for (const LevelBlock& block : map.blocks()) {
+        if (block.item == "one_up") ids.push_back("1up:" + cell(block.col, block.row));
+        if (block.item == "vine") ids.push_back("vine:" + cell(block.col, block.row));
+        // Bloque invisible con moneda, ladrillo de varias monedas y
+        // ladrillo con estrella: los que se buscan golpeando bloques.
+        const bool hidden = map.isHiddenBlockTile(block.col, block.row);
+        const bool brick = map.isDispenserTile(block.col, block.row);
+        if (hidden && block.item == "coin") ids.push_back("hcoin:" + cell(block.col, block.row));
+        if (brick && block.item == "coin" && block.hits > 1) ids.push_back("mcoin:" + cell(block.col, block.row));
+        if (brick && block.item == "star") ids.push_back("star:" + cell(block.col, block.row));
+    }
+    if (level != 4) {
+        int mainArea = 0;
+        if (map.introArea() >= 0) {
+            for (const LevelWarp& warp : map.warps()) {
+                if (warp.level.empty() && areaOf(map, warp.col) == map.introArea()) {
+                    mainArea = areaOf(map, warp.destCol);
+                    break;
+                }
+            }
+        }
+        for (const LevelWarp& warp : map.warps()) {
+            if (!warp.level.empty()) continue;
+            const int from = areaOf(map, warp.col);
+            const int to = areaOf(map, warp.destCol);
+            if (from != mainArea || to == mainArea) continue;
+            bool comesBack = false;
+            for (const LevelWarp& back : map.warps()) {
+                if (back.level.empty() && areaOf(map, back.col) == to && areaOf(map, back.destCol) == mainArea) {
+                    comesBack = true;
+                }
+            }
+            if (comesBack) ids.push_back("pipe:" + cell(warp.col, warp.row));
+        }
+    }
+    for (const LevelWarp& warp : map.warps()) {
+        if (warp.level.empty()) continue;
+        const std::string id = "warp:" + std::to_string(warpZoneGroupCol(map, warp.col));
+        if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+    }
+    return ids;
+}
+
+std::array<std::vector<std::string>, 32> gLevelSecrets;   // por nivel (1-1 = 0), Game::init
+}  // namespace
+
+int Game::secretsFound(int world, int level) const {
+    const std::string prefix = std::to_string(world) + "-" + std::to_string(level) + "|";
+    int found = 0;
+    for (const std::string& id : gLevelSecrets[static_cast<size_t>((world - 1) * 4 + level - 1)]) {
+        if (std::find(settings_.foundSecrets.begin(), settings_.foundSecrets.end(), prefix + id) !=
+            settings_.foundSecrets.end()) {
+            ++found;
+        }
+    }
+    return found;
+}
+
+int Game::secretsTotal(int world, int level) const {
+    return static_cast<int>(gLevelSecrets[static_cast<size_t>((world - 1) * 4 + level - 1)].size());
+}
+
+void Game::noteSecretFound(const std::string& id) {
+    // Encontrado en una partida: si es uno de los secretos del nivel, queda.
+    if (!campaign_ || campaignWorld_ < 1 || campaignWorld_ > 8 || campaignLevel_ < 1 || campaignLevel_ > 4) return;
+    const auto& secrets = gLevelSecrets[static_cast<size_t>((campaignWorld_ - 1) * 4 + campaignLevel_ - 1)];
+    if (std::find(secrets.begin(), secrets.end(), id) == secrets.end()) return;
+    const std::string key = std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_) + "|" + id;
+    if (std::find(settings_.foundSecrets.begin(), settings_.foundSecrets.end(), key) != settings_.foundSecrets.end()) {
+        return;
+    }
+    settings_.foundSecrets.push_back(key);
+    settings_.save();
+}
+
+void Game::noteWarpPipeSecret(const PipeWarp& warp) {
+    // Cano de bonus o de warp zone (ver levelSecretIds).
+    if (!warp.level.empty()) {
+        noteSecretFound("warp:" + std::to_string(warpZoneGroupCol(level_, warp.col)));
+    } else {
+        noteSecretFound("pipe:" + std::to_string(warp.col) + "," + std::to_string(warp.row));
+    }
+}
+
 void Game::countHiddenOneUps() {
     // VIDAS INFINITAS: cuantos 1-UP hay en los bloques de la campana (los de
     // los bloques invisibles y los de los ladrillos), leidos de los niveles.
@@ -1576,12 +1697,14 @@ void Game::countHiddenOneUps() {
             for (const LevelBlock& block : map.blocks()) {
                 if (block.item == "one_up") ++gHiddenOneUpTotal;
             }
+            gLevelSecrets[static_cast<size_t>((world - 1) * 4 + level - 1)] = levelSecretIds(map, level);
         }
     }
 }
 
 void Game::noteOneUpFound(int col, int row) {
     if (!campaign_ || campaignWorld_ < 1 || campaignWorld_ > 8) return;
+    noteSecretFound("1up:" + std::to_string(col) + "," + std::to_string(row));
     const std::string id = std::to_string(campaignWorld_) + "-" + std::to_string(campaignLevel_) + ":" +
                            std::to_string(col) + "," + std::to_string(row);
     auto& found = settings_.foundOneUps;
@@ -2508,16 +2631,40 @@ void Game::renderTitle() {
     }
 
     if (choosingLevel_) {
-        const int boxW = 168;
-        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 132, boxW, 60};
-        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 230);
+        // ELEGIR MUNDO: la vista previa del nivel (su primera pantalla), el
+        // nivel y cuantos secretos se encontraron de los que tiene.
+        const int index = (startWorld_ - 1) * 4 + (startLevel_ - 1);
+        if (index != chooserPreviewIndex_) {
+            if (chooserPreview_) SDL_DestroyTexture(chooserPreview_);
+            chooserPreview_ = renderLevelPreview(campaignLevelPath(startWorld_, startLevel_));
+            chooserPreviewIndex_ = index;
+        }
+        const int boxW = 232;
+        const SDL_Rect box{(gLogicalWidth - boxW) / 2, 112, boxW, 96};   // tapa el menu de abajo
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 235);
         SDL_RenderFillRect(renderer_, &box);
         SDL_SetRenderDrawColor(renderer_, 255, 255, 255, 255);
         SDL_RenderDrawRect(renderer_, &box);
-        drawCentered(140, tr(Txt::ChooseLevel), 2, kMenuWhite);
+        drawCentered(118, tr(Txt::ChooseLevel), 2, kMenuWhite);
+        const SDL_Rect thumb{box.x + 8, box.y + 24, 112, 63};
+        if (chooserPreview_) {
+            int previewH = 0;
+            SDL_QueryTexture(chooserPreview_, nullptr, nullptr, nullptr, &previewH);
+            const SDL_Rect source{0, std::max(0, previewH - 144), 256, std::min(144, previewH)};
+            SDL_RenderCopy(renderer_, chooserPreview_, &source, &thumb);
+        }
+        SDL_SetRenderDrawColor(renderer_, 90, 90, 110, 255);
+        SDL_RenderDrawRect(renderer_, &thumb);
+        const int textX = thumb.x + thumb.w + 10;
         char label[16];
         std::snprintf(label, sizeof(label), "< %d-%d >", startWorld_, startLevel_);
-        drawCentered(162, label, 2, kMenuWhite);
+        DebugFont::drawText(renderer_, textX, box.y + 30, label, 2, kMenuWhite);
+        DebugFont::drawText(renderer_, textX, box.y + 52, tr(Txt::Secrets), 2, kMenuDim);
+        const int total = secretsTotal(startWorld_, startLevel_);
+        const int found = secretsFound(startWorld_, startLevel_);
+        const std::string count = std::to_string(found) + "/" + std::to_string(total);
+        DebugFont::drawText(renderer_, textX, box.y + 64, count, 2,
+                            total > 0 && found >= total ? kMenuYellow : kMenuWhite);
     }
 
     if (confirmingQuit_) {

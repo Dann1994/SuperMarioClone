@@ -2517,6 +2517,7 @@ void Game::checkSideWarp(Mario& character) {
 }
 
 void Game::startPipeEnter(Mario& character, const PipeWarp& warp) {
+    noteWarpPipeSecret(warp);   // ELEGIR MUNDO: canos de bonus y zonas de warp
     audio_.play(Sfx::Pipe);
     pipeAnim_ = PipeAnim{};
     pipeAnim_.active = true;
@@ -2972,6 +2973,14 @@ void Game::checkQuestionBlockHit(Mario& character) {
 }
 
 void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool hitterBig) {
+    {
+        // ELEGIR MUNDO: si este bloque es uno de los secretos del nivel
+        // (noteSecretFound solo anota los que estan en la lista).
+        const std::string cell = std::to_string(col) + "," + std::to_string(row);
+        noteSecretFound("hcoin:" + cell);
+        noteSecretFound("mcoin:" + cell);
+        noteSecretFound("star:" + cell);
+    }
     BlockItem item = findBlockSpawn(col, row).item;
     if (item == BlockItem::PowerUp) item = hitterBig ? BlockItem::FireFlower : BlockItem::Mushroom;
     item = rollSuitFlower(item);
@@ -4388,6 +4397,8 @@ void Game::shutdown() {
         editor_->shutdownEmbedded();
         editor_.reset();
     }
+    if (chooserPreview_) SDL_DestroyTexture(chooserPreview_);
+    chooserPreview_ = nullptr;
     for (SDL_Texture*& preview : slotPreviews_) {
         if (preview) SDL_DestroyTexture(preview);
         preview = nullptr;
@@ -4582,8 +4593,15 @@ void Game::updateWarpZones() {
     const float ts = static_cast<float>(level_.tileSize());
     for (WarpZoneLock& lock : warpZoneLocks_) {
         if (lock.reached) continue;
-        // Llega cuando la pantalla muestra la primera tuberia de la zona.
-        if (cameraX_ + static_cast<float>(gLogicalWidth) < static_cast<float>(lock.firstPipe) * ts) continue;
+        // Llega cuando un jugador entra a la zona (por arriba del techo o por
+        // la enredadera), como WarpZoneControl del original; desde el camino
+        // de abajo la camara ancha llega a mostrar los canos, pero eso no
+        // cuenta: ahi siguen sin cartel ni numeros.
+        const float zoneLeft = static_cast<float>(lock.firstPipe - 1) * ts;
+        const auto inside = [&](const Mario& character) {
+            return !character.isBenched() && !character.isInDeathSequence() && character.x() >= zoneLeft;
+        };
+        if (!inside(mario_) && !(twoPlayerMode_ && inside(luigi_))) continue;
         lock.reached = true;
         const float left = static_cast<float>(lock.firstPipe - 1) * ts;
         const float right = static_cast<float>(lock.col) * ts;
@@ -4699,6 +4717,17 @@ void Game::renderWarpZoneText() {
     std::vector<const PipeWarp*> group;
     auto flush = [&]() {
         if (group.empty()) return;
+        // Como el original (WarpZoneControl): el cartel y los numeros se
+        // escriben recien al llegar a la zona (la misma vez que se sacan
+        // las plantas de esos canos, ver updateWarpZones); antes no estan.
+        bool reached = false;
+        for (const WarpZoneLock& lock : warpZoneLocks_) {
+            if (lock.reached && group.front()->col >= lock.firstPipe - 1 && group.front()->col < lock.col) reached = true;
+        }
+        if (!reached) {
+            group.clear();
+            return;
+        }
         int left = group.front()->col;
         int right = group.back()->col + 2;
         int top = group.front()->row;
@@ -5804,18 +5833,89 @@ const SpriteSheet& Game::pipeSidePieces() const {
                                                   : pipeSideSlices_[0];
 }
 
+namespace {
+// Vista previa: la pantalla mas representativa del principio del nivel. En
+// el area principal (sin la escena del x-2), entre sus primeras 96 columnas,
+// la ventana de 16 que mas cosas tiene (bloques ?, ladrillos, canos,
+// monedas y enemigos); a igualdad, la primera.
+int previewStartCol(const Tilemap& map) {
+    const auto& areas = map.areas();
+    int areaIndex = 0;
+    if (map.introArea() >= 0) {
+        const auto areaOf = [&](int col) {
+            for (size_t i = 0; i < areas.size(); ++i) {
+                if (col >= areas[i].startCol && col <= areas[i].endCol) return static_cast<int>(i);
+            }
+            return 0;
+        };
+        for (const LevelWarp& warp : map.warps()) {
+            if (warp.level.empty() && areaOf(warp.col) == map.introArea()) {
+                areaIndex = areaOf(warp.destCol);
+                break;
+            }
+        }
+    }
+    const int areaStart = areas.empty() ? 0 : areas[static_cast<size_t>(areaIndex)].startCol;
+    const int areaEnd = areas.empty() ? map.widthTiles() - 1 : areas[static_cast<size_t>(areaIndex)].endCol;
+    std::vector<int> score(static_cast<size_t>(map.widthTiles()), 0);
+    for (int col = 0; col < map.widthTiles(); ++col) {
+        int s = 0;
+        int bricks = 0;
+        // Solo la franja que se ve (las ultimas 9 filas, 144 px): el techo
+        // de los subterraneos no cuenta. Los ladrillos suman solo flotando
+        // (sin nada debajo, como las filas de bloques) y hasta 2 por
+        // columna: las paredes de ladrillo no cuentan.
+        for (int row = std::max(0, map.heightTiles() - 9); row < map.heightTiles(); ++row) {
+            if (map.isQuestionTile(col, row)) s += 3;
+            else if (map.isBrickTile(col, row) && !map.isSolidTile(col, row + 1) && bricks < 2) {
+                ++bricks;
+                s += 1;
+            }
+            if (map.isPipeTopTile(col, row)) s += 2;
+            if (map.isCoinTile(col, row)) s += 1;
+        }
+        score[static_cast<size_t>(col)] = s;
+    }
+    for (const LevelEntity& entity : map.entities()) {
+        if (entity.col >= 0 && entity.col < map.widthTiles() && !entity.hardOnly && entity.row >= map.heightTiles() - 9) {
+            score[static_cast<size_t>(entity.col)] += 2;
+        }
+    }
+    constexpr int kWindow = 16;
+    const int last = std::max(areaStart, std::min(areaEnd - kWindow + 1, areaStart + 96));
+    int best = areaStart;
+    int bestScore = -1;
+    for (int start = areaStart; start <= last; ++start) {
+        int total = 0;
+        for (int col = start; col < start + kWindow && col < map.widthTiles(); ++col) total += score[static_cast<size_t>(col)];
+        if (total > bestScore) {
+            bestScore = total;
+            best = start;
+        }
+    }
+    // Un par de columnas antes, que no quede cortado lo primero.
+    return std::max(areaStart, best - 2);
+}
+}  // namespace
+
 SDL_Texture* Game::renderLevelPreview(const std::string& path) {
-    // La primera pantalla del nivel (fondo, decorados, terreno, caños y
-    // bloques), dibujada a una textura de 256 x el alto del nivel.
+    // La pantalla mas representativa del principio del nivel (ver
+    // previewStartCol: fondo, decorados, terreno, canos y bloques), dibujada
+    // a una textura de 256 x el alto del nivel.
     Tilemap map;
     if (!map.loadFromFile(path)) return nullptr;
+    const int startCol = previewStartCol(map);
+    const float camX = static_cast<float>(startCol * map.tileSize());
     SDL_Texture* texture =
         SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 256, map.heightPixels());
     if (!texture) return nullptr;
     SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
     SDL_Texture* previous = SDL_GetRenderTarget(renderer_);
     SDL_SetRenderTarget(renderer_, texture);
-    const LevelArea* area = map.areas().empty() ? nullptr : &map.areas().front();
+    const LevelArea* area = nullptr;
+    for (const LevelArea& candidate : map.areas()) {
+        if (startCol >= candidate.startCol && startCol <= candidate.endCol) area = &candidate;
+    }
     const std::string palette = area ? area->palette : std::string();
     const bool gray = palette == "gray";
     const bool snow = palette == "snow" || palette == "night_snow";
@@ -5830,22 +5930,23 @@ SDL_Texture* Game::renderLevelPreview(const std::string& path) {
     for (const LevelDecoration& decoration : map.decorations()) {
         for (int i = 0; i < kDecorationCount; ++i) {
             if (decoration.type != kDecorations[i].type || decoration.type == "pipe_side") continue;
-            if (decoration.col * ts > 256) break;
+            const int drawX = decoration.col * ts - static_cast<int>(camX);
+            if (drawX > 256 || drawX + kDecorations[i].width < 0) break;
             const bool cloud = decoration.type.rfind("cloud", 0) == 0;
             const bool castle = decoration.type.rfind("castle", 0) == 0;
             const SpriteSheet& sheet = (gray && !cloud)              ? decorationGraySprites_[i]
                                        : (snow && !cloud && !castle) ? decorationSnowSprites_[i]
                                                                      : decorationSprites_[i];
-            sheet.draw(renderer_, 0, 0, decoration.col * ts, decoration.row * ts, false);
+            sheet.draw(renderer_, 0, 0, drawX, decoration.row * ts, false);
             break;
         }
     }
-    map.renderTerrain(renderer_, bg, gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : row, 256, 0.0f, false);
+    map.renderTerrain(renderer_, bg, gray ? terrainGraySprite_ : terrainSprite_, gray ? 0 : row, 256, camX, false);
     map.renderScenery(renderer_, gray ? sceneryTilesGraySprite_ : snow ? sceneryTilesSnowSprite_ : sceneryTilesSprite_,
-                      gray ? 0 : row, 256, 0.0f, snow && !gray ? &sceneryTilesSprite_ : nullptr);
+                      gray ? 0 : row, 256, camX, snow && !gray ? &sceneryTilesSprite_ : nullptr);
     map.renderPipes(renderer_, snow ? pipeSnowSprite_ : palette == "mushroom" ? pipeMushroomSprite_ : pipeSprite_, row,
-                    0.0f);
-    map.renderBlocks(renderer_, brickBlockSprite_, row, 0.0f, {}, &questionBlockSprite_, 0, &coinSprite_, 0);
+                    camX);
+    map.renderBlocks(renderer_, brickBlockSprite_, row, camX, {}, &questionBlockSprite_, 0, &coinSprite_, 0);
     SDL_SetRenderTarget(renderer_, previous);
     return texture;
 }
@@ -6156,6 +6257,7 @@ void Game::renderBalanceRopes() {
 }
 
 void Game::spawnVine(int col, int row, int destCol, int destRow) {
+    noteSecretFound("vine:" + std::to_string(col) + "," + std::to_string(row));   // ELEGIR MUNDO
     const float ts = static_cast<float>(level_.tileSize());
     Vine vine;
     vine.x = static_cast<float>(col) * ts + ts / 2.0f;

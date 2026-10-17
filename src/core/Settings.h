@@ -45,6 +45,9 @@ struct Settings {
     // Vidas ocultas (1-UP de los bloques) ya encontradas ("1-1:64,9"), logro
     // VIDAS INFINITAS.
     std::vector<std::string> foundOneUps;
+    // Secretos encontrados por nivel ("1-2|pipe:132,11"; ver levelSecretIds
+    // en GameMenus.cpp): ELEGIR MUNDO muestra cuantos van de cada nivel.
+    std::vector<std::string> foundSecrets;
     std::vector<std::string> enabledExtras;
     // Tienda: lo desbloqueado hay que comprarlo con las monedas juntadas en
     // las partidas (coinBank, la "alcancia").

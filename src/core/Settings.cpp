@@ -61,6 +61,7 @@ bool Settings::load() {
         flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
         clearedLevels = json.value("cleared_levels", std::vector<std::string>{});
         foundOneUps = json.value("found_one_ups", std::vector<std::string>{});
+        foundSecrets = json.value("found_secrets", std::vector<std::string>{});
     } catch (const std::exception&) {
     }
     const auto readSlot = [](const nlohmann::json& entry) {
@@ -174,6 +175,7 @@ bool Settings::save() const {
         {"flawless_levels", flawlessLevels},
         {"cleared_levels", clearedLevels},
         {"found_one_ups", foundOneUps},
+        {"found_secrets", foundSecrets},
         {"saves", savesJson()},
         {"keys", keys},
         {"pad_jump_button", padJumpButton},

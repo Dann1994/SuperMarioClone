@@ -780,6 +780,14 @@ private:
     }
     void markLevelCleared();
     void countHiddenOneUps();
+    // Secretos de cada nivel (ELEGIR MUNDO): encontrados y en total.
+    int secretsFound(int world, int level) const;
+    int secretsTotal(int world, int level) const;
+    void noteSecretFound(const std::string& id);
+    void noteWarpPipeSecret(const PipeWarp& warp);
+    // Vista previa del nivel elegido en ELEGIR MUNDO (se rehace al cambiar).
+    SDL_Texture* chooserPreview_ = nullptr;
+    int chooserPreviewIndex_ = -1;
     void noteOneUpFound(int col, int row);
     // VIDAS INFINITAS (comprado y activado): en las partidas no se pierden vidas.
     bool infiniteLives() const {

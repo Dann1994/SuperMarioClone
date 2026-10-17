@@ -156,6 +156,7 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"ENTER / A: ACTIVAR O DESACTIVAR    ESC / B: VOLVER", "ENTER / A: TOGGLE    ESC / B: BACK"},
     {"ENTER / A: COMPRAR    ESC / B: VOLVER", "ENTER / A: BUY    ESC / B: BACK"},
     {"PARA CUMPLIRLO:", "TO GET IT:"},
+    {"SECRETOS", "SECRETS"},
 }};
 
 }  // namespace
