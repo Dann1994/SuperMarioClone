@@ -1942,7 +1942,7 @@ void Game::renderAchievements() {
             DebugFont::drawText(renderer_, right - DebugFont::length(tail) * 8, y, tail, 2, kMenuGray);
         }
     }
-    // Cuadro de abajo: la condicion, el premio y lo que desbloquea.
+    // Cuadro de abajo: la condicion y el premio.
     const Achievement& achievement = kAchievements[extraContentSelection_];
     const SDL_Rect box{(gLogicalWidth - 248) / 2, 162, 248, 56};
     SDL_SetRenderDrawColor(renderer_, 20, 20, 40, 255);
@@ -1966,18 +1966,10 @@ void Game::renderAchievements() {
                                              8 * static_cast<int>(std::to_string(achievement.reward).size()));
     DebugFont::drawText(renderer_, rewardX, box.y + 4, reward, 2, kMenuWhite);
     drawCoinAmount(rewardX + DebugFont::length(reward) * 8, box.y + 4, achievement.reward, kMenuYellow);
+    // La condicion (lo que desbloquea se ve en la TIENDA): hasta 3 renglones,
+    // con scroll si es mas larga.
     const bool scrolls = drawScrolledText(isEnglish() ? achievement.condEn : achievement.condEs, box.x + 6, box.y + 17,
-                                          box.w - 10, 2, kMenuWhite);
-    if (achievement.unlocks) {
-        const ExtraContent* unlocked = findExtra(achievement.unlocks);
-        if (unlocked) {
-            // "DESBLOQUEA: ..." si entra; si no, solo el nombre (en amarillo).
-            const std::string name = isEnglish() ? unlocked->nameEn : unlocked->nameEs;
-            std::string line = std::string(tr(Txt::AchUnlocks)) + " " + name;
-            if (DebugFont::length(line) * 8 > box.w - 12) line = name;
-            DebugFont::drawText(renderer_, box.x + 6, box.y + 42, line, 2, kMenuYellow);
-        }
-    }
+                                          box.w - 10, 3, kMenuWhite);
     drawCentered(222, tr(scrolls ? Txt::ScrollHint : Txt::BackHint), 1, kMenuDim);
 }
 
