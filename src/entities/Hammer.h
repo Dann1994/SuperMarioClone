@@ -29,6 +29,14 @@ public:
     void render(SDL_Renderer* renderer, const SpriteSheet& sprite, int worldRow, float cameraX = 0.0f) const;
 
     bool isAlive() const { return alive_; }
+    // Le cayo encima al caparazon del traje de Hammer Bro: rebota para
+    // arriba y hacia atras. true si recien rebota (venia cayendo).
+    bool bounceUp(float velY) {
+        if (velY_ < 0.0f) return false;
+        velY_ = velY;
+        velX_ = -velX_ * 0.5f;
+        return true;
+    }
 
     float x() const { return x_; }
     float y() const { return y_; }

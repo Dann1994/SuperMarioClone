@@ -1685,6 +1685,7 @@ void Game::checkShellVsKoopa(Koopa& a, Koopa& b) {
         // el otro los puntos de la cadena del primero).
         const bool aFliesRight = a.x() >= b.x();
         if (a.killFalling(aFliesRight)) {
+            noteEnemyKilled();
             audio_.play(Sfx::Kick);
             setScorerFromKicker(b.kicker());
             awardIndexedPoints(a.x(), a.y(), 6);
@@ -1862,6 +1863,7 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
     if (koopaMoving && buzzyMoving) {
         const bool koopaFliesRight = koopa.x() >= buzzy.x();
         if (koopa.killFalling(koopaFliesRight)) {
+            noteEnemyKilled();
             audio_.play(Sfx::Kick);
             setScorerFromKicker(buzzy.kicker());
             awardIndexedPoints(koopa.x(), koopa.y(), 6);
@@ -1871,6 +1873,34 @@ void Game::checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy) {
         killByShell(buzzy, buzzy.x() >= koopa.x(), koopa);
     } else {
         killByShell(koopa, koopa.x() >= buzzy.x(), buzzy);
+    }
+}
+
+void Game::checkShellVsBuzzyPair(BuzzyBeetle& a, BuzzyBeetle& b) {
+    // Caparazon negro contra otro Buzzy Beetle: igual que dos Koopas (ver
+    // checkShellVsKoopa). Faltaba: un Buzzy Beetle pateado atravesaba a los
+    // otros (en PARTIDA + los Goombas son Buzzy Beetles).
+    if (!a.isAlive() || !b.isAlive()) return;
+    const bool overlap =
+        a.x() < b.x() + b.width() && a.x() + a.width() > b.x() &&
+        a.y() < b.y() + b.height() && a.y() + a.height() > b.y();
+    if (!overlap) return;
+    const bool aMoving = a.isMovingShell();
+    const bool bMoving = b.isMovingShell();
+    if (!aMoving && !bMoving) return;
+    if (aMoving && bMoving) {
+        const bool aFliesRight = a.x() >= b.x();
+        if (a.killFalling(aFliesRight)) {
+            noteEnemyKilled();
+            audio_.play(Sfx::Kick);
+            setScorerFromKicker(b.kicker());
+            awardIndexedPoints(a.x(), a.y(), 6);
+        }
+        killByShell(b, !aFliesRight, a);
+    } else if (aMoving) {
+        killByShell(b, b.x() >= a.x(), a);
+    } else {
+        killByShell(a, a.x() >= b.x(), b);
     }
 }
 
@@ -2017,7 +2047,11 @@ void Game::checkHammerCollision(Mario& character, Hammer& hammer) {
     // Con estrella no hace dano (el personaje ya esta protegido, no hace
     // falta nada especial aca -- Mario::takeDamage() ya se encarga).
     if (character.isInvincible()) return;
-    if (shellBlocksFromAbove(character, hammer.y() + static_cast<float>(hammer.height()))) return;
+    if (shellBlocksFromAbove(character, hammer.y() + static_cast<float>(hammer.height()))) {
+        // Rebota como los enemigos (ver shellBlocksFromAbove).
+        if (hammer.bounceUp(kShellBounce)) shellBounceFeedback(character);
+        return;
+    }
 
     applyContactDamage(character);
 }
@@ -2402,7 +2436,6 @@ void Game::updateWhirlpools(Mario& character, float dt) {
     // jugador para abajo (gravedad de mas y brazada mas debil, ver
     // Mario::setInWhirlpool). A pedido, sin el tiron hacia el medio del
     // original: no frena el avance de costado.
-    (void)dt;
     bool inside = false;
     if (worldType_ == WorldType::Underwater && !character.isInDeathSequence()) {
         for (const Whirlpool& pool : whirlpools_) {
@@ -2413,6 +2446,21 @@ void Game::updateWhirlpools(Mario& character, float dt) {
         }
     }
     character.setInWhirlpool(inside);
+    // Mientras lo arrastra la corriente: vibracion suave y constante en su
+    // mando (se renueva cada cuadro; al salir se corta sola).
+    const size_t index = &character == &luigi_ ? 1 : 0;
+    Input& input = index == 1 ? input2_ : input1_;
+    if (inside && settings_.vibration) {
+        whirlpoolRumbleTimer_[index] -= dt;
+        if (whirlpoolRumbleTimer_[index] <= 0.0f) {
+            input.rumble(kWhirlpoolRumbleStrength, kWhirlpoolRumbleMs);
+            whirlpoolRumbleTimer_[index] = kWhirlpoolRumbleRefresh;
+        }
+    } else if (whirlpoolRumbleTimer_[index] > 0.0f || wasInWhirlpool_[index]) {
+        input.rumble(0, 0);   // salio de la corriente: corta ya
+        whirlpoolRumbleTimer_[index] = 0.0f;
+    }
+    wasInWhirlpool_[index] = inside;
 }
 
 void Game::checkSideWarp(Mario& character) {
@@ -3694,6 +3742,10 @@ void Game::update(float dt) {
         podoboo.update(dt);
         checkPodobooCollision(mario_, podoboo);
         if (twoPlayerMode_) checkPodobooCollision(luigi_, podoboo);
+        // Como el resto (OffscreenBoundsCheck): el que queda atras se borra y
+        // libera su lugar. Sin esto, en el 3-4 los 6 Podoboos ocupaban los 5
+        // lugares de enemigos y Bowser no aparecia nunca.
+        cullIfLeftBehindReset(podoboo, static_cast<float>(podoboo.width()), cameraX_);
     }
     updateFirebars(dt);
     updateLakituZone();
@@ -3784,6 +3836,7 @@ void Game::update(float dt) {
     }
     for (size_t i = 0; i < buzzyBeetles_.size(); ++i) {
         for (size_t j = i + 1; j < buzzyBeetles_.size(); ++j) {
+            checkShellVsBuzzyPair(buzzyBeetles_[i], buzzyBeetles_[j]);
             if (buzzyBeetles_[i].state() == BuzzyBeetleState::Walking &&
                 buzzyBeetles_[j].state() == BuzzyBeetleState::Walking) {
                 bounceWalkers(buzzyBeetles_[i], buzzyBeetles_[j]);
@@ -3993,8 +4046,6 @@ void Game::render() {
     renderSuitFlower();
     star_.render(renderer_, starSprite_, worldRow, cameraX_);
     coin_.render(renderer_, coinSprite_, worldRow, cameraX_);
-    // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
-    blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
     const int camOffset = static_cast<int>(std::lround(cameraX_));
     // Los bloques (ladrillos, ?, monedas sueltas y la sacudida): despues de
     // los items que emergen (el bloque los tapa) y antes de enemigos y
@@ -4143,6 +4194,9 @@ void Game::render() {
     // vuelan.
     for (const Hammer& hammer : hammers_) hammer.render(renderer_, hammerSprite_, worldRow, cameraX_);
     for (const BrickDebris& debris : brickDebris_) debris.render(renderer_, brickDebrisSprite_, worldRow, cameraX_);
+    // La moneda que salta de un bloque, adelante de todo (que nada la tape).
+    // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
+    blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
@@ -4560,6 +4614,7 @@ void Game::startEndSequence() {
     float castleX = -1.0f;
     float castleTop = 0.0f;
     float towerOffset = 2.0f * ts;   // centro de la torre de arriba
+    bool bigCastle = false;
     for (const LevelDecoration& decoration : level_.decorations()) {
         if (decoration.type != "castle_small" && decoration.type != "castle_big") continue;
         const float x = static_cast<float>(decoration.col) * ts;
@@ -4568,10 +4623,13 @@ void Game::startEndSequence() {
             castleX = x;
             castleTop = static_cast<float>(decoration.row) * ts;
             towerOffset = (decoration.type == "castle_big" ? 4.0f : 2.0f) * ts;
+            bigCastle = decoration.type == "castle_big";
         }
     }
     endSequence_.active = true;
-    endSequence_.flagShown = castleX >= 0.0f;
+    // El castillo grande (final de los x-3) no levanta la banderita, como
+    // el original; los fuegos artificiales salen igual.
+    endSequence_.flagShown = castleX >= 0.0f && !bigCastle;
     endSequence_.flagX = castleX >= 0.0f ? castleX + towerOffset : poleX + 5.0f * ts;
     endSequence_.flagY = castleTop;
     endSequence_.flagTopY = castleTop - ts;
@@ -5325,7 +5383,10 @@ void Game::spawnLevelEntities() {
         } else if (entity.type == "podoboo") {
             spawned = spawnInPool(podoboos_, [&](Podoboo& podoboo) {
                 // Como el original: sale de abajo de la pantalla.
-                podoboo.spawn(x, static_cast<float>(level_.heightPixels()));
+                // InitPodoboo: Y_HighPos 2 / Y_Position 2, o sea 18 px por
+                // debajo del borde de abajo de la pantalla (antes salia desde
+                // el borde mismo y llegaba 18 px mas alto que el original).
+                podoboo.spawn(x, static_cast<float>(level_.heightPixels()) + 18.0f);
             });
         } else if (entity.type == "bowser") {
             {

@@ -460,6 +460,7 @@ private:
     void checkShellVsBuzzyBeetle(Koopa& koopa, BuzzyBeetle& buzzy);
     // El caparazon del Buzzy Beetle contra el Goomba de prueba (Goomba no
     // tiene caparazon propio para reciprocar, igual que en checkShellVsGoomba).
+    void checkShellVsBuzzyPair(BuzzyBeetle& a, BuzzyBeetle& b);
     void checkBuzzyShellVsGoomba(BuzzyBeetle& buzzy, Goomba& goomba);
     void checkGoombaBuzzyBeetleBounce(Goomba& goomba, BuzzyBeetle& buzzy);
     void checkKoopaBuzzyBeetleBounce(Koopa& koopa, BuzzyBeetle& buzzy);
@@ -811,6 +812,12 @@ private:
     // ~50%: mas bajo muchos mandos no llegan a mover el motor.
     static constexpr Uint16 kStompRumbleStrength = 0x8000;
     static constexpr Uint32 kStompRumbleMs = 100;
+    // Corriente del agua (remolino): vibracion suave mientras arrastra.
+    static constexpr Uint16 kWhirlpoolRumbleStrength = 0x7000;   // como la bandera (0x4000 no se sentia)
+    static constexpr Uint32 kWhirlpoolRumbleMs = 200;
+    static constexpr float kWhirlpoolRumbleRefresh = 0.1f;
+    std::array<float, 2> whirlpoolRumbleTimer_{};
+    std::array<bool, 2> wasInWhirlpool_{};
     void updateRumble(float dt);
     // Guarda el puntaje como record (TOP-) si lo supera.
     void saveTopScore();

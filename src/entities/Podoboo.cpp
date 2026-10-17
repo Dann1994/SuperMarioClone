@@ -1,5 +1,7 @@
 #include "Podoboo.h"
 
+#include <algorithm>
+
 #include <cmath>
 #include <cstdlib>
 
@@ -27,7 +29,7 @@ void Podoboo::update(float dt) {
 
     // Jumping: parabola pura por gravedad, sin deriva horizontal (x_ fijo,
     // ver el comentario de la clase).
-    velY_ += kGravity * dt;
+    velY_ = std::min(velY_ + kGravity * dt, kMaxFallSpeed);
     y_ += velY_ * dt;
     if (velY_ > 0.0f && y_ >= baseY_) {
         // Volvio a hundirse en la lava: arranca el proximo ciclo.

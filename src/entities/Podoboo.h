@@ -60,6 +60,7 @@ private:
     static constexpr float kSubmergedDuration = 0.35f;  // s: el primer salto sale casi enseguida
     static constexpr float kJumpImpulse = -420.0f;  // px/s: -7 px/cuadro, como el original
     static constexpr float kGravity = 394.0f;  // px/s^2: 0x1c/256 px/cuadro^2
+    static constexpr float kMaxFallSpeed = 180.0f;  // px/s: 3 px/cuadro (SetHiMax, MoveJ_EnemyVertically)
 
     float x_ = 0.0f;
     float y_ = 0.0f;
