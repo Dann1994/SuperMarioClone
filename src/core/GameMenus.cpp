@@ -1710,7 +1710,7 @@ std::string Game::playerLabel(int player) const {
     return summary_.luigi ? "LUIGI" : "MARIO";
 }
 
-void Game::openSummary() {
+void Game::openSummary(bool completed) {
     // Se termino la partida: el resumen (y despues el nombre para la tabla
     // de quien entre en ella, y la tabla).
     saveTopScore();
@@ -1735,6 +1735,7 @@ void Game::openSummary() {
                                        }),
                         pendingNames_.end());
     campaign_ = false;
+    summaryCompleted_ = completed;
     summaryStage_ = 0;
     highlightScore_ = -1;
     appState_ = AppState::Summary;
@@ -1806,7 +1807,14 @@ void Game::handleSummaryInput(MenuInput input) {
         return;
     }
     if (summaryStage_ == 2) {
-        if (input == MenuInput::Confirm || input == MenuInput::Back) openTitle();
+        if (input != MenuInput::Confirm && input != MenuInput::Back) return;
+        if (summaryCompleted_) {
+            // Termino el juego: los creditos, y de ahi al titulo.
+            audio_.play(Sfx::Coin);
+            appState_ = AppState::Credits;
+        } else {
+            openTitle();
+        }
         return;
     }
     // Nombre: arriba/abajo cambia la letra, izquierda/derecha mueve,

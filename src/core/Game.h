@@ -1495,7 +1495,10 @@ private:
     std::string nameEntry_;
     int nameCursor_ = 0;
     int highlightScore_ = -1;                 // la fila recien agregada
-    void openSummary();
+    // completed: termino el juego (resumen, tabla y creditos); si no, un
+    // GAME OVER (solo el nombre y la tabla).
+    void openSummary(bool completed = true);
+    bool summaryCompleted_ = true;
     void handleSummaryInput(MenuInput input);
     bool handleNameTyping(const SDL_Event& event);
     void startNameEntry();

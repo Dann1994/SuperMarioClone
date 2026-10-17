@@ -3313,8 +3313,14 @@ void Game::update(float dt) {
                     slot.scoreLuigi = 0;
                     settings_.save();
                 }
-                campaign_ = false;
-                openTitle();
+                // Si el puntaje entra en la tabla: el nombre y la tabla (sin
+                // resumen ni creditos, la partida sigue en su espacio).
+                openSummary(false);
+                if (pendingNames_.empty()) {
+                    openTitle();
+                } else {
+                    startNameEntry();
+                }
                 return;
             }
             startScenario(scenario_);

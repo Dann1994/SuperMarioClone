@@ -420,25 +420,30 @@ void Mario::updateHorizontal(float dt, const Input& input) {
 
     const float speed = std::abs(velX_);
     const float moving = velX_ > 0.0f ? 1.0f : (velX_ < 0.0f ? -1.0f : 0.0f);
-    // Luigi de Lost Levels patina mas: frena con el 60% al soltar y al patinar.
-    const float slide = lostLevels_ ? 0.6f : 1.0f;
+    // Luigi de Lost Levels (JumpFrictionData de SMB2J): acelera con $68/$B4
+    // en vez de $98/$E4, frena con $A0 en vez de $D0 y al patinar no se
+    // duplica (el ASL de PhyOpcode se cambia por RTS): patina mucho mas.
+    const float walkAccel = lostLevels_ ? kLuigiWalkAccel : kWalkAccel;
+    const float runAccel = lostLevels_ ? kLuigiRunAccel : kRunAccel;
+    const float friction = lostLevels_ ? kLuigiFriction : kFriction;
+    const float skidDecel = lostLevels_ ? kLuigiFriction : kSkidDecel;
     if (grounded_) {
         const bool running = input.down(Action::Run);
         const float maxSpeed = running ? kMaxRunSpeed : kMaxWalkSpeed;
         if (dir == 0) {
             // Soltar: frena hasta cero sin pasarse.
-            velX_ = moving * std::max(0.0f, speed - kFriction * slide * dt);
+            velX_ = moving * std::max(0.0f, speed - friction * dt);
         } else if (moving != 0.0f && static_cast<float>(dir) != moving) {
             // Patinando: frena fuerte; por debajo de kSkidTurnSpeed ya da la
             // vuelta y arranca para el otro lado.
-            const float remaining = speed - kSkidDecel * slide * dt;
+            const float remaining = speed - skidDecel * dt;
             velX_ = remaining > kSkidTurnSpeed ? moving * remaining : static_cast<float>(dir) * kMinWalkSpeed;
         } else {
-            const float accel = running ? kRunAccel : kWalkAccel;
+            const float accel = running ? runAccel : walkAccel;
             float next = std::max(speed, kMinWalkSpeed) + accel * dt;
             // Ya iba mas rapido que el tope (solto correr): baja de a poco
             // con la friccion, no de golpe.
-            if (next > maxSpeed) next = std::max(maxSpeed, speed - kFriction * dt);
+            if (next > maxSpeed) next = std::max(maxSpeed, speed - friction * dt);
             velX_ = static_cast<float>(dir) * next;
         }
         takeoffSpeed_ = std::abs(velX_);
@@ -451,11 +456,11 @@ void Mario::updateHorizontal(float dt, const Input& input) {
     const bool forward = moving == 0.0f || static_cast<float>(dir) == moving;
     float accel;
     if (forward) {
-        accel = speed < kMaxWalkSpeed ? kWalkAccel : kRunAccel;
+        accel = speed < kMaxWalkSpeed ? walkAccel : runAccel;
     } else if (speed >= kMaxWalkSpeed) {
-        accel = kRunAccel;
+        accel = runAccel;
     } else {
-        accel = takeoffSpeed_ >= kAirBackFastTakeoff ? kFriction : kWalkAccel;
+        accel = takeoffSpeed_ >= kAirBackFastTakeoff ? friction : walkAccel;
     }
     velX_ += static_cast<float>(dir) * accel * dt;
     velX_ = std::clamp(velX_, -std::max(airMax, speed), std::max(airMax, speed));
@@ -500,10 +505,13 @@ void Mario::updateVertical(float dt, Input& input) {
     // gravedad debil (sostiene el salto); si se suelta antes o se esta
     // cayendo, gravedad fuerte (corta el salto / caida rapida).
     const bool ascending = velY_ < 0.0f;
-    // Luigi de Lost Levels: JumpMForceData/FallMForceData mas bajos (~82% y
-    // ~80% de los de Mario): sube mas y cae un poco mas lento.
-    const float gravityAscend = (fastArc ? kGravityAscendRun : kGravityAscend) * (lostLevels_ ? 0.82f : 1.0f);
-    const float gravityDescend = (fastArc ? kGravityDescendRun : kGravityDescend) * (lostLevels_ ? 0.8f : 1.0f);
+    // Luigi de Lost Levels (JumpFrictionData de SMB2J): JumpMForceData
+    // $18/$22 y FallMForceData $42/$5D en vez de $20/$28 y $70/$90: sube
+    // mas alto y cae bastante mas lento.
+    const float gravityAscend = lostLevels_ ? (fastArc ? kLuigiGravityAscendRun : kLuigiGravityAscend)
+                                            : (fastArc ? kGravityAscendRun : kGravityAscend);
+    const float gravityDescend = lostLevels_ ? (fastArc ? kLuigiGravityDescendRun : kLuigiGravityDescend)
+                                             : (fastArc ? kGravityDescendRun : kGravityDescend);
     if (!ascending || grounded_) springLaunch_ = false;
     // 0x70 por cuadro^2 = 1575 px/s^2 (kGravityDescend), corra o no.
     const float gravity = springLaunch_ ? kGravityDescend

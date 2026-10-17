@@ -311,8 +311,8 @@ public:
     bool loadBoomerangSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
     // Agachado con el traje de Hammer Bro: el caparazon lo cubre del fuego.
     bool isHammerShell() const { return isSuitSize(size_) && isDucking_; }
-    // LUIGI DE LOST LEVELS (CONTENIDO EXTRA): como en Super Mario Bros. 2
-    // japones, salta mas alto (menos gravedad) y patina mas (frena menos).
+    // LUIGI DE LOST LEVELS (CONTENIDO EXTRA): la fisica de Luigi de Super
+    // Mario Bros. 2 japones (ver kLuigi*).
     void setLostLevelsPhysics(bool on) { lostLevels_ = on; }
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
@@ -366,6 +366,15 @@ private:
     // salio del piso (caminando no pasa de kMaxWalkSpeed aunque apriete
     // correr). Hacia atras frena mas si salio rapido (0x01D00).
     static constexpr float kAirBackFastTakeoff = 108.75f; // px/s
+    // Luigi de Lost Levels: la tabla de Luigi de JumpFrictionData (SMB2J),
+    // mismas unidades que las de arriba (/256 o /4096 y x3600).
+    static constexpr float kLuigiWalkAccel = 0x68 / 4096.0f * 3600.0f;          // 91,4 px/s^2
+    static constexpr float kLuigiRunAccel = 0xB4 / 4096.0f * 3600.0f;           // 158,2
+    static constexpr float kLuigiFriction = 0xA0 / 4096.0f * 3600.0f;           // 140,6 (tambien al patinar)
+    static constexpr float kLuigiGravityAscend = 0x18 / 256.0f * 3600.0f;       // 337,5
+    static constexpr float kLuigiGravityAscendRun = 0x22 / 256.0f * 3600.0f;    // 478,1
+    static constexpr float kLuigiGravityDescend = 0x42 / 256.0f * 3600.0f;      // 928,1
+    static constexpr float kLuigiGravityDescendRun = 0x5D / 256.0f * 3600.0f;   // 1307,8
     // Gravedad y velocidad inicial de salto: el original usa dos juegos de
     // valores segun que tan rapido se este moviendo Mario AL SALTAR (mas de
     // 5 umbrales en realidad, ver JumpMForceData/PlayerYSpdData en el
