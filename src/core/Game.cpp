@@ -520,6 +520,7 @@ bool Game::init() {
     boomerangSprite_.loadFromFile(renderer_, "assets/sprites/boomerang.png", 16, 16);
     boomerangFlowerSprite_.loadFromFile(renderer_, "assets/sprites/boomerang_flower.png", 20, 20);
     iconClockSprite_.loadFromFile(renderer_, "assets/sprites/icon_clock.png", 16, 16);
+    achievementIconsSprite_.loadFromFile(renderer_, "assets/sprites/achievements.png", 16, 16);
     iconNoteSprite_.loadFromFile(renderer_, "assets/sprites/icon_note.png", 16, 16);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
@@ -729,6 +730,16 @@ void Game::startScenario(TestScenario scenario) {
 }
 
 void Game::loadScenario(TestScenario scenario) {
+    // TRABAJO EN EQUIPO: desde el x-1 de a 2 a la vez; si algun nivel del
+    // mundo se juega de otra forma, no vale.
+    if (campaign_) {
+        const bool coop = twoPlayerMode_ && !turnMode_;
+        if (campaignLevel_ == 1) {
+            coopWorldRun_ = coop;
+        } else if (!coop) {
+            coopWorldRun_ = false;
+        }
+    }
     pipePartner_ = nullptr;
     introPartner_ = nullptr;
     introPartnerInside_ = false;
@@ -2332,6 +2343,7 @@ void Game::checkFireballBowserCollision(Fireball& fireball) {
     // mundos 1-7 era un disfraz: cae el enemigo que estaba adentro.
     if (bowser_.isFalling()) {
         noteEnemyKilled();
+        if (campaign_ && !fireball.isHammer()) completeAchievement("bowser_fire");
         awardEnemyPoints(bowser_.x(), bowser_.y(), 5000);
         audio_.play(Sfx::BowserFall);
         const std::string& name = level_.name();
@@ -2573,6 +2585,7 @@ void Game::updatePipeAnim(float dt) {
     if (!pipeAnim_.warp.level.empty()) {
         // Warp zone: al principio de otro nivel ("4-1"). Saltea niveles.
         campaignNoSkip_ = false;
+        if (campaign_) completeAchievement("warp");
         const std::string target = pipeAnim_.warp.level;
         pipeAnim_ = PipeAnim{};
         const int world = target[0] - '0';
@@ -4401,6 +4414,7 @@ void Game::checkFlagpoleGrab(Mario& character) {
     const float ratio = poleHeight > 0.0f ? grabHeight / poleHeight : 0.0f;
     const char* points = ratio >= 0.9f ? "5000" : ratio >= 0.65f ? "2000" : ratio >= 0.4f ? "800"
                        : ratio >= 0.2f ? "400" : "100";
+    if (campaign_ && ratio >= 0.9f) completeAchievement("flag_top");
     spawnScorePopup(flagpole_.poleCenterX() + 4.0f, character.y(), points);
 
     // La puerta del castillo: 5 tiles despues del mastil, sin pasarse del
@@ -4449,14 +4463,7 @@ void Game::finishFinalEnding() {
             if (std::find(done.begin(), done.end(), id) == done.end()) done.push_back(id);
             checkExtraProgress();
         }
-        unlockExtra("new_game_plus");
-        if (campaignNoSkip_) unlockExtra("level_editor");
-        if (campaignNoDamage_ && campaignNoStar_) unlockExtra("item_infinite_star");
-        if (campaignNoMushroom_) unlockExtra("item_mushroom");
-        if (campaignNoFlower_) unlockExtra("item_flower");
-            if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
-            if (campaignNoSkip_ && campaignTime_ < kInfiniteTimeLimit) unlockExtra("infinite_time");
-            if (campaignOnlyLuigi_) unlockExtra("luigi_lost_levels");
+        awardCompletionAchievements();
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;

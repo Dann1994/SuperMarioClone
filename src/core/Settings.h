@@ -31,6 +31,11 @@ struct Settings {
     // elementos desbloqueados que estan activados (por id, ver kExtraContent
     // en GameMenus.cpp).
     std::vector<std::string> unlockedExtras;
+    // LOGROS cumplidos (por id, ver kAchievements en GameMenus.cpp).
+    std::vector<std::string> achievements;
+    bool achievementDone(const std::string& id) const;
+    // Enemigos eliminados en las partidas en total (logros CAZADOR/EXTERMINADOR).
+    int totalEnemies = 0;
     // Progreso de los logros (acumulado entre partidas): los niveles de la
     // campana pasados sin recibir dano ("1-1").
     std::vector<std::string> flawlessLevels;

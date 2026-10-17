@@ -141,6 +141,21 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"ENTER / A: ESCUCHAR    ESC / B: VOLVER", "ENTER / A: PLAY    ESC / B: BACK"},
     {"MUSICA", "MUSIC"},
     {"SONIDO", "SOUND"},
+    {"LOGROS", "ACHIEVEMENTS"},
+    {"TIENDA", "SHOP"},
+    {"MIS EXTRAS", "MY EXTRAS"},
+    {"CUMPLIDO!", "DONE!"},
+    {"PREMIO:", "REWARD:"},
+    {"DESBLOQUEA:", "UNLOCKS:"},
+    {"SE DESBLOQUEA CON EL LOGRO:", "UNLOCKED BY THE ACHIEVEMENT:"},
+    {"COMPRADO", "BOUGHT"},
+    {"TODAVIA NO COMPRASTE NADA", "YOU HAVEN'T BOUGHT ANYTHING YET"},
+    {"LOGRO CUMPLIDO!", "ACHIEVEMENT!"},
+    {"NUEVO EN LA TIENDA:", "NEW IN THE SHOP:"},
+    {"ESC / B: VOLVER", "ESC / B: BACK"},
+    {"ENTER / A: ACTIVAR O DESACTIVAR    ESC / B: VOLVER", "ENTER / A: TOGGLE    ESC / B: BACK"},
+    {"ENTER / A: COMPRAR    ESC / B: VOLVER", "ENTER / A: BUY    ESC / B: BACK"},
+    {"PARA CUMPLIRLO:", "TO GET IT:"},
 }};
 
 }  // namespace

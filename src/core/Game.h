@@ -1485,7 +1485,10 @@ private:
     std::array<int, 2> campaignDeaths_{};
     std::array<bool, 2> wasDying_{};          // mario_ / luigi_ el cuadro anterior
     void noteEnemyKilled() {
-        if (campaign_) ++campaignEnemies_;
+        if (!campaign_) return;
+        ++campaignEnemies_;
+        ++settings_.totalEnemies;   // logros CAZADOR / EXTERMINADOR
+        if (settings_.totalEnemies == 100 || settings_.totalEnemies == 500) checkExtraProgress();
     }
     int finalScore(int player) const;
     // Resumen (summaryStage_ 0), nombre para la tabla (1) y la tabla (2).
@@ -1529,7 +1532,22 @@ private:
     // ITEM: ESTRELLA INFINITA puesta en este nivel.
     bool infiniteStarActive_ = false;
     static constexpr float kInfiniteStarDuration = 100000.0f;
-    void unlockExtra(const std::string& id);
+    // LOGROS: cumplir uno (monedas, desbloquea su extra, aviso) y los de
+    // "completar el juego" de una vez.
+    void completeAchievement(const std::string& id);
+    void awardCompletionAchievements();
+    void drawExtraIcon(const std::string& extraId, int x, int y);
+    // EXTRAS: LOGROS (0), TIENDA (1) o MIS EXTRAS (2), con la pantalla abierta
+    // en extraContentOpen_.
+    int extrasScreen_ = 0;
+    void handleExtrasScreenInput(MenuInput input);
+    void renderAchievements();
+    void renderShop();
+    void renderMyExtras();
+    SpriteSheet achievementIconsSprite_;   // achievements.png (gen_achievement_icons.py)
+    // TRABAJO EN EQUIPO: el mundo en curso se viene jugando de a 2 a la vez
+    // desde su x-1.
+    bool coopWorldRun_ = false;
     // Aviso de desbloqueo (estilo logro): los que se ganaron, de a uno; el
     // de adelante se esta mostrando desde unlockToastStart_ (ms, 0 = todavia no).
     std::vector<std::string> unlockToasts_;

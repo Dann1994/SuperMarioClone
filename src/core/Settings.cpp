@@ -42,6 +42,8 @@ bool Settings::load() {
     try {
         unlockedExtras = json.value("unlocked_extras", std::vector<std::string>{});
         enabledExtras = json.value("enabled_extras", std::vector<std::string>{});
+        achievements = json.value("achievements", std::vector<std::string>{});
+        totalEnemies = json.value("total_enemies", 0);
         purchasedExtras = json.value("purchased_extras", std::vector<std::string>{});
         coinBank = std::clamp(json.value("coin_bank", 0), 0, kMaxCoinBank);
         highScores.clear();
@@ -109,6 +111,10 @@ bool Settings::extraUnlocked(const std::string& id) const {
     return std::find(unlockedExtras.begin(), unlockedExtras.end(), id) != unlockedExtras.end();
 }
 
+bool Settings::achievementDone(const std::string& id) const {
+    return std::find(achievements.begin(), achievements.end(), id) != achievements.end();
+}
+
 bool Settings::extraPurchased(const std::string& id) const {
     return std::find(purchasedExtras.begin(), purchasedExtras.end(), id) != purchasedExtras.end();
 }
@@ -157,6 +163,8 @@ bool Settings::save() const {
         {"player_world_palettes", playerWorldPalettes},
         {"unlocked_extras", unlockedExtras},
         {"enabled_extras", enabledExtras},
+        {"achievements", achievements},
+        {"total_enemies", totalEnemies},
         {"purchased_extras", purchasedExtras},
         {"coin_bank", coinBank},
         {"high_scores", highScoresJson()},
