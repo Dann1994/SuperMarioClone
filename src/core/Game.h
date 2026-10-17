@@ -1704,6 +1704,7 @@ private:
     int loopCorrectCount_ = 0;
     void updateLoopChecks();
     void execLoopback(int back);
+    void bringToPartner(Mario& lost, const Mario& partner);
     // Pantalla de titulo y HUD (gen_title.py): el cartel "SUPER MARIO
     // BROS.", el hongo que marca la opcion, la moneda del HUD (3 frames
     // por WorldType) y Mario chico parado (pantalla "WORLD x-y").

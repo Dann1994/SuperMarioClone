@@ -5460,8 +5460,24 @@ void Game::updateLoopChecks() {
         check.armed = false;
         // Solo al cruzarlo (no si se aparece mas adelante, en un checkpoint).
         if (reach > check.triggerX + 32.0f) continue;
-        const float feet = leader->y() + static_cast<float>(leader->height());
-        const bool correct = check.feetY >= 0.0f && leader->isGrounded() && std::abs(feet - check.feetY) < 2.0f;
+        // 1 jugador: como el original, parado justo a esa altura. 2 a la vez:
+        // alcanza con que uno de los dos vaya por el camino correcto (parado
+        // o saltando dentro de ese pasillo); el otro, si venia por otro
+        // camino, aparece al lado del que acerto (no quedan separados).
+        const auto onPath = [&](const Mario& character, bool lenient) {
+            if (check.feetY < 0.0f || character.isInDeathSequence() || character.isBenched()) return false;
+            const float feet = character.y() + static_cast<float>(character.height());
+            if (character.isGrounded()) return std::abs(feet - check.feetY) < 2.0f;
+            return lenient && feet <= check.feetY + 2.0f && feet >= check.feetY - 40.0f;
+        };
+        bool correct = onPath(*leader, twoPlayerMode_);
+        if (twoPlayerMode_) {
+            Mario& other = leader == &mario_ ? luigi_ : mario_;
+            const bool otherCorrect = onPath(other, true);
+            if (correct && !otherCorrect) bringToPartner(other, *leader);
+            if (!correct && otherCorrect) bringToPartner(*leader, other);
+            correct = correct || otherCorrect;
+        }
         if (check.group <= 1) {
             loopPassCount_ = 0;
             loopCorrectCount_ = 0;
@@ -5478,6 +5494,25 @@ void Game::updateLoopChecks() {
         }
         return;
     }
+}
+
+void Game::bringToPartner(Mario& lost, const Mario& partner) {
+    // Laberinto de a 2: el que iba por un camino equivocado aparece al lado
+    // del que acerto (atras si hay lugar, si no adelante), titilando.
+    if (lost.isInDeathSequence() || lost.isBenched()) return;
+    const float ts = static_cast<float>(level_.tileSize());
+    const float feet = partner.y() + static_cast<float>(partner.height());
+    const float y = feet - static_cast<float>(lost.height());
+    float x = partner.x();
+    for (const float offset : {-ts, ts, 0.0f}) {
+        if (isAreaFree(partner.x() + offset, y, lost.width(), lost.height())) {
+            x = partner.x() + offset;
+            break;
+        }
+    }
+    lost.spawn(x, y);
+    lost.setFacingRight(partner.facingRight());
+    grantRespawnInvincibilityForWorld(lost);
 }
 
 void Game::execLoopback(int backCols) {
