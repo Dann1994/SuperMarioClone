@@ -55,6 +55,7 @@ bool Settings::load() {
         }
         hammerBroStomps = json.value("hammer_bro_stomps", 0);
         hammerBroStompsPlus = json.value("hammer_bro_stomps_plus", 0);
+        totalCoins = json.value("total_coins", 0);
         flawlessLevels = json.value("flawless_levels", std::vector<std::string>{});
         clearedLevels = json.value("cleared_levels", std::vector<std::string>{});
         foundOneUps = json.value("found_one_ups", std::vector<std::string>{});
@@ -80,6 +81,7 @@ bool Settings::load() {
         slot.deathsLuigi = entry.value("deaths_luigi", 0);
         slot.scoreMario = entry.value("score_mario", 0);
         slot.scoreLuigi = entry.value("score_luigi", 0);
+        slot.onlyLuigi = entry.value("only_luigi", false);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -133,7 +135,7 @@ nlohmann::json Settings::savesJson() const {
                         {"all_hammer_bros", slot.allHammerBros}, {"play_time", slot.playTime},
                         {"enemies", slot.enemies}, {"deaths_mario", slot.deathsMario},
                         {"deaths_luigi", slot.deathsLuigi}, {"score_mario", slot.scoreMario},
-                        {"score_luigi", slot.scoreLuigi}});
+                        {"score_luigi", slot.scoreLuigi}, {"only_luigi", slot.onlyLuigi}});
     }
     return list;
 }
@@ -160,6 +162,7 @@ bool Settings::save() const {
         {"high_scores", highScoresJson()},
         {"hammer_bro_stomps", hammerBroStomps},
         {"hammer_bro_stomps_plus", hammerBroStompsPlus},
+        {"total_coins", totalCoins},
         {"flawless_levels", flawlessLevels},
         {"cleared_levels", clearedLevels},
         {"found_one_ups", foundOneUps},

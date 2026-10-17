@@ -1,5 +1,7 @@
 #include "Spiny.h"
 
+#include "Difficulty.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -92,7 +94,10 @@ void Spiny::update(float dt, const Tilemap& level, int screenHeight) {
                 // Eclosiona: pasa a caminar con la direccion que ya traia
                 // (o hacia donde estaba mirando, si cayo derecho sin deriva).
                 state_ = SpinyState::Walking;
-                velX_ = lastFacingRight_ ? kWalkSpeed : -kWalkSpeed;
+                // Como el resto de los que caminan (InitNormalEnemy): en la
+                // segunda vuelta, mas rapido.
+                const float speed = kWalkSpeed * hardWalkFactor();
+                velX_ = lastFacingRight_ ? speed : -speed;
             }
         }
     }

@@ -420,16 +420,18 @@ void Mario::updateHorizontal(float dt, const Input& input) {
 
     const float speed = std::abs(velX_);
     const float moving = velX_ > 0.0f ? 1.0f : (velX_ < 0.0f ? -1.0f : 0.0f);
+    // Luigi de Lost Levels patina mas: frena con el 60% al soltar y al patinar.
+    const float slide = lostLevels_ ? 0.6f : 1.0f;
     if (grounded_) {
         const bool running = input.down(Action::Run);
         const float maxSpeed = running ? kMaxRunSpeed : kMaxWalkSpeed;
         if (dir == 0) {
             // Soltar: frena hasta cero sin pasarse.
-            velX_ = moving * std::max(0.0f, speed - kFriction * dt);
+            velX_ = moving * std::max(0.0f, speed - kFriction * slide * dt);
         } else if (moving != 0.0f && static_cast<float>(dir) != moving) {
             // Patinando: frena fuerte; por debajo de kSkidTurnSpeed ya da la
             // vuelta y arranca para el otro lado.
-            const float remaining = speed - kSkidDecel * dt;
+            const float remaining = speed - kSkidDecel * slide * dt;
             velX_ = remaining > kSkidTurnSpeed ? moving * remaining : static_cast<float>(dir) * kMinWalkSpeed;
         } else {
             const float accel = running ? kRunAccel : kWalkAccel;
@@ -498,8 +500,10 @@ void Mario::updateVertical(float dt, Input& input) {
     // gravedad debil (sostiene el salto); si se suelta antes o se esta
     // cayendo, gravedad fuerte (corta el salto / caida rapida).
     const bool ascending = velY_ < 0.0f;
-    const float gravityAscend = fastArc ? kGravityAscendRun : kGravityAscend;
-    const float gravityDescend = fastArc ? kGravityDescendRun : kGravityDescend;
+    // Luigi de Lost Levels: JumpMForceData/FallMForceData mas bajos (~82% y
+    // ~80% de los de Mario): sube mas y cae un poco mas lento.
+    const float gravityAscend = (fastArc ? kGravityAscendRun : kGravityAscend) * (lostLevels_ ? 0.82f : 1.0f);
+    const float gravityDescend = (fastArc ? kGravityDescendRun : kGravityDescend) * (lostLevels_ ? 0.8f : 1.0f);
     if (!ascending || grounded_) springLaunch_ = false;
     // 0x70 por cuadro^2 = 1575 px/s^2 (kGravityDescend), corra o no.
     const float gravity = springLaunch_ ? kGravityDescend

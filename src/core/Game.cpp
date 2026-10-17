@@ -3322,6 +3322,14 @@ void Game::update(float dt) {
         return;
     }
     if (appState_ != AppState::Playing) return;
+    {
+        // LUIGI DE LOST LEVELS: el que se ve como Luigi (mario_ en 1 jugador
+        // con Luigi o en su turno, luigi_ de a 2), en las partidas.
+        const bool lostLevels =
+            campaign_ && settings_.extraOwned("luigi_lost_levels") && settings_.extraEnabled("luigi_lost_levels");
+        mario_.setLostLevelsPhysics(lostLevels && appearanceSwapped_);
+        luigi_.setLostLevelsPhysics(lostLevels && !appearanceSwapped_);
+    }
     if (campaign_) {
         // Resumen del final: una muerte por cada vez que alguno arranca su
         // secuencia de muerte (por turnos, del jugador de turno).
@@ -4386,6 +4394,7 @@ void Game::finishFinalEnding() {
         if (campaignNoFlower_) unlockExtra("item_flower");
             if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
             if (campaignNoSkip_ && campaignTime_ < kInfiniteTimeLimit) unlockExtra("infinite_time");
+            if (campaignOnlyLuigi_) unlockExtra("luigi_lost_levels");
         settings_.gameCompleted = true;
         // La partida termino: su espacio queda libre.
         if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
@@ -4658,6 +4667,10 @@ void Game::collectCoin() {
     // Las monedas de las partidas (no las del editor ni los escenarios de
     // prueba) van a la alcancia de la tienda (CONTENIDO EXTRA).
     if (campaign_ && settings_.coinBank < Settings::kMaxCoinBank) ++settings_.coinBank;
+    if (campaign_) {
+        ++settings_.totalCoins;   // ROCOLA: las juntadas en total
+        if (settings_.totalCoins % 100 == 0) checkExtraProgress();
+    }
     ++coinCount_;
     ++coinTallyForOneUps_;
     addScore(200);

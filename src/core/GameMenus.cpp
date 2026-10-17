@@ -29,7 +29,7 @@ enum MainItem { kMainPlay, kMainSettings, kMainScores, kMainQuit, kMainCount };
 // Submenu JUGAR.
 enum TitleItem { kTitleOnePlayer, kTitleTwoPlayers, kTitleExtras, kTitleCount };
 // Submenu EXTRAS.
-enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasOptions, kExtrasCount };
+enum ExtrasItem { kExtrasWorldSelect, kExtrasNewGamePlus, kExtrasEditor, kExtrasJukebox, kExtrasOptions, kExtrasCount };
 
 // Que se puede elegir en EXTRAS: PARTIDA + y el editor, cuando se
 // desbloquean en CONTENIDO EXTRA; ELEGIR MUNDO, al pasar el primer nivel (y
@@ -39,6 +39,7 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
     disabled[kExtrasWorldSelect] = settings.clearedLevels.empty();
     disabled[kExtrasNewGamePlus] = !settings.extraUnlocked("new_game_plus");
     disabled[kExtrasEditor] = !settings.extraUnlocked("level_editor");
+    disabled[kExtrasJukebox] = !settings.extraOwned("jukebox");
     return disabled;
 }
 
@@ -47,7 +48,7 @@ std::vector<bool> extrasDisabled(const Settings& settings) {
 // menuOption: al desbloquearse habilita una opcion del menu EXTRAS (no se
 // activa ni desactiva: queda disponible).
 // progress: que cuenta para el logro (y su meta), para mostrar el avance.
-enum class ExtraProgress { None, FlawlessLevels, HammerBroStomps, HammerBroStompsPlus, HiddenOneUps };
+enum class ExtraProgress { None, FlawlessLevels, HammerBroStomps, HammerBroStompsPlus, HiddenOneUps, TotalCoins };
 // item: el item que da en la pausa (ITEMS) cuando esta activado.
 enum class ExtraItem { None, Mushroom, FireFlower, Star, InfiniteStar, HammerSuit, BoomerangSuit };
 struct ExtraContent {
@@ -94,6 +95,12 @@ constexpr ExtraContent kExtraContent[] = {
     {"level_boomerang_flower", "FLOR BUMERAN (NIVELES)", "BOOMERANG FLOWER (LEVELS)",
      "COMPLETA UNA PARTIDA + ELIMINANDO A TODOS LOS HAMMER BRO", "BEAT NEW GAME + DEFEATING EVERY HAMMER BRO", false,
      ExtraProgress::None, 0, ExtraItem::None, 4000},
+    // Luigi salta mas alto y patina mas (en las partidas).
+    {"luigi_lost_levels", "LUIGI DE LOST LEVELS", "LOST LEVELS LUIGI", "COMPLETA EL JUEGO CON LUIGI (1 JUGADOR)",
+     "BEAT THE GAME AS LUIGI (1 PLAYER)", false, ExtraProgress::None, 0, ExtraItem::None, 3000},
+    // ROCOLA en EXTRAS: escuchar las musicas y los sonidos.
+    {"jukebox", "ROCOLA", "JUKEBOX", "JUNTA 5000 MONEDAS EN TOTAL", "COLLECT 5000 COINS IN TOTAL", true,
+     ExtraProgress::TotalCoins, 5000, ExtraItem::None, 2000},
     // Las vidas no bajan (en las partidas).
     {"infinite_lives", "VIDAS INFINITAS", "INFINITE LIVES", "ENCUENTRA TODAS LAS VIDAS OCULTAS DEL JUEGO",
      "FIND EVERY HIDDEN 1-UP IN THE GAME", false, ExtraProgress::HiddenOneUps, 0, ExtraItem::None, 5000},
@@ -115,6 +122,7 @@ int extraProgressValue(const Settings& settings, ExtraProgress progress) {
         case ExtraProgress::HammerBroStomps: return settings.hammerBroStomps;
         case ExtraProgress::HammerBroStompsPlus: return settings.hammerBroStompsPlus;
         case ExtraProgress::HiddenOneUps: return static_cast<int>(settings.foundOneUps.size());
+        case ExtraProgress::TotalCoins: return settings.totalCoins;
         case ExtraProgress::None: break;
     }
     return 0;
@@ -242,6 +250,7 @@ void Game::openTitle() {
     worldSelectFlow_ = false;
     extraContentOpen_ = false;
     confirmingPurchase_ = false;
+    jukeboxOpen_ = false;
     titleMenu_ = 0;
     gPrimaryHardMode = false;   // modo prueba y niveles sueltos: siempre la primera vuelta
     audio_.stopMusic();
@@ -523,6 +532,7 @@ void Game::writeCurrentSlot(int world, int level) {
     slot.noMushroom = campaignNoMushroom_;
     slot.noFlower = campaignNoFlower_;
     slot.allHammerBros = campaignAllHammerBros_;
+    slot.onlyLuigi = campaignOnlyLuigi_;
     slot.playTime = campaignTime_;
     slot.enemies = campaignEnemies_;
     slot.deathsMario = campaignDeaths_[0];
@@ -589,6 +599,10 @@ void Game::handleSlotPickerInput(MenuInput input) {
 }
 
 void Game::handleTitleInput(MenuInput input) {
+    if (jukeboxOpen_) {
+        handleJukeboxInput(input);
+        return;
+    }
     if (extraContentOpen_ && confirmingPurchase_) {
         // "COMPRAR POR N MONEDAS?": SI / NO (arranca en NO).
         if (input == MenuInput::Left || input == MenuInput::Right || input == MenuInput::Up ||
@@ -709,6 +723,8 @@ void Game::handleTitleInput(MenuInput input) {
             campaignNoMushroom_ = slot.noMushroom;
             campaignNoFlower_ = slot.noFlower;
             campaignAllHammerBros_ = slot.allHammerBros;
+            // Con Luigi, si se sigue con Luigi solo.
+            campaignOnlyLuigi_ = slot.onlyLuigi && playAsLuigi_ && !twoPlayerMode_ && !turnMode_;
             campaignTime_ = slot.playTime;   // sigue desde donde quedo
             campaignEnemies_ = slot.enemies;
             campaignDeaths_ = {slot.deathsMario, slot.deathsLuigi};
@@ -842,6 +858,7 @@ void Game::handleTitleInput(MenuInput input) {
                 campaignNoMushroom_ = false;
                 campaignNoFlower_ = false;
                 campaignAllHammerBros_ = false;
+                campaignOnlyLuigi_ = false;
             } else {
                 askSlotThen([this, luigi] { startCampaign(false, luigi); });
             }
@@ -920,6 +937,10 @@ void Game::handleTitleInput(MenuInput input) {
             case kExtrasEditor:
                 titleMenu_ = kMenuEditor;
                 editorSelection_ = kEditorCreate;
+                break;
+            case kExtrasJukebox:
+                jukeboxOpen_ = true;
+                jukeboxSelection_ = 0;
                 break;
             case kExtrasOptions:
                 extraContentOpen_ = true;
@@ -1381,6 +1402,7 @@ void Game::startCampaign(bool twoPlayers, bool asLuigi) {
     campaignAllHammerBros_ = campaignNoDamage_;
     defeatedHammerBros_.clear();
     campaignTime_ = 0.0f;
+    campaignOnlyLuigi_ = campaignNoDamage_ && !twoPlayers && asLuigi;
     campaignEnemies_ = 0;
     campaignDeaths_ = {};
     wasDying_ = {};
@@ -1483,6 +1505,7 @@ void Game::onLevelCleared() {
             if (campaignNoFlower_) unlockExtra("item_flower");
             if (campaignAllHammerBros_) unlockExtra(gPrimaryHardMode ? "level_boomerang_flower" : "level_hammer_flower");
             if (campaignNoSkip_ && campaignTime_ < kInfiniteTimeLimit) unlockExtra("infinite_time");
+            if (campaignOnlyLuigi_) unlockExtra("luigi_lost_levels");
             settings_.gameCompleted = true;
             if (currentSlot_ >= 0) settings_.saves[static_cast<size_t>(currentSlot_)].world = 0;
             settings_.save();
@@ -1915,6 +1938,97 @@ void Game::renderHighScores(int top) {
     drawCentered(222, tr(Txt::ContinueHint), 1, kMenuDim);
 }
 
+namespace {
+// ROCOLA: las musicas (loop: los temas que se repiten) y los sonidos.
+struct JukeboxEntry {
+    const char* es;
+    const char* en;
+    bool music;
+    int id;
+    bool loop;
+};
+constexpr JukeboxEntry kJukebox[] = {
+    {"SUPERFICIE", "OVERWORLD", true, static_cast<int>(Music::Overworld), true},
+    {"SUBTERRANEO", "UNDERGROUND", true, static_cast<int>(Music::Underground), true},
+    {"AGUA", "UNDERWATER", true, static_cast<int>(Music::Underwater), true},
+    {"CASTILLO", "CASTLE", true, static_cast<int>(Music::Castle), true},
+    {"ESTRELLA", "STARMAN", true, static_cast<int>(Music::Invincibility), true},
+    {"SUPERFICIE RAPIDA", "OVERWORLD FAST", true, static_cast<int>(Music::OverworldFast), true},
+    {"SUBTERRANEO RAPIDA", "UNDERGROUND FAST", true, static_cast<int>(Music::UndergroundFast), true},
+    {"AGUA RAPIDA", "UNDERWATER FAST", true, static_cast<int>(Music::UnderwaterFast), true},
+    {"CASTILLO RAPIDA", "CASTLE FAST", true, static_cast<int>(Music::CastleFast), true},
+    {"ESTRELLA RAPIDA", "STARMAN FAST", true, static_cast<int>(Music::InvincibilityFast), true},
+    {"NIVEL COMPLETO", "COURSE CLEAR", true, static_cast<int>(Music::LevelComplete), false},
+    {"CASTILLO COMPLETO", "CASTLE CLEAR", true, static_cast<int>(Music::CastleComplete), false},
+    {"GAME OVER", "GAME OVER", true, static_cast<int>(Music::GameOver), false},
+    {"AL CAÑO", "INTO THE PIPE", true, static_cast<int>(Music::IntoPipe), false},
+    {"FINAL", "ENDING", true, static_cast<int>(Music::Ending), false},
+    {"SALTO", "JUMP", false, static_cast<int>(Sfx::Jump), false},
+    {"SALTO CHICO", "SMALL JUMP", false, static_cast<int>(Sfx::JumpSmall), false},
+    {"MONEDA", "COIN", false, static_cast<int>(Sfx::Coin), false},
+    {"GOLPE", "BUMP", false, static_cast<int>(Sfx::Bump), false},
+    {"LADRILLO", "BRICK", false, static_cast<int>(Sfx::Brick), false},
+    {"ITEM", "ITEM", false, static_cast<int>(Sfx::Item), false},
+    {"CRECER", "POWER UP", false, static_cast<int>(Sfx::PowerUp), false},
+    {"ACHICARSE", "POWER DOWN", false, static_cast<int>(Sfx::PowerDown), false},
+    {"CAÑO", "PIPE", false, static_cast<int>(Sfx::Pipe), false},
+    {"PISOTON", "STOMP", false, static_cast<int>(Sfx::StompKill), false},
+    {"PATADA", "KICK", false, static_cast<int>(Sfx::Kick), false},
+    {"MUERTE", "DEATH", false, static_cast<int>(Sfx::Death), false},
+    {"VIDA", "1-UP", false, static_cast<int>(Sfx::OneUp), false},
+    {"BOWSER CAE", "BOWSER FALLS", false, static_cast<int>(Sfx::BowserFall), false},
+    {"BOLA DE FUEGO", "FIREBALL", false, static_cast<int>(Sfx::Fireball), false},
+    {"FUEGO DE BOWSER", "BOWSER FIRE", false, static_cast<int>(Sfx::BowserFire), false},
+    {"CAÑON", "CANNON", false, static_cast<int>(Sfx::BillFirework), false},
+    {"BANDERA", "FLAGPOLE", false, static_cast<int>(Sfx::Flagpole), false},
+    {"APURATE", "HURRY UP", false, static_cast<int>(Sfx::HurryUp), false},
+    {"CUENTA DEL TIEMPO", "TIME TALLY", false, static_cast<int>(Sfx::TimeTally), false},
+    {"GAME OVER (SONIDO)", "GAME OVER (SOUND)", false, static_cast<int>(Sfx::GameOver), false},
+    {"PAUSA", "PAUSE", false, static_cast<int>(Sfx::Pause), false},
+    {"ENREDADERA", "VINE", false, static_cast<int>(Sfx::Vine), false},
+};
+constexpr int kJukeboxCount = static_cast<int>(std::size(kJukebox));
+}  // namespace
+
+void Game::handleJukeboxInput(MenuInput input) {
+    if (input == MenuInput::Up || input == MenuInput::Down) {
+        const int delta = input == MenuInput::Up ? kJukeboxCount - 1 : 1;
+        jukeboxSelection_ = (jukeboxSelection_ + delta) % kJukeboxCount;
+    } else if (input == MenuInput::Confirm) {
+        const JukeboxEntry& entry = kJukebox[jukeboxSelection_];
+        if (entry.music) {
+            audio_.playMusic(static_cast<Music>(entry.id), entry.loop);
+            jukeboxPlaying_ = jukeboxSelection_;
+        } else {
+            audio_.play(static_cast<Sfx>(entry.id));
+        }
+    } else if (input == MenuInput::Back) {
+        audio_.stopMusic();
+        jukeboxPlaying_ = -1;
+        jukeboxOpen_ = false;
+        audio_.play(Sfx::Bump);
+    }
+}
+
+void Game::renderJukebox() {
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 245);
+    SDL_RenderFillRect(renderer_, nullptr);
+    drawCentered(10, tr(Txt::Jukebox), 2, kMenuWhite);
+    constexpr int kVisible = 11;
+    const int first = std::clamp(jukeboxSelection_ - kVisible / 2, 0, std::max(0, kJukeboxCount - kVisible));
+    const int listX = gLogicalWidth / 2 - 100;
+    for (int i = first; i < std::min(kJukeboxCount, first + kVisible); ++i) {
+        const JukeboxEntry& entry = kJukebox[i];
+        const int y = 32 + (i - first) * 16;
+        if (i == jukeboxSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 12, y, false);
+        const SDL_Color color = i == jukeboxPlaying_ ? kMenuYellow : kMenuWhite;
+        DebugFont::drawText(renderer_, listX, y, isEnglish() ? entry.en : entry.es, 2, color);
+        const std::string kind = tr(entry.music ? Txt::JukeboxMusic : Txt::JukeboxSound);
+        DebugFont::drawText(renderer_, gLogicalWidth / 2 + 116 - static_cast<int>(kind.size()) * 8, y, kind, 2, kMenuGray);
+    }
+    drawCentered(222, tr(Txt::JukeboxHint), 1, kMenuDim);
+}
+
 void Game::renderSlotPicker() {
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 240);
     SDL_RenderFillRect(renderer_, nullptr);
@@ -2050,7 +2164,7 @@ void Game::renderTitle() {
             disabled.assign(ids.size(), false);
             selection = titleSelection_;
         } else if (titleMenu_ == kMenuExtras) {
-            ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::ExtraOptions};
+            ids = {Txt::WorldSelect, Txt::NewGamePlus, Txt::LevelEditor, Txt::Jukebox, Txt::ExtraOptions};
             disabled = extrasDisabled(settings_);
             selection = extrasSelection_;
         } else if (titleMenu_ == kMenuPlus) {
@@ -2071,7 +2185,7 @@ void Game::renderTitle() {
         int widest = 0;
         for (const std::string& label : labels) widest = std::max(widest, static_cast<int>(label.size()) * 8);
         const int x = (gLogicalWidth - widest) / 2;
-        const int step = 14;
+        const int step = ids.size() > 4 ? 12 : 14;   // con 5 opciones, sin pisar el TOP-
         for (int i = 0; i < static_cast<int>(ids.size()); ++i) {
             const int y = 134 + i * step;
             if (i == selection) titleCursorSprite_.draw(renderer_, 0, 0, x - 12, y, false);
@@ -2170,6 +2284,7 @@ void Game::renderTitle() {
     }
     if (choosingSlot_) renderSlotPicker();
     if (extraContentOpen_) renderExtraContent();
+    if (jukeboxOpen_) renderJukebox();
 }
 
 void Game::renderPauseMenu() {

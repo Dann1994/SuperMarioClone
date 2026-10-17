@@ -137,6 +137,10 @@ constexpr std::array<Entry, static_cast<size_t>(Txt::Count)> kTexts{{
     {"ARRIBA/ABAJO: LETRA  IZQ/DER: MOVER  ENTER: LISTO", "UP/DOWN: LETTER  LEFT/RIGHT: MOVE  ENTER: DONE"},
     {"ENTER / A: CONTINUAR", "ENTER / A: CONTINUE"},
     {"TODAVIA NO HAY PUNTAJES", "NO SCORES YET"},
+    {"ROCOLA", "JUKEBOX"},
+    {"ENTER / A: ESCUCHAR    ESC / B: VOLVER", "ENTER / A: PLAY    ESC / B: BACK"},
+    {"MUSICA", "MUSIC"},
+    {"SONIDO", "SOUND"},
 }};
 
 }  // namespace

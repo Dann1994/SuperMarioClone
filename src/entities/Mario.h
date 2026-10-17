@@ -311,6 +311,9 @@ public:
     bool loadBoomerangSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
     // Agachado con el traje de Hammer Bro: el caparazon lo cubre del fuego.
     bool isHammerShell() const { return isSuitSize(size_) && isDucking_; }
+    // LUIGI DE LOST LEVELS (CONTENIDO EXTRA): como en Super Mario Bros. 2
+    // japones, salta mas alto (menos gravedad) y patina mas (frena menos).
+    void setLostLevelsPhysics(bool on) { lostLevels_ = on; }
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
 
@@ -547,4 +550,5 @@ private:
     static constexpr float kFlagpoleWalkMaxDuration = 4.0f; // s maximos caminando hacia el castillo
     static inline bool sWorldPalettes = false;
     bool benched_ = false;
+    bool lostLevels_ = false;
 };

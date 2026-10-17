@@ -1442,6 +1442,12 @@ private:
     // CONTENIDO EXTRA (EXTRAS): la lista de lo desbloqueable.
     bool extraContentOpen_ = false;
     bool confirmingPurchase_ = false;
+    // ROCOLA (EXTRAS): la lista de musicas y sonidos.
+    bool jukeboxOpen_ = false;
+    int jukeboxSelection_ = 0;
+    int jukeboxPlaying_ = -1;
+    void handleJukeboxInput(MenuInput input);
+    void renderJukebox();
     int purchaseChoice_ = 1;             // 0 SI, 1 NO
     int extraContentSelection_ = 0;
     void renderExtraContent();
@@ -1461,6 +1467,8 @@ private:
     // Tiempo jugado de la partida (logro TIEMPO INFINITO): no corre en la
     // pausa ni fuera de la partida; el espacio lo guarda para seguir.
     float campaignTime_ = 0.0f;
+    // Logro LUIGI DE LOST LEVELS: la partida, desde el 1-1, con Luigi (1 jugador).
+    bool campaignOnlyLuigi_ = false;
     // Resumen del final: enemigos eliminados y muertes de cada jugador
     // (0 Mario / el de 1 jugador, 1 Luigi); el espacio los guarda.
     int campaignEnemies_ = 0;

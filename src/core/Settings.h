@@ -58,6 +58,8 @@ struct Settings {
     // pisandolos en las partidas (y los de PARTIDA +).
     int hammerBroStomps = 0;
     int hammerBroStompsPlus = 0;
+    // Monedas juntadas en las partidas en total (no baja al comprar): ROCOLA.
+    int totalCoins = 0;
     bool extraUnlocked(const std::string& id) const;
     bool extraEnabled(const std::string& id) const;
     bool extraPurchased(const std::string& id) const;
@@ -86,6 +88,7 @@ struct Settings {
         int deathsLuigi = 0;
         int scoreMario = 0;
         int scoreLuigi = 0;
+        bool onlyLuigi = false;     // desde el 1-1 con Luigi, 1 jugador (logro)
     };
     static constexpr int kSaveSlots = 5;
     std::array<SaveSlot, kSaveSlots> saves{};
