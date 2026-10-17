@@ -1030,7 +1030,8 @@ void Game::handleTitleInput(MenuInput input) {
             break;
         case kTitleExtras:
             titleMenu_ = kMenuExtras;
-            extrasSelection_ = kExtrasWorldSelect;
+            // En la primera opcion habilitada (CONTENIDO EXTRA siempre lo esta).
+            extrasSelection_ = stepSelection(kExtrasCount - 1, 1, kExtrasCount, extrasDisabled(settings_));
             break;
         default: break;
     }
