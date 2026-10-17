@@ -1485,6 +1485,10 @@ private:
     // Tiempo jugado de la partida (logro TIEMPO INFINITO): no corre en la
     // pausa ni fuera de la partida; el espacio lo guarda para seguir.
     float campaignTime_ = 0.0f;
+    // Monedas de este intento de nivel: a la alcancia y al total recien al
+    // pasarlo (ver collectCoin).
+    int pendingLevelCoins_ = 0;
+    void commitLevelCoins();
     // Logro LUIGI DE LOST LEVELS: la partida, desde el 1-1, con Luigi (1 jugador).
     bool campaignOnlyLuigi_ = false;
     // Resumen del final: enemigos eliminados y muertes de cada jugador

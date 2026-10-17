@@ -730,7 +730,20 @@ void Game::startScenario(TestScenario scenario) {
     loadScenario(scenario);
 }
 
+void Game::commitLevelCoins() {
+    // Se paso el nivel (bandera, castillo o zona de warp): sus monedas cuentan.
+    if (pendingLevelCoins_ <= 0) return;
+    settings_.coinBank = std::min(Settings::kMaxCoinBank, settings_.coinBank + pendingLevelCoins_);
+    settings_.totalCoins += pendingLevelCoins_;
+    pendingLevelCoins_ = 0;
+    checkExtraProgress();
+    settings_.save();
+}
+
 void Game::loadScenario(TestScenario scenario) {
+    // Cargar un nivel (el siguiente, o el mismo otra vez al morir): lo que
+    // quedaba pendiente ya se sumo al pasarlo o se pierde.
+    pendingLevelCoins_ = 0;
     // TRABAJO EN EQUIPO: desde el x-1 de a 2 a la vez; si algun nivel del
     // mundo se juega de otra forma, no vale.
     if (campaign_) {
@@ -2586,6 +2599,7 @@ void Game::updatePipeAnim(float dt) {
     }
     if (!pipeAnim_.warp.level.empty()) {
         // Warp zone: al principio de otro nivel ("4-1"). Saltea niveles.
+        commitLevelCoins();   // el nivel se termino por la zona de warp
         campaignNoSkip_ = false;
         if (campaign_) completeAchievement("warp");
         const std::string target = pipeAnim_.warp.level;
@@ -4466,6 +4480,7 @@ void Game::finishFinalEnding() {
     finalEnding_ = false;
     finalMusic_ = false;
     // Terminar el juego desbloquea EXTRAS (WorldSelectEnableFlag del original).
+    commitLevelCoins();
     markLevelCleared();            // el 8-4 no pasa por onLevelCleared
     checkAllHammerBrosCleared();
     if (campaign_) {
@@ -4769,11 +4784,10 @@ void Game::renderFireworks() {
 void Game::collectCoin() {
     // Las monedas de las partidas (no las del editor ni los escenarios de
     // prueba) van a la alcancia de la tienda (CONTENIDO EXTRA).
-    if (campaign_ && settings_.coinBank < Settings::kMaxCoinBank) ++settings_.coinBank;
-    if (campaign_) {
-        ++settings_.totalCoins;   // ROCOLA: las juntadas en total
-        if (settings_.totalCoins % 100 == 0) checkExtraProgress();
-    }
+    // Alcancia y total (logros COLECCIONISTA): quedan pendientes y se suman
+    // recien al pasar el nivel (commitLevelCoins); morir, reiniciar o salir
+    // las pierde, asi no sirve juntarlas de nuevo una y otra vez.
+    if (campaign_) ++pendingLevelCoins_;
     ++coinCount_;
     ++coinTallyForOneUps_;
     addScore(200);

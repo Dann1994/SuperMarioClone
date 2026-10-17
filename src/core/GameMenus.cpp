@@ -135,10 +135,10 @@ constexpr Achievement kAchievements[] = {
      200, nullptr, 3},
     {"bowser_fire", "FUEGO CONTRA FUEGO", "FIGHT FIRE WITH FIRE", "DERROTA A BOWSER CON BOLAS DE FUEGO",
      "DEFEAT BOWSER WITH FIREBALLS", 300, nullptr, 4},
-    {"collector", "COLECCIONISTA", "COLLECTOR", "JUNTA 1000 MONEDAS EN TOTAL", "COLLECT 1000 COINS IN TOTAL", 300,
-     nullptr, 5, ExtraProgress::TotalCoins, 1000},
-    {"big_collector", "GRAN COLECCIONISTA", "BIG COLLECTOR", "JUNTA 5000 MONEDAS EN TOTAL",
-     "COLLECT 5000 COINS IN TOTAL", 800, "jukebox", 6, ExtraProgress::TotalCoins, 5000},
+    {"collector", "COLECCIONISTA", "COLLECTOR", "JUNTA 10000 MONEDAS EN TOTAL", "COLLECT 10000 COINS IN TOTAL", 300,
+     "jukebox", 5, ExtraProgress::TotalCoins, 10000},
+    {"big_collector", "GRAN COLECCIONISTA", "BIG COLLECTOR", "JUNTA 30000 MONEDAS EN TOTAL",
+     "COLLECT 30000 COINS IN TOTAL", 1500, nullptr, 6, ExtraProgress::TotalCoins, 30000},
     {"hunter", "CAZADOR", "HUNTER", "ELIMINA 100 ENEMIGOS EN TOTAL", "DEFEAT 100 ENEMIES IN TOTAL", 300, nullptr, 7,
      ExtraProgress::TotalEnemies, 100},
     {"exterminator", "EXTERMINADOR", "EXTERMINATOR", "ELIMINA 500 ENEMIGOS EN TOTAL", "DEFEAT 500 ENEMIES IN TOTAL", 800,
@@ -1733,6 +1733,7 @@ void Game::markLevelCleared() {
 }
 
 void Game::onLevelCleared() {
+    commitLevelCoins();
     markLevelCleared();
     checkAllHammerBrosCleared();
     settings_.save();   // la alcancia (las monedas del nivel)
