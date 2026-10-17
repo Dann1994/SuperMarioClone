@@ -1553,6 +1553,13 @@ private:
     void renderShop();
     void renderMyExtras();
     SpriteSheet achievementIconsSprite_;   // achievements.png (gen_achievement_icons.py)
+    SpriteSheet achievementLockedSprite_;  // achievements_locked.png: los no cumplidos, apagados
+    // Renglon de la descripcion larga que se ve primero (izquierda/derecha la
+    // mueven); vuelve a 0 al cambiar de elemento.
+    int descScroll_ = 0;
+    // Texto de varios renglones en un cuadro de a `visible` renglones, con
+    // barra de scroll a la derecha si no entra. Devuelve si hace falta.
+    bool drawScrolledText(const std::string& text, int x, int y, int width, int visible, SDL_Color color);
     // TRABAJO EN EQUIPO: el mundo en curso se viene jugando de a 2 a la vez
     // desde su x-1.
     bool coopWorldRun_ = false;

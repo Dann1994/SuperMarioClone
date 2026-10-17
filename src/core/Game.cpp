@@ -521,6 +521,7 @@ bool Game::init() {
     boomerangFlowerSprite_.loadFromFile(renderer_, "assets/sprites/boomerang_flower.png", 20, 20);
     iconClockSprite_.loadFromFile(renderer_, "assets/sprites/icon_clock.png", 16, 16);
     achievementIconsSprite_.loadFromFile(renderer_, "assets/sprites/achievements.png", 16, 16);
+    achievementLockedSprite_.loadFromFile(renderer_, "assets/sprites/achievements_locked.png", 16, 16);
     iconNoteSprite_.loadFromFile(renderer_, "assets/sprites/icon_note.png", 16, 16);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.

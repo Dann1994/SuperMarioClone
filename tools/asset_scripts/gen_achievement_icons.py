@@ -1,5 +1,6 @@
 """Iconos de los LOGROS (16x16 cada uno, en una fila: assets/sprites/
-achievements.png). El orden es el de kAchievements en GameMenus.cpp: cada
+achievements.png, y achievements_locked.png en blanco y negro para los que
+todavia no se cumplieron). El orden es el de kAchievements en GameMenus.cpp: cada
 logro usa el icono de su posicion.
 
 Se arman con los sprites del juego (Mario, Luigi, Goomba, monedas, hongos,
@@ -131,6 +132,26 @@ PIPE = [
     "................",
 ]
 
+# BANDERA ARRIBA: mastil, bola, bandera en lo mas alto y flecha hacia arriba.
+FLAG_TOP = [
+    "..........KKK...",
+    ".........KGLGK..",
+    ".........KGGGK..",
+    ".........WKKK...",
+    ".......KKWKLK...",
+    ".....KKWWWKLK...",
+    "...KKWWGGWKLK...",
+    ".....KKWWWKLK...",
+    ".......KKWKLK...",
+    "...K......KLK...",
+    "..KYK.....KLK...",
+    ".KYYYK....KLK...",
+    "KYYYYYK...KLK...",
+    "KKKYKKK...KLK...",
+    "..KYK.....KLK...",
+    "..KKK.....KKK...",
+]
+
 # Flecha hacia abajo (blanca con contorno), arriba del cano de ATAJO.
 ARROW = [
     "......KKKK......",
@@ -208,11 +229,9 @@ def main():
         return img
 
     def flag_top():
-        img = canvas()
-        for y in range(16):
-            img.putpixel((11, y), GREEN_L)
-        paste(img, flag.crop((0, 0, 16, 9)), 0, 0)
-        return img
+        # El mastil con la bola arriba, la bandera colgando en lo mas alto y
+        # una flecha dorada hacia arriba.
+        return from_rows(FLAG_TOP, {"K": K, "L": GREEN_L, "G": GREEN, "W": W, "Y": GOLD})
 
     def defeated_goomba():
         # El Goomba aplastado (tercer cuadro de su hoja), centrado.
@@ -254,6 +273,16 @@ def main():
     for i, icon in enumerate(icons):
         sheet.alpha_composite(icon, (i * 16, 0))
     sheet.save(OUT)
+    # Los bloqueados: en blanco y negro y mas oscuros (achievements_locked.png).
+    locked = sheet.copy()
+    px = locked.load()
+    for y in range(locked.height):
+        for x in range(locked.width):
+            r, g, b, a = px[x, y]
+            if a:
+                gray = int((0.3 * r + 0.59 * g + 0.11 * b) * 0.55)
+                px[x, y] = (gray, gray, gray, a)
+    locked.save(OUT.replace(".png", "_locked.png"))
     print("ok", len(icons))
 
 

@@ -776,7 +776,14 @@ void Game::handleExtrasScreenInput(MenuInput input) {
     }
     if ((input == MenuInput::Up || input == MenuInput::Down) && count > 0) {
         extraContentSelection_ = (extraContentSelection_ + (input == MenuInput::Up ? count - 1 : 1)) % count;
+        descScroll_ = 0;
         audio_.play(Sfx::TimeTally);
+        return;
+    }
+    if (input == MenuInput::Left || input == MenuInput::Right) {
+        // La descripcion larga: un renglon para arriba o para abajo (el tope
+        // lo ajusta drawScrolledText al dibujar).
+        descScroll_ = std::max(0, descScroll_ + (input == MenuInput::Right ? 1 : -1));
         return;
     }
     if (input != MenuInput::Confirm || count == 0) return;
@@ -1093,6 +1100,7 @@ void Game::handleTitleInput(MenuInput input) {
                 extraContentOpen_ = true;
                 extrasScreen_ = extrasSelection_ - kExtrasAchievements;
                 extraContentSelection_ = 0;
+                descScroll_ = 0;
                 break;
             default: break;
         }
@@ -1876,8 +1884,35 @@ int listFirst(int selection, int count) {
 }
 }  // namespace
 
+bool Game::drawScrolledText(const std::string& text, int x, int y, int width, int visible, SDL_Color color) {
+    const auto lines = wrapText(text, static_cast<size_t>((width - 10) / 8));
+    const int count = static_cast<int>(lines.size());
+    const int maxScroll = std::max(0, count - visible);
+    descScroll_ = std::min(descScroll_, maxScroll);
+    for (int l = 0; l < visible && descScroll_ + l < count; ++l) {
+        DebugFont::drawText(renderer_, x, y + l * 11, lines[static_cast<size_t>(descScroll_ + l)], 2, color);
+    }
+    if (maxScroll == 0) return false;
+    // Barra a la derecha: el riel y la parte que se ve.
+    const int barX = x + width - 4;
+    const int barH = visible * 11 - 2;
+    SDL_SetRenderDrawColor(renderer_, 70, 70, 90, 255);
+    const SDL_Rect rail{barX, y, 3, barH};
+    SDL_RenderFillRect(renderer_, &rail);
+    const int thumbH = std::max(4, barH * visible / count);
+    const int thumbY = y + (barH - thumbH) * descScroll_ / maxScroll;
+    SDL_SetRenderDrawColor(renderer_, 230, 230, 230, 255);
+    const SDL_Rect thumb{barX, thumbY, 3, thumbH};
+    SDL_RenderFillRect(renderer_, &thumb);
+    return true;
+}
+
 void Game::renderAchievements() {
-    // LOGROS: los cumplidos en amarillo con su premio; los demas, su avance.
+    // LOGROS: los cumplidos con su icono a color y el nombre en blanco; los
+    // demas, el icono apagado (blanco y negro), el nombre en gris y su
+    // avance. Renglones de 18 px (7 a la vista).
+    constexpr int kAchVisible = 7;
+    constexpr int kAchStep = 18;
     int done = 0;
     for (const Achievement& achievement : kAchievements) done += settings_.achievementDone(achievement.id) ? 1 : 0;
     drawCentered(6, std::string(tr(Txt::Achievements)) + "  " + std::to_string(done) + "/" +
@@ -1886,15 +1921,15 @@ void Game::renderAchievements() {
     drawCoinAmount((gLogicalWidth - 8 - static_cast<int>(bank.size()) * 8) / 2, 19, settings_.coinBank, kMenuYellow);
     const int listX = gLogicalWidth / 2 - 96;
     const int right = gLogicalWidth / 2 + 116;
-    const int first = listFirst(extraContentSelection_, kAchievementCount);
-    for (int i = first; i < std::min(kAchievementCount, first + kListVisible); ++i) {
+    const int first = std::clamp(extraContentSelection_ - kAchVisible / 2, 0, std::max(0, kAchievementCount - kAchVisible));
+    for (int i = first; i < std::min(kAchievementCount, first + kAchVisible); ++i) {
         const Achievement& achievement = kAchievements[i];
         const bool isDone = settings_.achievementDone(achievement.id);
-        const int y = 36 + (i - first) * kListStep;
+        const int y = 38 + (i - first) * kAchStep;
         if (i == extraContentSelection_) titleCursorSprite_.draw(renderer_, 0, 0, listX - 30, y, false);
-        achievementIconsSprite_.draw(renderer_, 0, achievement.icon, listX - 18, y - 4, false);
+        (isDone ? achievementIconsSprite_ : achievementLockedSprite_).draw(renderer_, 0, achievement.icon, listX - 18, y - 4, false);
         DebugFont::drawText(renderer_, listX, y, isEnglish() ? achievement.nameEn : achievement.nameEs, 2,
-                            isDone ? kMenuYellow : kMenuWhite);
+                            isDone ? kMenuWhite : kMenuGray);
         const int target = extraTarget(achievement);
         std::string tail;
         if (!isDone && achievement.progress != ExtraProgress::None && target > 0) {
@@ -1931,19 +1966,19 @@ void Game::renderAchievements() {
                                              8 * static_cast<int>(std::to_string(achievement.reward).size()));
     DebugFont::drawText(renderer_, rewardX, box.y + 4, reward, 2, kMenuWhite);
     drawCoinAmount(rewardX + DebugFont::length(reward) * 8, box.y + 4, achievement.reward, kMenuYellow);
-    const auto lines = wrapText(isEnglish() ? achievement.condEn : achievement.condEs, 30);
-    for (size_t l = 0; l < lines.size() && l < 2; ++l) {
-        DebugFont::drawText(renderer_, box.x + 6, box.y + 17 + static_cast<int>(l) * 11, lines[l], 2, kMenuWhite);
-    }
+    const bool scrolls = drawScrolledText(isEnglish() ? achievement.condEn : achievement.condEs, box.x + 6, box.y + 17,
+                                          box.w - 10, 2, kMenuWhite);
     if (achievement.unlocks) {
         const ExtraContent* unlocked = findExtra(achievement.unlocks);
         if (unlocked) {
-            DebugFont::drawText(renderer_, box.x + 6, box.y + 42,
-                                std::string(tr(Txt::AchUnlocks)) + " " + (isEnglish() ? unlocked->nameEn : unlocked->nameEs),
-                                2, kMenuYellow);
+            // "DESBLOQUEA: ..." si entra; si no, solo el nombre (en amarillo).
+            const std::string name = isEnglish() ? unlocked->nameEn : unlocked->nameEs;
+            std::string line = std::string(tr(Txt::AchUnlocks)) + " " + name;
+            if (DebugFont::length(line) * 8 > box.w - 12) line = name;
+            DebugFont::drawText(renderer_, box.x + 6, box.y + 42, line, 2, kMenuYellow);
         }
     }
-    drawCentered(222, tr(Txt::BackHint), 1, kMenuDim);
+    drawCentered(222, tr(scrolls ? Txt::ScrollHint : Txt::BackHint), 1, kMenuDim);
 }
 
 void Game::renderShop() {
