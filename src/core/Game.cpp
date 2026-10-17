@@ -519,6 +519,8 @@ bool Game::init() {
     luigi_.loadBoomerangSprite(renderer_, "assets/sprites/luigi_boomerang.png", "assets/sprites/luigi_boomerang_star.png");
     boomerangSprite_.loadFromFile(renderer_, "assets/sprites/boomerang.png", 16, 16);
     boomerangFlowerSprite_.loadFromFile(renderer_, "assets/sprites/boomerang_flower.png", 20, 20);
+    iconClockSprite_.loadFromFile(renderer_, "assets/sprites/icon_clock.png", 16, 16);
+    iconNoteSprite_.loadFromFile(renderer_, "assets/sprites/icon_note.png", 16, 16);
     // Paletas segun el tipo de mundo (gen_player_palettes.py): opcionales,
     // el mundo que no tenga usa la normal.
     for (const auto& [type, suffix] : {std::pair<WorldType, const char*>{WorldType::Underwater, "underwater"},

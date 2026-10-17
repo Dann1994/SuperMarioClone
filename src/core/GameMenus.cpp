@@ -494,15 +494,38 @@ void Game::renderUnlockToast() {
     }
     const int iconX = cx - 8;
     const int iconY = cy - 8;
-    switch (item->item) {
-        case ExtraItem::Mushroom: mushroomSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
-        case ExtraItem::FireFlower: fireFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
-        case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY - 2, false); break;
-        case ExtraItem::BoomerangSuit: boomerangFlowerSprite_.draw(renderer_, 0, 0, iconX - 2, iconY - 2, false); break;
-        case ExtraItem::InfiniteStar:
-            starSprite_.draw(renderer_, 0, static_cast<int>(now / 70) % 4, iconX, iconY, false);
-            break;
-        default: starSprite_.draw(renderer_, 0, 2, iconX, iconY, false); break;
+    // Un icono por elemento: los items con su sprite; el resto, lo que mejor
+    // lo representa (la estrella amarilla si no hay otro).
+    const std::string id = item->id;
+    if (id == "new_game_plus") {
+        introMarioSprite_.draw(renderer_, 3, 0, iconX, iconY, false);   // Mario chico saltando (fila de salto)
+    } else if (id == "level_hammer_flower") {
+        hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY - 2, false);
+    } else if (id == "level_boomerang_flower") {
+        boomerangFlowerSprite_.draw(renderer_, 0, 0, iconX - 2, iconY - 2, false);
+    } else if (id == "infinite_lives") {
+        oneUpSprite_.draw(renderer_, 0, 0, iconX, iconY, false);
+    } else if (id == "infinite_time") {
+        iconClockSprite_.draw(renderer_, 0, 0, iconX, iconY, false);
+    } else if (id == "jukebox") {
+        iconNoteSprite_.draw(renderer_, 0, 0, iconX, iconY, false);
+    } else if (id == "luigi_lost_levels") {
+        introLuigiSprite_.draw(renderer_, 0, 0, iconX, iconY, false);
+    } else if (id == "level_editor") {
+        questionBlockSprite_.draw(renderer_, 0, 0, iconX, iconY, false);
+    } else {
+        switch (item->item) {
+            case ExtraItem::Mushroom: mushroomSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
+            case ExtraItem::FireFlower: fireFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY, false); break;
+            case ExtraItem::HammerSuit: hammerFlowerSprite_.draw(renderer_, 0, 0, iconX, iconY - 2, false); break;
+            case ExtraItem::BoomerangSuit:
+                boomerangFlowerSprite_.draw(renderer_, 0, 0, iconX - 2, iconY - 2, false);
+                break;
+            case ExtraItem::InfiniteStar:
+                starSprite_.draw(renderer_, 0, static_cast<int>(now / 70) % 4, iconX, iconY, false);
+                break;
+            default: starSprite_.draw(renderer_, 0, 2, iconX, iconY, false); break;
+        }
     }
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_NONE);
     DebugFont::drawText(renderer_, x + 40, y + 5, tr(Txt::UnlockToast), 2, SDL_Color{120, 220, 120, 255});

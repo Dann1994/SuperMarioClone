@@ -1220,6 +1220,9 @@ private:
     SpriteSheet hammerFlowerSprite_;   // la flor martillo (icono del item)
     SpriteSheet boomerangSprite_;      // el bumeran del traje (4 cuadros de giro)
     SpriteSheet boomerangFlowerSprite_;   // la flor bumeran (20x20)
+    // Iconos de los avisos de desbloqueo (gen_extra_icons.py).
+    SpriteSheet iconClockSprite_;
+    SpriteSheet iconNoteSprite_;
     // Flor de traje (martillo o bumeran) salida de un bloque: no se mueve,
     // como la de fuego; suitFlowerSize_ es el traje que pone.
     FireFlower suitFlower_;
