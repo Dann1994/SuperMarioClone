@@ -1,4 +1,5 @@
 #include "core/SimRandom.h"
+#include "core/SimMath.h"
 #include "net/lan.h"
 #include "net/updater.h"
 #include "Game.h"
@@ -737,6 +738,16 @@ void Game::startScenario(TestScenario scenario) {
     // hay partida que se arrastre de un nivel al otro (seccion 6).
     score_ = 0;
     coinCount_ = 0;
+    mario_.resetForNewGame();
+    luigi_.resetForNewGame();
+    // La camara arranca de cero (no de donde quedo la partida anterior: de
+    // a 2 se acercaba de a poco desde ahi y en red desincronizaba).
+    cameraX_ = 0.0f;
+    cameraFocusPrevX_ = 0.0f;
+    spawnScreenLeft_ = 0.0f;
+    spawnArea_ = -1;
+    currentArea_ = -1;
+    cameraSnapPending_ = true;
     playerScore_ = {};
     playerCoins_ = {};
     scorer_ = 0;
@@ -3785,8 +3796,8 @@ void Game::update(float dt) {
         // Mismo criterio que Lakitu (targetX): apunta al personaje mas
         // cercano, esta clase tampoco conoce a Mario/Luigi.
         const bool luigiCloser = twoPlayerMode_ &&
-            std::hypot(luigi_.x() - blooper.x(), luigi_.y() - blooper.y()) <
-                std::hypot(mario_.x() - blooper.x(), mario_.y() - blooper.y());
+            sim::hypot(luigi_.x() - blooper.x(), luigi_.y() - blooper.y()) <
+                sim::hypot(mario_.x() - blooper.x(), mario_.y() - blooper.y());
         const Mario& target = luigiCloser ? luigi_ : mario_;
         blooper.update(dt, target.x(), target.y() + static_cast<float>(target.height()),
                        target.facingRight(), static_cast<int>(slot), kWorldViewBottom);
@@ -4158,7 +4169,7 @@ void Game::render() {
         for (const BlockBump& bump : blockBumps_) {
             if (!bump.active || bump.col != col || bump.row != row) continue;
             const float progress = 1.0f - bump.timer / kBumpDuration;
-            offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
+            offsetY = -static_cast<int>(std::lround(sim::sin(progress * 3.14159265f) * kBumpHeight));
         }
         // Mismo pool para ladrillo y bloque de interrogacion (ver
         // startBlockBump): hay que fijarse cual de los dos es esta celda
@@ -5989,8 +6000,8 @@ void Game::updateFirebars(float dt) {
         const float radians = bar.angle * 3.14159265f / 180.0f;
         for (int i = 0; i < bar.length; ++i) {
             // Una bola de 8 px cada 8 px desde el centro del bloque.
-            const float cx = bar.centerX + std::cos(radians) * static_cast<float>(i * Fireball::kSize);
-            const float cy = bar.centerY + std::sin(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cx = bar.centerX + sim::cos(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cy = bar.centerY + sim::sin(radians) * static_cast<float>(i * Fireball::kSize);
             for (Mario* character : {&mario_, &luigi_}) {
                 if (character == &luigi_ && !twoPlayerMode_) continue;
                 if (character->isInDeathSequence() || character->isInvincible()) continue;
@@ -6010,8 +6021,8 @@ void Game::renderFirebars() {
     for (const Firebar& bar : firebars_) {
         const float radians = bar.angle * 3.14159265f / 180.0f;
         for (int i = 0; i < bar.length; ++i) {
-            const float cx = bar.centerX + std::cos(radians) * static_cast<float>(i * Fireball::kSize);
-            const float cy = bar.centerY + std::sin(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cx = bar.centerX + sim::cos(radians) * static_cast<float>(i * Fireball::kSize);
+            const float cy = bar.centerY + sim::sin(radians) * static_cast<float>(i * Fireball::kSize);
             fireballSprite_.draw(renderer_, 0, frame,
                                  static_cast<int>(std::lround(cx - cameraX_)) - Fireball::kSize / 2,
                                  static_cast<int>(std::lround(cy)) - Fireball::kSize / 2, false);

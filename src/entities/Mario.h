@@ -316,6 +316,10 @@ public:
         }
     }
     bool isFrozen() const { return frozen_; }
+    // Partida nueva: todo el estado de la simulacion como recien creado
+    // (chico, mirando a la derecha, sin estrella ni secuencias ni lo que
+    // quedo de la partida anterior). Los sprites no se tocan.
+    void resetForNewGame();
     // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34) y la
     // de la estrella (las 12 paletas, ver gen_mario_hammer.py).
     bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");

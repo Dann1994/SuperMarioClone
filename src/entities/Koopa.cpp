@@ -1,4 +1,5 @@
 #include "Koopa.h"
+#include "core/SimMath.h"
 #include "Difficulty.h"
 
 #include <algorithm>
@@ -270,7 +271,7 @@ void Koopa::update(float dt, const Tilemap& level, int screenHeight) {
         flyPhase_ += kFlyHoverSpeed * dt;
         const float flyDirection = flyBaseY_ < 144.0f ? 1.0f : -1.0f;
         const float flyAmplitude = flyDirection > 0.0f ? kFlyHoverAmplitude : kFlyHoverAmplitude * 2.0f / 3.0f;
-        float intendedY = flyBaseY_ + flyDirection * flyAmplitude * (1.0f - std::cos(flyPhase_));
+        float intendedY = flyBaseY_ + flyDirection * flyAmplitude * (1.0f - sim::cos(flyPhase_));
 
         // Si el hamacado lo mete contra un tile solido (el borde de abajo
         // de una plataforma, o el piso), no lo atraviesa -- se clava justo

@@ -41,6 +41,8 @@ int main(int argc, char** argv) {
         if (arg == "--net-code-in") netCodeIn = argv[i + 1];
         if (arg == "--net-out") netOut = argv[i + 1];
         if (arg == "--net-frames") netFrames = std::atoi(argv[i + 1]);
+        if (arg == "--view") game.setViewOverride(std::string(argv[i + 1]) == "169");
+        if (arg == "--net-dirty") game.setNetDirty(std::atoi(argv[i + 1]));
     }
     if (!netHost.empty() || !netJoin.empty()) game.setNetAutoTest(netHost, netJoin, netCodeOut, netCodeIn, netOut, netFrames);
     // Probando un nivel (editor) o la red automatica: sin buscar actualizaciones.

@@ -1,4 +1,5 @@
 #include "Fireball.h"
+#include "core/SimMath.h"
 
 #include <cmath>
 
@@ -82,7 +83,7 @@ void Fireball::update(float dt, const Tilemap& level, int screenWidth) {
         const float t = boomerangTime_;
         const float dir = movingRight_ ? 1.0f : -1.0f;
         x_ = boomerangStartX_ + dir * (kBoomerangSpeed * t - kBoomerangDecel * t * t / 2.0f);
-        y_ = boomerangStartY_ - kBoomerangLift * std::sin(3.14159265f * std::min(t / (2.0f * kBoomerangTurnTime), 1.0f));
+        y_ = boomerangStartY_ - kBoomerangLift * sim::sin(3.14159265f * std::min(t / (2.0f * kBoomerangTurnTime), 1.0f));
         return;
     }
     if (hammer_) {

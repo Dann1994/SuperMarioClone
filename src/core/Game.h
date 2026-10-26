@@ -1120,7 +1120,9 @@ private:
     // Pruebas sin ventana de por medio (dos procesos en esta PC): ver main.cpp.
     std::string netAutoHost_, netAutoJoin_, netCodeOut_, netCodeIn_, netHashOut_;
     int netAutoFrames_ = 0;
+    int netDirtyFrames_ = 0;            // pruebas: jugar sola un rato antes de abrir la sala
 public:
+    void setNetDirty(int frames) { netDirtyFrames_ = frames; }
     void setNetAutoTest(const std::string& host, const std::string& join, const std::string& codeOut,
                         const std::string& codeIn, const std::string& hashOut, int frames) {
         netAutoHost_ = host;
@@ -1142,6 +1144,9 @@ private:
     bool noUpdate_ = false;             // --no-update (pruebas)
 public:
     void setNoUpdate(bool v) { noUpdate_ = v; }
+    // Pruebas: otra proporcion en este proceso sin tocar la configuracion
+    // (true 16:9, false 4:3).
+    void setViewOverride(bool wide);
 private:
     void checkForUpdates(bool manual);
     void updateUpdater();

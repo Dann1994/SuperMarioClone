@@ -15,6 +15,7 @@
 #include "render/DebugFont.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -35,11 +36,16 @@ const char* const kNetExtras[] = {"luigi_lost_levels", "level_hammer_flower", "l
 constexpr int kNetExtraCount = 5;
 // Opciones de la sala (un int que la sala ya lleva a todos): bits 0-4 los
 // extras, 5 choque entre jugadores, 6 PARTIDA +, 7-11 el nivel (0 = 1-1),
-// 12-30 la semilla del azar.
+// 12 pantalla ancha (16:9), 13-30 la semilla del azar.
+// La proporcion va porque el ancho de la vista es parte de la simulacion
+// (camara de a 2, enemigos que aparecen o se borran fuera de pantalla):
+// con una PC en 4:3 y la otra en 16:9 se desincronizaban enseguida.
 constexpr int kOptCollision = 1 << 5;
 constexpr int kOptSecondQuest = 1 << 6;
 constexpr int kOptLevelShift = 7;
-constexpr int kOptSeedShift = 12;
+constexpr int kOptWide = 1 << 12;
+constexpr int kOptSeedShift = 13;
+constexpr int kOptSeedMask = 0x3FFFF;
 
 // La fuente del juego no tiene tildes: los avisos de la sala vienen con ellas.
 std::string plainUpper(const std::string& text) {
@@ -97,6 +103,7 @@ int Game::packNetOptions() const {
     if (settings_.playerCollision) options |= kOptCollision;
     if (netSecondQuest_) options |= kOptSecondQuest;
     options |= (netStartIndex_ & 31) << kOptLevelShift;
+    if (gLogicalWidth == kWideLogicalWidth) options |= kOptWide;
     return options;
 }
 
@@ -367,7 +374,7 @@ void Game::handleNetInput(MenuInput input) {
                         audio_.play(Sfx::Bump);
                         break;
                     }
-                    lan_->StartGame(packNetOptions() | (static_cast<int>(std::time(nullptr) & 0x7FFFF) << kOptSeedShift));
+                    lan_->StartGame(packNetOptions() | (static_cast<int>(std::time(nullptr) & kOptSeedMask) << kOptSeedShift));
                     audio_.play(Sfx::Coin);
                     startNetGame();
                     break;
@@ -404,6 +411,25 @@ void Game::updateNetAutoTest() {
     // botones automaticos y anotan el hash en --net-out (deben coincidir).
     if (netGame_) return;
     if (!netAutoHost_.empty()) {
+        if (netDirtyFrames_ > 0) {
+            // Antes de la sala, una partida local en el 1-2 (grande, a la
+            // izquierda, saltando): deja estado viejo para ver que no influya.
+            static int dirty = 0;
+            if (dirty == 0) {
+                startWorld_ = 1;
+                startLevel_ = 2;
+                startCampaign(false, true);
+                mario_.setSize(MarioSize::Big);
+            }
+            input1_.setScripted(true, (dirty / 30) % 2 ? std::initializer_list<Action>{Action::MoveLeft, Action::Jump}
+                                                         : std::initializer_list<Action>{Action::MoveRight, Action::Run});
+            if (++dirty >= netDirtyFrames_) {
+                netDirtyFrames_ = 0;
+                input1_.setScripted(false);
+                openTitle();
+            }
+            return;
+        }
         if (!lan_) {
             if (appState_ != AppState::Title) return;
             netOpen_ = true;
@@ -572,7 +598,10 @@ void Game::startNetGame() {
     SDL_StopTextInput();
     // Las dos PC arrancan del mismo estado: la misma semilla, los mismos
     // extras (los del anfitrion), personajes chicos y sin restos de antes.
-    sim::seedRandom(static_cast<uint32_t>(options >> kOptSeedShift) * 2654435761u + 1u);
+    sim::seedRandom(static_cast<uint32_t>((options >> kOptSeedShift) & kOptSeedMask) * 2654435761u + 1u);
+    // La proporcion del anfitrion en las dos PC (solo mientras dura la
+    // partida: al terminar vuelve la de la configuracion de cada uno).
+    setViewOverride((options & kOptWide) != 0);
     const int index = (options >> kOptLevelShift) & 31;
     secondQuestNext_ = (options & kOptSecondQuest) != 0;
     startWorld_ = index / 4 + 1;
@@ -598,6 +627,7 @@ void Game::endNetGame(const std::string& message) {
     netMenuOpen_ = false;
     if (lan_) lan_.reset();
     sim::seedRandom(static_cast<uint32_t>(std::time(nullptr)));
+    if (wasGame) setViewOverride(settings_.widescreen);
     characterCollisionEnabled_ = settings_.playerCollision;
     if (wasGame && appState_ != AppState::Title && appState_ != AppState::Summary && appState_ != AppState::HighScores) {
         openTitle();
@@ -871,4 +901,10 @@ std::string Game::updateSettingValue() const {
         default: break;
     }
     return std::string(tr(settings_.autoUpdate ? Txt::UpdAuto : Txt::UpdManual)) + version;
+}
+
+void Game::setViewOverride(bool wide) {
+    gLogicalWidth = wide ? kWideLogicalWidth : kClassicWidth;
+    SDL_RenderSetLogicalSize(renderer_, gLogicalWidth, kLogicalHeight);
+    cameraSnapPending_ = true;
 }

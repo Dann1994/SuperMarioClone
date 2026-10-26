@@ -1,4 +1,5 @@
 #include "CheepCheep.h"
+#include "core/SimMath.h"
 #include "Difficulty.h"
 
 #include <algorithm>
@@ -47,7 +48,7 @@ void CheepCheep::updateSwimming(float dt, int screenWidth) {
     // (queda a la altura de spawn), Oscillating tiene uno corto y lento.
     if (swimPattern_ == SwimPattern::Oscillating) {
         wavePhase_ += kOscillateFrequency * (gSecondaryHardMode ? 2.0f : 1.0f) * dt;
-        y_ = baseY_ + std::sin(wavePhase_) * kOscillateAmplitude;
+        y_ = baseY_ + sim::sin(wavePhase_) * kOscillateAmplitude;
     }
 
     if (x_ + kSize < 0.0f || x_ > static_cast<float>(screenWidth)) {

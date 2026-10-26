@@ -1,4 +1,5 @@
 #include "Lakitu.h"
+#include "core/SimMath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -89,7 +90,7 @@ void Lakitu::update(float dt, float targetX, float cameraScrollSpeed, int levelW
     // Hamacado suave alrededor de la altura de spawn, no una fisica real
     // (sin gravedad ni piso -- vuela).
     hoverPhase_ += kHoverSpeed * dt;
-    y_ = baseY_ + std::sin(hoverPhase_) * kHoverAmplitude;
+    y_ = baseY_ + sim::sin(hoverPhase_) * kHoverAmplitude;
 
     if (throwWindupTimer_ > 0.0f) {
         // Ya esta agachado con los brazos arriba (ver isWindingUp()): cuando

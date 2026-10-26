@@ -282,6 +282,71 @@ void Mario::setSize(MarioSize newSize) {
     y_ -= static_cast<float>(newHeight - oldHeight);
 }
 
+void Mario::resetForNewGame() {
+    velX_ = 0.0f;
+    velY_ = 0.0f;
+    grounded_ = false;
+    facingRight_ = true;
+    size_ = MarioSize::Small;
+    wantsThrow_ = false;
+    jumpRequested_ = false;
+    springLaunch_ = false;
+    swimStrokeSoundRequested_ = false;
+    inWhirlpool_ = false;
+    isDucking_ = false;
+    airState_ = AirState::Fall;
+    verticalForce_ = verticalForceDown_ = 0x70;
+    jumpOriginY_ = 0.0f;
+    prevJumpHeld_ = false;
+    runningTimer_ = 0;
+    runningSpeedFlag_ = false;
+    movingRight_ = true;
+    animTimerSetFrames_ = 7;
+    pendingGravity_ = 0.0f;
+    headBumped_ = false;
+    animState_ = MarioAnim::Idle;
+    walkAnimTimer_ = 0.0f;
+    walkFrame_ = 0;
+    throwAnimTimer_ = 0.0f;
+    swimAnimTimer_ = 0.0f;
+    swimFrame_ = 0;
+    swimStrokeBoostTimer_ = 0.0f;
+    bumpAnimTimer_ = 0.0f;
+    stompCooldownTimer_ = 0.0f;
+    invincible_ = false;
+    invincibleTimer_ = 0.0f;
+    starFlickerTimer_ = 0.0f;
+    starCycleIndex_ = 0;
+    inDamageSequence_ = false;
+    damageSequenceTimer_ = 0.0f;
+    damageFlickerTimer_ = 0.0f;
+    damageFlickerPhase_ = 0;
+    hurtInvincible_ = false;
+    hurtInvincibleTimer_ = 0.0f;
+    hurtFlickerTimer_ = 0.0f;
+    hurtFlickerVisible_ = true;
+    inGrowSequence_ = false;
+    growSequenceTimer_ = 0.0f;
+    growFlickerTimer_ = 0.0f;
+    growFlickerPhase_ = 0;
+    inDeathSequence_ = false;
+    deathSequenceTimer_ = 0.0f;
+    deathFinished_ = false;
+    platformIndex_ = -1;
+    flagpolePhase_ = FlagpolePhase::None;
+    takeoffSpeed_ = 0.0f;
+    flagpoleTimer_ = 0.0f;
+    climbFrame_ = 0;
+    climbing_ = false;
+    vineIndex_ = -1;
+    climbAuto_ = false;
+    climbAnimTimer_ = 0.0f;
+    vineGrabCooldown_ = 0.0f;
+    climbSideTimer_ = 0.0f;
+    benched_ = false;
+    frozen_ = false;
+}
+
 void Mario::spawn(float x, float y) {
     x_ = x;
     y_ = y;
