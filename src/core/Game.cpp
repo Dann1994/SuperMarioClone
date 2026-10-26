@@ -1052,6 +1052,12 @@ void Game::loadScenario(TestScenario scenario) {
 }
 
 void Game::processEvents() {
+    if (netAutoStartPending_ && lan_ && !netGame_) {
+        // Prueba automatica: EMPEZAR del anfitrion, en el mismo lugar que el menu.
+        netAutoStartPending_ = false;
+        lan_->StartGame(packNetOptions() | (12345 << 13));
+        startNetGame();
+    }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
@@ -4458,7 +4464,11 @@ void Game::run() {
                 stepNet();
             } else {
                 if (lan_ || !netAutoHost_.empty() || !netAutoJoin_.empty()) updateNetLobby();
-                update(kFixedDt);
+                // Si la sala recien arranco la partida (el que se une), este
+                // paso ya no es local: la simulacion en red empieza en el
+                // proximo con el cuadro 0 de las dos PC. (Antes corria un
+                // cuadro de mas aca y quedaba adelantado: se desincronizaba.)
+                if (!netGame_) update(kFixedDt);
             }
             accumulator -= kFixedDt;
         }

@@ -434,13 +434,13 @@ void Game::updateNetAutoTest() {
             if (appState_ != AppState::Title) return;
             netOpen_ = true;
             netHostRoom();
+            if (lan_ && netAutoOnline_) lan_->OpenToInternet(true);
             if (lan_ && !netCodeOut_.empty()) {
                 std::ofstream out(netCodeOut_);
-                out << lan_->LanCode() << "\n";
+                out << (netAutoOnline_ ? lan_->RoomCode() : lan_->LanCode()) << "\n";
             }
         } else if (lan_->IsHost() && lan_->NumPlayers() >= 2 && !lan_->Started()) {
-            lan_->StartGame(packNetOptions() | (12345 << kOptSeedShift));
-            startNetGame();
+            netAutoStartPending_ = true;   // como EMPEZAR: lo arranca processEvents, fuera del paso fijo
         }
     } else if (!netAutoJoin_.empty() && !lan_ && appState_ == AppState::Title) {
         std::ifstream in(netCodeIn_);

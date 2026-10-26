@@ -1123,6 +1123,11 @@ private:
     int netDirtyFrames_ = 0;            // pruebas: jugar sola un rato antes de abrir la sala
 public:
     void setNetDirty(int frames) { netDirtyFrames_ = frames; }
+    void setNetOnline(bool v) { netAutoOnline_ = v; }   // pruebas: sala "abierta a internet" (simulada)
+private:
+    bool netAutoOnline_ = false;
+    bool netAutoStartPending_ = false;
+public:
     void setNetAutoTest(const std::string& host, const std::string& join, const std::string& codeOut,
                         const std::string& codeIn, const std::string& hashOut, int frames) {
         netAutoHost_ = host;
