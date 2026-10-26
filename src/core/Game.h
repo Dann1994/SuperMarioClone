@@ -266,6 +266,10 @@ enum class AppState {
 enum class EnemyBox { Normal, Small, HammerBro };
 
 class LevelEditor;
+namespace net {
+class Lan;
+class Updater;
+}
 
 class Game {
 public:
@@ -549,6 +553,13 @@ private:
     // Pelea terminada (puente caido o hacha con Bowser ya derrotado): la
     // musica del castillo y la caminata hasta el Toad / la princesa.
     void finishCastleFight();
+    void bringPartnerToAxe();
+    // Caminata hasta el Toad: cada uno frena a 2 bloques de el (de a 2, el
+    // de atras un poco antes) y no se le acerca mas despues.
+    std::array<float, 2> castleStopRight_{};
+    bool castleStopsSet_ = false;
+    void keepAwayFromRetainer(bool walking);
+    bool castleHeroIsLuigi() const { return twoPlayerMode_ ? levelFinisher_ == 1 : playAsLuigi_; }
     // Al terminar de caer el puente: el que quedo sobre el hueco (toco el
     // hacha saltando) va parado al piso del hacha.
     void landOnAxeGround();
@@ -577,6 +588,11 @@ private:
     // arranca el cierre del nivel (levelClearTimer_) cuando el primero
     // entra al castillo.
     void updateFlagpoleSequence(float dt);
+    // Agarraron el asta: los enemigos a la vista mueren (con sus puntos) y
+    // los proyectiles desaparecen; mientras dura la secuencia, se repite con
+    // los que aparezcan y los jugadores no reciben dano.
+    void clearEnemiesForFlagpole();
+    bool flagpoleSequence() const { return levelEnding_ && !castleMessage_; }
 
     // Puntaje/monedas/timer (seccion 6) y el HUD clasico que los muestra
     // (renderHud: MARIO + puntaje, monedas, WORLD + nombre del nivel, TIME).
@@ -791,7 +807,7 @@ private:
     void noteOneUpFound(int col, int row);
     // VIDAS INFINITAS (comprado y activado): en las partidas no se pierden vidas.
     bool infiniteLives() const {
-        return campaign_ && settings_.extraOwned("infinite_lives") && settings_.extraEnabled("infinite_lives");
+        return campaign_ && extraActive("infinite_lives");
     }
     void onLevelCleared();
     // Vibracion al recibir dano o morir (opcion "Vibracion del mando").
@@ -840,6 +856,8 @@ private:
     // Llega a 100 de tiempo: corta, aviso de apuro y tema acelerado.
     void startHurryMusic();
     void updateMusic(float dt);
+    bool allPlayersDying() const;
+    void stopMusicIfAllDying();
     static const char* musicName(Music music);
     void renderFpsCorner();
     // Tapa con el color de fondo lo que se ve fuera del area actual (la
@@ -902,12 +920,10 @@ private:
     bool menuStickHeldX_ = false;
 
     Settings settings_;
-    int titleSelection_ = 0;      // submenu JUGAR
     int mainSelection_ = 0;       // menu principal
     int extrasSelection_ = 0;     // submenu EXTRAS
     int editorSelection_ = 0;     // submenu EDITOR DE NIVELES
-    int plusSelection_ = 0;       // submenu PARTIDA + (1 o 2 jugadores)
-    int titleMenu_ = 0;           // 0 principal, 1 JUGAR, 2 EXTRAS, 3 EDITOR DE NIVELES
+    int titleMenu_ = 0;           // 0 principal, 2 EXTRAS, 3 EDITOR DE NIVELES
     // Editor de niveles dentro del juego (solo los niveles del jugador, en
     // la carpeta de datos del usuario): se crea la primera vez y queda vivo
     // para volver a el despues de PROBAR.
@@ -1059,6 +1075,9 @@ private:
     // el 1-UP (ver BlockItem::OneUp).
     SpriteSheet blockCoinSprite_;
     BlockCoin blockCoin_;
+    // El bloque del que salio: se vuelve a dibujar encima de la moneda (la
+    // tapa al salir y al volver a caer adentro), los demas bloques no.
+    SDL_Point blockCoinSource_{-1, -1};
     int coinCount_ = 0;
     // Puntaje y monedas de cada jugador (0 Mario, 1 Luigi) y quien esta
     // sumando ahora; el que termino el nivel se lleva la cuenta del tiempo.
@@ -1078,11 +1097,91 @@ private:
     // morir por el pozo una y otra vez y el nivel no se reiniciaba).
     std::array<bool, 2> deathPending_{};
     bool coopLives() const { return twoPlayerMode_ && !turnMode_; }
+    // --- MODO EN RED (src/net, el mismo de Battle City): dos PC, Mario el
+    // anfitrion y Luigi el otro, de a 2 a la vez. Cada PC simula el mismo
+    // juego con los botones de las dos (pasos sincronizados): GameNet.cpp.
+    enum class NetScreen { Menu, Name, Code, Search, Joining, Room, Message };
+    bool netOpen_ = false;              // pantallas de red abiertas (sobre el titulo)
+    NetScreen netScreen_ = NetScreen::Menu;
+    NetScreen netAfterName_ = NetScreen::Menu;   // a donde va despues de escribir el nombre
+    int netSelection_ = 0;
+    std::string netText_;               // lo que se esta escribiendo (nombre o codigo)
+    std::string netMessage_;            // aviso (conexion perdida, codigo invalido...)
+    float netNoteTimer_ = 0.0f;         // "CODIGO COPIADO"
+    std::unique_ptr<net::Lan> lan_;
+    bool netGame_ = false;              // jugando una partida en red
+    bool netMenuOpen_ = false;          // ESC en la partida: CONTINUAR / ABANDONAR (el juego sigue)
+    int netMenuChoice_ = 0;
+    int netFrame_ = 0;                  // cuadro de la simulacion en red
+    int netStall_ = 0;                  // cuadros esperando los botones del otro
+    int netOptions_ = 0;                // lo que eligio el anfitrion (ver packNetOptions)
+    int netStartIndex_ = 0;             // anfitrion: nivel elegido (0 = 1-1)
+    bool netSecondQuest_ = false;       // anfitrion: PARTIDA +
+    // Pruebas sin ventana de por medio (dos procesos en esta PC): ver main.cpp.
+    std::string netAutoHost_, netAutoJoin_, netCodeOut_, netCodeIn_, netHashOut_;
+    int netAutoFrames_ = 0;
+public:
+    void setNetAutoTest(const std::string& host, const std::string& join, const std::string& codeOut,
+                        const std::string& codeIn, const std::string& hashOut, int frames) {
+        netAutoHost_ = host;
+        netAutoJoin_ = join;
+        netCodeOut_ = codeOut;
+        netCodeIn_ = codeIn;
+        netHashOut_ = hashOut;
+        netAutoFrames_ = frames;
+    }
+private:
+    // --- ACTUALIZACIONES (src/net/updater, el de Battle City): al abrir el
+    // juego le pregunta a GitHub por una version mas nueva; si hay, el
+    // titulo ofrece descargar el instalador, que se ejecuta en silencio,
+    // cierra el juego, lo actualiza y lo vuelve a abrir.
+    std::unique_ptr<net::Updater> updater_;
+    bool updatePromptOpen_ = false;
+    bool updatePromptShown_ = false;    // ya se ofrecio esta version (MAS TARDE no insiste)
+    int updateChoice_ = 0;              // 0 ACTUALIZAR AHORA, 1 MAS TARDE
+    bool noUpdate_ = false;             // --no-update (pruebas)
+public:
+    void setNoUpdate(bool v) { noUpdate_ = v; }
+private:
+    void checkForUpdates(bool manual);
+    void updateUpdater();
+    void handleUpdateInput(MenuInput input);
+    void renderUpdateOverlay();
+    std::string updateSettingValue() const;
+    void openNet();
+    void closeNet();
+    void netShowMessage(const std::string& message);
+    void handleNetInput(MenuInput input);
+    bool handleNetTyping(const SDL_Event& event);
+    void handleNetGameEvent(const SDL_Event& event);
+    void renderNet();
+    void renderNetGameOverlay();
+    void updateNetLobby();
+    void updateNetAutoTest();
+    std::string netPlayerName() const;
+    void netHostRoom();
+    int packNetOptions() const;
+    void startNetGame();
+    void stepNet();
+    bool stepNetFrame();
+    void endNetGame(const std::string& message);
+    uint32_t netStateHash() const;
+    // Un extra que cambia el juego (Luigi de Lost Levels, flores de los
+    // niveles, vidas y tiempo infinitos): en red, los del anfitrion.
+    bool extraActive(const char* id) const;
+    // Esta en juego: ni muriendo ni afuera por GAME OVER (de a 2).
+    static bool inPlay(const Mario& m) { return !m.isInDeathSequence() && !m.isBenched(); }
     int& livesOf(const Mario& character) { return (coopLives() && &character == &luigi_) ? luigiLives_ : livesCount_; }
     // Vida extra para el que la gano (scorer_).
     void addLife() { (coopLives() && scorer_ == 1) ? ++luigiLives_ : ++livesCount_; }
     // Murio uno con el otro vivo: pierde una vida; reaparece o queda afuera.
     void onCoopPlayerDied(Mario& character);
+    // De a 2: el que se quedo sin vidas le puede robar una al otro (si le
+    // quedan 2 o mas) saltando. A la vez: el que quedo afuera vuelve al
+    // lado del otro; por turnos: en su pantalla de GAME OVER, y sigue jugando.
+    bool canStealLife(const Mario& out) const;
+    void updateLifeSteal();
+    bool tryTurnLifeSteal();
     int score_ = 0;
     // Columna del checkpoint mas adelantado alcanzado en este nivel (-1 =
     // ninguno, se arranca del principio). Sobrevive a perder una vida,
@@ -1558,6 +1657,7 @@ private:
     void renderMyExtras();
     SpriteSheet achievementIconsSprite_;   // achievements.png (gen_achievement_icons.py)
     SpriteSheet achievementLockedSprite_;  // achievements_locked.png: los no cumplidos, apagados
+    SDL_Texture* toastTexture_ = nullptr;  // el aviso de logro, para estirarlo de ancho
     // Renglon de la descripcion larga que se ve primero (izquierda/derecha la
     // mueven); vuelve a 0 al cambiar de elemento.
     int descScroll_ = 0;
@@ -1586,12 +1686,21 @@ private:
     int slotActionChoice_ = 0;           // 0 CONTINUAR, 1 BORRAR
     bool confirmingDelete_ = false;
     int deleteChoice_ = 1;               // 0 SI, 1 NO
-    std::function<void()> pendingStart_; // la partida que arranca al elegir espacio
+    int newGameSlot_ = -1;               // PARTIDA NUEVA: el espacio donde va a quedar
     int currentSlot_ = -1;               // donde se guarda la partida en curso (-1: no se guarda)
     bool worldSelectFlow_ = false;       // ELEGIR MUNDO: no usa espacio
     std::array<SDL_Texture*, Settings::kSaveSlots> slotPreviews_{};
     bool anySaveSlot() const;
-    void askSlotThen(std::function<void()> start);
+    // JUGAR / PARTIDA +: la lista de partidas (PARTIDA NUEVA y las guardadas).
+    void openSlotList();
+    // PARTIDA NUEVA o ELEGIR MUNDO: cuantos juegan (1 o 2) y despues con
+    // quien (Mario o Luigi) o como (a la vez o por turnos).
+    bool choosingPlayers_ = false;
+    int playersChoice_ = 0;              // 0 un jugador, 1 dos
+    // Arranca lo elegido: 0 Mario, 1 Luigi, 2 a la vez, 3 por turnos (en el
+    // espacio newGameSlot_, o sin guardar en ELEGIR MUNDO).
+    void launchChosenGame(int kind);
+    void startSavedGame(const Settings::SaveSlot& slot);
     void handleSlotPickerInput(MenuInput input);
     void startNewGameInSlot(int slot);
     void refreshSlotPreviews();
@@ -1751,6 +1860,10 @@ private:
     };
     std::vector<LoopCheck> loopChecks_;
     int loopPassCount_ = 0;
+    // Altura de los pies la ultima vez que cada uno estuvo apoyado (0 Mario,
+    // 1 Luigi): en el laberinto cuenta el piso por el que va, aunque en el
+    // momento del chequeo este saltando un hueco.
+    std::array<float, 2> lastGroundFeet_{-1.0f, -1.0f};
     int loopCorrectCount_ = 0;
     void updateLoopChecks();
     void execLoopback(int back);
@@ -1778,7 +1891,8 @@ private:
     void setPlayAsLuigi(bool luigi);
 
     // Plataformas moviles del nivel (campo "platforms").
-    static constexpr int kMaxPlatforms = 12;
+    // (el 6-3 tiene 16: con 12 no aparecian las que caen antes de la bandera)
+    static constexpr int kMaxPlatforms = 32;
     std::array<MovingPlatform, kMaxPlatforms> platforms_;
     SpriteSheet liftSprite_;
     int marioPlatform_ = -1;

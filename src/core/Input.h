@@ -2,6 +2,7 @@
 
 #include <SDL.h>
 #include <array>
+#include <cstdint>
 #include <initializer_list>
 #include <vector>
 
@@ -66,6 +67,17 @@ public:
     // A que jugador corresponde el mando de este evento (0 o 1; -1 si no
     // es ninguno de los dos primeros).
     static int playerOfController(SDL_JoystickID instanceId);
+
+    // Modo en red: los botones viajan como un byte por jugador y cuadro.
+    // sampleButtons lee el teclado y el mando de este jugador ahora (sin
+    // tocar el estado del juego); beginNetFrame reemplaza a beginFrame en
+    // cada cuadro de la simulacion en red con los botones que llegaron (las
+    // escenas automaticas, setScripted, siguen mandando igual). El bit 0x04
+    // queda libre: la sala lo usa para sus marcas (ver net::Lan::IsMark).
+    static constexpr uint8_t kNetLeft = 0x01, kNetRight = 0x02, kNetJump = 0x08, kNetRun = 0x10, kNetDown = 0x20,
+                             kNetUp = 0x40;
+    uint8_t sampleButtons() const;
+    void beginNetFrame(uint8_t buttons);
 
 private:
     using ActionState = std::array<bool, static_cast<size_t>(Action::Count)>;

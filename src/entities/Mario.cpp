@@ -112,8 +112,20 @@ void Mario::swapAppearance(Mario& other) {
         for (size_t i = 0; i < paletteSprites_[w].size(); ++i) paletteSprites_[w][i].swap(other.paletteSprites_[w][i]);
     }
     std::swap(paletteLoaded_, other.paletteLoaded_);
+    std::swap(lostLevelsLook_, other.lostLevelsLook_);
     setWorldType(mine);
     other.setWorldType(theirs);
+}
+
+bool Mario::reloadBaseSprites(SDL_Renderer* renderer, const std::string& smallPath, const std::string& bigPath,
+                              const std::string& firePath, bool lostLevelsLook) {
+    // La paleta normal tiene que estar en los sprites principales.
+    const WorldType mine = worldType_;
+    setWorldType(WorldType::Overworld);
+    const bool ok = loadSprite(renderer, smallPath, bigPath, firePath);
+    if (ok) lostLevelsLook_ = lostLevelsLook;
+    setWorldType(mine);
+    return ok;
 }
 
 const SpriteSheet& Mario::currentSprite() const {
@@ -279,6 +291,12 @@ void Mario::spawn(float x, float y) {
     velX_ = 0.0f;
     velY_ = 0.0f;
     grounded_ = false;
+    airState_ = AirState::Fall;
+    verticalForce_ = verticalForceDown_ = 0x70;
+    runningTimer_ = 0;
+    runningSpeedFlag_ = false;
+    movingRight_ = facingRight_;
+    pendingGravity_ = 0.0f;
     flagpolePhase_ = FlagpolePhase::None;
     // Secuencias a medio terminar del lugar de donde viene (por ejemplo,
     // cambiar de escenario mientras caia muerto): si no se cortan aca,
@@ -290,7 +308,7 @@ void Mario::spawn(float x, float y) {
 }
 
 void Mario::update(float dt, Input& input, const Tilemap& level) {
-    if (benched_) return;
+    if (benched_ || frozen_) return;
     if (inDeathSequence_) {
         // Se maneja solo (no depende de que Game congele todo): mientras el
         // otro jugador sigue jugando normal, este cae con la pose de
@@ -310,9 +328,21 @@ void Mario::update(float dt, Input& input, const Tilemap& level) {
     if (climbing_) {
         updateClimb(dt, input, level);
     } else {
-        updateHorizontal(dt, input);
-        updateVertical(dt, input);
+        if (worldType_ == WorldType::Underwater) {
+            updateHorizontal(dt, input);
+            updateVertical(dt, input);
+        } else {
+            updateOriginalPhysics(input);
+        }
         moveAndCollide(dt, level);
+        // Estado despues del choque: apoyado, o se quedo sin piso (cae).
+        if (grounded_) {
+            airState_ = AirState::Ground;
+        } else if (airState_ == AirState::Ground) {
+            airState_ = AirState::Fall;
+        }
+        // Player_MovingDir: el sentido de la velocidad (si se mueve).
+        if (std::floor(velX_ / (60.0f / 16.0f)) != 0.0f) movingRight_ = velX_ > 0.0f;
 
         // El boton de correr tambien tira fuego (tocado, no mantenido) cuando
         // se es Mario/Luigi fuego, igual que en el juego original.
@@ -466,6 +496,185 @@ void Mario::updateHorizontal(float dt, const Input& input) {
     velX_ = std::clamp(velX_, -std::max(airMax, speed), std::max(airMax, speed));
 }
 
+namespace {
+// Unidades del original: la velocidad horizontal va en 1/16 de px por cuadro
+// y las fuerzas en 1/256 de px por cuadro^2 (a 60 cuadros por segundo).
+constexpr float kXUnit = 60.0f / 16.0f;            // px/s
+constexpr float kForceUnit = 60.0f * 60.0f / 256.0f; // px/s^2
+// Tablas del original por velocidad al despegar (0..4), y las de Luigi de
+// Lost Levels (SMB2J: salta mas, frena menos).
+constexpr int kJumpForce[5] = {0x20, 0x20, 0x1e, 0x28, 0x28};
+constexpr int kFallForce[5] = {0x70, 0x70, 0x60, 0x90, 0x90};
+constexpr int kJumpSpeed[5] = {-4, -4, -4, -5, -5};   // px por cuadro
+constexpr int kLuigiJumpForce[5] = {0x18, 0x18, 0x18, 0x22, 0x22};
+constexpr int kLuigiFallForce[5] = {0x42, 0x42, 0x3e, 0x5d, 0x5d};
+// Aceleracion/friccion (corriendo, caminando, rapido) y topes (correr,
+// caminar), en las mismas unidades.
+constexpr int kFrictionData[3] = {0xe4, 0x98, 0xd0};
+constexpr int kLuigiFrictionData[3] = {0xb4, 0x68, 0xa0};
+constexpr int kMaxSpeedData[2] = {0x28, 0x18};
+constexpr int kRunningTimerFrames = 10;
+
+int jumpIndex(int absSpeed) {
+    if (absSpeed < 0x09) return 0;
+    if (absSpeed < 0x10) return 1;
+    if (absSpeed < 0x19) return 2;
+    if (absSpeed < 0x1c) return 3;
+    return 4;
+}
+}  // namespace
+
+void Mario::setVelocityY(float v) {
+    velY_ = v;
+    if (v < 0.0f && !climbing_) {
+        // Como un salto desde aca: con saltar mantenido usa la gravedad de
+        // subir (rebote mas alto), si no la de caer.
+        const float units = std::floor(velX_ / kXUnit);
+        const int index = jumpIndex(static_cast<int>(std::fabs(units)));
+        verticalForce_ = lostLevels_ ? kLuigiJumpForce[index] : kJumpForce[index];
+        verticalForceDown_ = lostLevels_ ? kLuigiFallForce[index] : kFallForce[index];
+        jumpOriginY_ = y_;
+        airState_ = AirState::Jump;
+        grounded_ = false;
+    }
+}
+
+void Mario::imposeFriction(int dir, float maxUnits, float friction) {
+    // ImposeFriction: con una direccion acelera hacia ese lado (hasta el
+    // tope); sin direccion frena hacia cero. dir: 1 derecha, -1 izquierda.
+    float units = velX_ / kXUnit;
+    const float whole = std::floor(units);
+    if (dir == 0) {
+        if (whole == 0.0f) {
+            velX_ = 0.0f;   // la parte entera ya es 0: no se mueve
+            return;
+        }
+        dir = whole > 0.0f ? -1 : 1;   // frena
+    }
+    if (dir > 0) {
+        units += friction;
+        if (std::floor(units) >= maxUnits) units = maxUnits;
+    } else {
+        units -= friction;
+        if (units < -maxUnits) units = -maxUnits;
+    }
+    velX_ = units * kXUnit;
+}
+
+void Mario::updateOriginalPhysics(Input& input) {
+    // --- Controles (PlayerCtrlRoutine) ---
+    bool left = input.down(Action::MoveLeft);
+    bool right = input.down(Action::MoveRight);
+    bool down = input.down(Action::Down);
+    const bool up = input.down(Action::Up);
+    const bool run = input.down(Action::Run);
+    const bool jumpHeld = input.down(Action::Jump);
+    const bool jumpPressed = input.consumePress(Action::Jump);
+    const bool anyNonJump = left || right || down || up || run;
+    // Abajo con izquierda/derecha en el piso: se anulan las dos cosas.
+    if (down && grounded_ && (left || right)) {
+        left = right = false;
+        down = false;
+    }
+    const int dir = (left && !right) ? 1 * -1 : (right && !left) ? 1 : 0;
+
+    // --- Agacharse (PlayerMovementSubs): solo grande; en el piso sigue a
+    // abajo y en el aire queda como estaba (salto agachado, caer agachado).
+    const int heightBefore = currentHeight();
+    if (size_ == MarioSize::Small) {
+        isDucking_ = false;
+    } else if (grounded_) {
+        isDucking_ = down;
+    }
+    const int heightAfter = currentHeight();
+    if (heightAfter != heightBefore) y_ -= static_cast<float>(heightAfter - heightBefore);
+
+    // --- Salto (CheckForJumping / ProcJumping): recien apretado, en el piso.
+    float units = velX_ / kXUnit;
+    int absSpeed = static_cast<int>(std::fabs(std::floor(units)));
+    if (jumpPressed && grounded_) {
+        const int index = jumpIndex(absSpeed);
+        verticalForce_ = lostLevels_ ? kLuigiJumpForce[index] : kJumpForce[index];
+        verticalForceDown_ = lostLevels_ ? kLuigiFallForce[index] : kFallForce[index];
+        velY_ = static_cast<float>(kJumpSpeed[index]) * 60.0f;
+        jumpOriginY_ = y_;
+        airState_ = AirState::Jump;
+        grounded_ = false;
+        springLaunch_ = false;
+        jumpRequested_ = true;
+    }
+    const bool onGround = grounded_;
+
+    // --- X_Physics: tope y aceleracion segun estado y velocidad ---
+    const int pressed = dir > 0 ? 1 : dir < 0 ? 2 : 0;          // como Left_Right_Buttons
+    const int moving = movingRight_ ? 1 : 2;                    // Player_MovingDir
+    int maxIndex = 1;
+    int frictionIndex = 1;
+    bool fast = false;
+    if (!onGround) {
+        fast = absSpeed >= 0x19;
+    } else if (pressed == moving) {
+        if (run) runningTimer_ = kRunningTimerFrames;
+        fast = run || runningTimer_ > 0;
+    }
+    if (fast) {
+        maxIndex = 0;
+        frictionIndex = 0;
+    } else if (runningSpeedFlag_ || absSpeed >= 0x21) {
+        frictionIndex = 2;
+    }
+    const int* frictionTable = lostLevels_ ? kLuigiFrictionData : kFrictionData;
+    float friction = static_cast<float>(frictionTable[frictionIndex]) / 256.0f;
+    const bool facingMatchesMoving = (facingRight_ ? 1 : 2) == moving;
+    if (!facingMatchesMoving && !lostLevels_) friction *= 2.0f;   // patinando: el doble
+    const float maxUnits = static_cast<float>(kMaxSpeedData[maxIndex]);
+    if (runningTimer_ > 0) --runningTimer_;
+
+    if (onGround) {
+        // --- GetPlayerAnimSpeed: ritmo de caminar, RunningSpeed y la vuelta
+        // en seco al patinar despacio.
+        animTimerSetFrames_ = absSpeed >= 0x1c ? 2 : absSpeed >= 0x0e ? 4 : 7;
+        if (absSpeed >= 0x1c) {
+            runningSpeedFlag_ = true;
+        } else if (anyNonJump) {
+            if (pressed == moving) {
+                runningSpeedFlag_ = false;
+            } else if (absSpeed < 0x0b) {
+                movingRight_ = facingRight_;
+                velX_ = 0.0f;
+            }
+        }
+        // --- OnGroundStateSub: mira para donde aprieta y friccion siempre.
+        if (dir != 0) facingRight_ = dir > 0;
+        imposeFriction(dir, maxUnits, friction);
+    } else if (dir != 0) {
+        // En el aire: no se da vuelta; solo con una direccion apretada.
+        imposeFriction(dir, maxUnits, friction);
+    }
+    units = velX_ / kXUnit;
+    (void)units;
+
+    // --- Gravedad (JumpSwimSub / FallingSub): saltando, mientras sube con
+    // el boton mantenido sigue la de subir; si lo suelta (y ya subio 1 px)
+    // o empieza a caer, pasa a la de caer y queda esa.
+    if (!onGround) {
+        if (springLaunch_ && velY_ < 0.0f) {
+            verticalForce_ = 0x70;
+        } else if (airState_ == AirState::Jump) {
+            springLaunch_ = false;
+            const bool keep = velY_ < 0.0f && ((jumpHeld && prevJumpHeld_) || jumpOriginY_ - y_ < 1.0f);
+            if (!keep) verticalForce_ = verticalForceDown_;
+        } else {
+            springLaunch_ = false;
+            verticalForce_ = verticalForceDown_;
+        }
+        pendingGravity_ = static_cast<float>(verticalForce_) * kForceUnit;
+    } else {
+        pendingGravity_ = 0.0f;
+    }
+    prevJumpHeld_ = jumpHeld;
+}
+
 void Mario::updateVertical(float dt, Input& input) {
     if (worldType_ == WorldType::Underwater) {
         // Nado: cada apretada de saltar es una brazada hacia arriba, no hace
@@ -552,6 +761,15 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
 
     x_ += velX_ * dt;
     float newY = y_ + velY_ * dt;
+    // Como ImposeGravity del original: primero se mueve con la velocidad que
+    // traia y recien despues se le suma la gravedad del cuadro (y el tope de
+    // caida: pasando 4,5 px por cuadro vuelve a 4).
+    const bool originalOrder = pendingGravity_ > 0.0f;
+    if (originalOrder) {
+        velY_ += pendingGravity_ * dt;
+        if (velY_ >= 4.5f * 60.0f) velY_ = 4.0f * 60.0f;
+        pendingGravity_ = 0.0f;
+    }
     grounded_ = false;
     headBumped_ = false;
 
@@ -610,7 +828,9 @@ void Mario::moveAndCollide(float dt, const Tilemap& level) {
             // una pared continua no (no se apoya adentro de la pared).
             const float footX = leftFoot ? objX() + 3.0f : objX() + 12.0f;
             const bool surface = !solidAt(footX, fy - static_cast<float>(ts));
-            const float lag = surface ? std::max(0.0f, velY_ * dt) : 0.0f;
+            // (Con el orden del original ya se movio con la velocidad de
+            // antes de la gravedad: no hay paso de mas que descontar.)
+            const float lag = surface && !originalOrder ? std::max(0.0f, velY_ * dt) : 0.0f;
             if (inCell(fy) - lag >= 5.0f) {
                 // Muy hundido: es una pared (hacia donde se mueve o mira).
                 const bool right = velX_ != 0.0f ? velX_ > 0.0f : facingRight_;
@@ -718,22 +938,32 @@ void Mario::updateAnimation(float dt, const Input& input) {
     swimAnimTimer_ = 0.0f;
     swimFrame_ = 0;
 
+    // Como ProcessPlayerAction del original:
+    // - saltando (o rebotando): la pose de salto;
+    // - cayendo de un borde: el cuadro de caminar que tenia, quieto (sin
+    //   pose de salto);
+    // - en el piso: parado sin velocidad ni direccion, patinando (rapido y
+    //   mirando para el otro lado del que se mueve) o caminando.
     const bool pressingLeft = input.down(Action::MoveLeft);
     const bool pressingRight = input.down(Action::MoveRight);
-    const bool skidding = grounded_ &&
-        ((velX_ > kSkidVelocityThreshold && pressingLeft) ||
-         (velX_ < -kSkidVelocityThreshold && pressingRight));
     if (!grounded_) {
-        animState_ = MarioAnim::Jump;
+        if (airState_ == AirState::Fall && !springLaunch_) {
+            animState_ = MarioAnim::Walk;   // congelado en el cuadro que iba
+        } else {
+            animState_ = MarioAnim::Jump;
+        }
+        return;
+    }
+    const float absUnits = std::fabs(std::floor(velX_ / (60.0f / 16.0f)));
+    const bool skidding = absUnits >= 0x09 && movingRight_ != facingRight_ && velX_ != 0.0f;
+    if (velX_ == 0.0f && pressingLeft == pressingRight) {
+        animState_ = MarioAnim::Idle;
     } else if (skidding) {
         animState_ = MarioAnim::Skid;
-    } else if (std::fabs(velX_) > 1.0f || (pressingLeft != pressingRight)) {
-        // Apretando una direccion camina aunque no avance (contra una
-        // pared): el ciclo lento y constante del original, no un temblor
-        // entre parado y caminando.
-        animState_ = MarioAnim::Walk;
     } else {
-        animState_ = MarioAnim::Idle;
+        // Apretando una direccion camina aunque no avance (contra una
+        // pared): el ciclo lento y constante del original.
+        animState_ = MarioAnim::Walk;
     }
 
     if (animState_ != MarioAnim::Walk) {
@@ -742,12 +972,8 @@ void Mario::updateAnimation(float dt, const Input& input) {
         return;
     }
 
-    // La velocidad del ciclo de caminata: 3 escalones fijos por velocidad
-    // (PlayerAnimTmrData del original), no interpolacion continua.
-    const float absSpeed = std::fabs(velX_);
-    const float framesPerSecond = absSpeed >= kAnimSpeedFastThreshold     ? kAnimFpsFast
-                                   : absSpeed >= kAnimSpeedMediumThreshold ? kAnimFpsMedium
-                                                                            : kAnimFpsSlow;
+    // Un paso cada PlayerAnimTimerSet cuadros (2, 4 o 7 segun la velocidad).
+    const float framesPerSecond = 60.0f / static_cast<float>(std::max(1, animTimerSetFrames_));
     walkAnimTimer_ += dt * framesPerSecond;
     while (walkAnimTimer_ >= 1.0f) {
         walkAnimTimer_ -= 1.0f;
@@ -776,9 +1002,9 @@ void Mario::render(SDL_Renderer* renderer, float cameraX) const {
         }
     };
     Uint8 brightness = 255;
-    if (flagpolePhase_ == FlagpolePhase::Walk) {
-        constexpr float kFadeDistance = 24.0f;
-        const float t = std::clamp((x_ - (flagpoleExitX_ - kFadeDistance)) / kFadeDistance, 0.0f, 1.0f);
+    if (flagpolePhase_ == FlagpolePhase::Enter) {
+        // En la puerta, quieto: se funde a negro y despues desaparece.
+        const float t = std::clamp(flagpoleTimer_ / kCastleFadeDuration, 0.0f, 1.0f);
         brightness = static_cast<Uint8>(std::lround(255.0f * (1.0f - t)));
     }
     const Fade fade(*this, brightness);
@@ -1118,8 +1344,21 @@ void Mario::updateFlagpole(float dt, const Tilemap& level) {
             // el paso (una pared antes de la puerta): no se queda trabado.
             flagpoleTimer_ += dt;
             if (x_ >= flagpoleExitX_ || flagpoleTimer_ >= kFlagpoleWalkMaxDuration) {
-                flagpolePhase_ = FlagpolePhase::Done;
+                // Llego a la puerta: frena ahi parado.
+                if (x_ > flagpoleExitX_) x_ = flagpoleExitX_;
+                velX_ = 0.0f;
+                animState_ = MarioAnim::Idle;
+                flagpolePhase_ = FlagpolePhase::Enter;
+                flagpoleTimer_ = 0.0f;
             }
+            break;
+        case FlagpolePhase::Enter:
+            velX_ = 0.0f;
+            velY_ = std::min(velY_ + kGravityDescend * dt, kMaxFallSpeed);
+            moveAndCollide(dt, level);
+            animState_ = MarioAnim::Idle;
+            flagpoleTimer_ += dt;
+            if (flagpoleTimer_ >= kCastleFadeDuration) flagpolePhase_ = FlagpolePhase::Done;
             break;
         case FlagpolePhase::Done:
         case FlagpolePhase::None:

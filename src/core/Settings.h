@@ -21,6 +21,8 @@ struct Settings {
     bool english = false;     // idioma: espanol (false) o ingles (true)
     bool vibration = true;
     bool playerCollision = true;  // Mario y Luigi chocan entre si (2P a la vez)
+    std::string playerName;       // nombre en el modo en red
+    bool autoUpdate = true;       // buscar actualizaciones al abrir el juego
     // Mejor puntaje (el "TOP-" de la pantalla de titulo).
     int topScore = 0;
     // Se termino el juego (el 8-4) al menos una vez: desbloquea EXTRAS.
@@ -97,6 +99,12 @@ struct Settings {
         int scoreMario = 0;
         int scoreLuigi = 0;
         bool onlyLuigi = false;     // desde el 1-1 con Luigi, 1 jugador (logro)
+        // Vidas (-1: las del principio, como despues de un GAME OVER) y las
+        // monedas del HUD de cada jugador (en 1 jugador, las primeras).
+        int livesMario = -1;
+        int livesLuigi = -1;
+        int coinsMario = 0;
+        int coinsLuigi = 0;
     };
     static constexpr int kSaveSlots = 5;
     std::array<SaveSlot, kSaveSlots> saves{};

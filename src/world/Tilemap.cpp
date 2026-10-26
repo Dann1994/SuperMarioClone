@@ -121,6 +121,7 @@ bool Tilemap::loadFromJson(const nlohmann::json& json) {
         platform.period = entry.value("period", 4.0f);
         platform.speed = entry.value("speed", 50.0f);
         platform.ropeRow = entry.value("rope_row", 3);
+        platform.shiftX = entry.value("shift_x", 0);
         platforms_.push_back(platform);
     }
     entities_.clear();
@@ -578,7 +579,14 @@ bool Tilemap::isPipeTopTile(int col, int row) const {
 }
 
 bool Tilemap::isPipeLeftHalf(int col, int row) const {
-    return isPipeTile(col + 1, row);
+    // Cada tuberia mide 2 columnas: en una tira de tuberias pegadas (dos o
+    // mas una al lado de la otra) la mitad izquierda es la de posicion par
+    // contando desde el principio de la tira. Antes alcanzaba con tener
+    // tuberia a la derecha, y con dos pegadas se dibujaban tres encimadas.
+    if (!isPipeTile(col + 1, row)) return false;
+    int before = 0;
+    for (int c = col - 1; c >= 0 && isPipeTile(c, row); --c) ++before;
+    return before % 2 == 0;
 }
 
 bool Tilemap::isSolidAtPixel(float x, float y) const {

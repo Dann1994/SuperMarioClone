@@ -467,6 +467,10 @@ class AreaBuild:
                 # Balanza (van de a dos seguidas): colgada de la polea de la
                 # fila 0 del original.
                 p.update({"mode": "balance", "rope_row": ROW_OFFSET})
+                # Modo dificil secundario: el original la corre 8 px a la
+                # derecha (InitBalPlatform suma PosPlatform +8 sin restar).
+                if self.hard:
+                    p["shift_x"] = 8
             if mode in ("vertical", "horizontal"):
                 p.update({"range": 4, "period": 4})
             elif mode.startswith("lift"):

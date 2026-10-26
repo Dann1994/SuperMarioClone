@@ -1,3 +1,6 @@
+#include "core/SimRandom.h"
+#include "net/lan.h"
+#include "net/updater.h"
 #include "Game.h"
 
 #include "../editor/LevelEditor.h"
@@ -11,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fstream>
 
 #include "../render/DebugFont.h"
 #include "../render/Palettes.h"
@@ -319,15 +323,7 @@ MarioSize nextSize(MarioSize size) {
 }
 
 // Timer de aparicion de los Cheep Cheep Jumping (ver kCheepCheepJumpIntervalMin/Max).
-float randomRange(float minVal, float maxVal) {
-    static bool seeded = false;
-    if (!seeded) {
-        std::srand(static_cast<unsigned>(std::time(nullptr)));
-        seeded = true;
-    }
-    const float t = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-    return minVal + t * (maxVal - minVal);
-}
+float randomRange(float minVal, float maxVal) { return sim::randomRange(minVal, maxVal); }
 
 // Constantes de la colision Mario<->Luigi (prototipo, sin base documentada
 // en el juego original -- este mismo no tiene multiplayer simultaneo). Se
@@ -391,6 +387,30 @@ const char* bowserAttackModeName(BowserAttackMode mode) {
 }  // namespace
 
 bool Game::init() {
+    sim::seedRandom(static_cast<uint32_t>(std::time(nullptr)));   // en red lo siembra la sala
+    {
+        // Modo en red: las dos PC tienen que tener los mismos niveles (si
+        // no, la simulacion no coincide); la huella va en la version.
+        uint32_t h = 2166136261u;
+        std::vector<std::string> files;
+        std::error_code error;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator("levels", error)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".json") files.push_back(entry.path().generic_string());
+        }
+        std::sort(files.begin(), files.end());
+        for (const std::string& file : files) {
+            if (file.find("/world") == std::string::npos) continue;
+            std::ifstream in(file, std::ios::binary);
+            char c;
+            while (in.get(c)) {
+                h ^= static_cast<unsigned char>(c);
+                h *= 16777619u;
+            }
+        }
+        char tag[16];
+        std::snprintf(tag, sizeof(tag), "%08X", h);
+        net::Lan::SetLevelsTag(tag);
+    }
     // Que Windows no estire la imagen por su cuenta en pantallas con
     // escalado (125%, 150%...): asi la pantalla completa usa la resolucion
     // real y se ve nitido. Tiene que ir antes de SDL_Init.
@@ -838,7 +858,10 @@ void Game::loadScenario(TestScenario scenario) {
         for (MovingPlatform& platform : platforms_) platform.reset();
         balances_.clear();
         for (const LevelPlatform& data : level_.platforms()) {
-            if (next >= platforms_.size()) break;
+            if (next >= platforms_.size()) {
+                SDL_Log("Nivel con mas de %d plataformas: sobran las ultimas", kMaxPlatforms);
+                break;
+            }
             const PlatformMode mode = data.mode == "horizontal" ? PlatformMode::Horizontal
                                       : data.mode == "lift_up"  ? PlatformMode::LiftUp
                                       : data.mode == "lift_down" ? PlatformMode::LiftDown
@@ -860,7 +883,13 @@ void Game::loadScenario(TestScenario scenario) {
             // Segunda vuelta: el modo dificil achica las plataformas grandes a
             // 2 bloques (SPBBox; en los niveles dificiles ya vienen asi).
             const int width = (gPrimaryHardMode && data.width >= 3) ? 2 : data.width;
-            platforms_[next++].spawn(static_cast<float>(data.col) * ts, static_cast<float>(data.row) * ts,
+            // Balanza en modo dificil: el original la corre 8 px a la derecha
+            // (InitBalPlatform/PosPlatform); en los niveles dificiles ya viene
+            // en "shift_x", en la segunda vuelta se suma aca.
+            int shift = data.shiftX;
+            if (shift == 0 && gPrimaryHardMode && mode == PlatformMode::Balance) shift = 8;
+            platforms_[next++].spawn(static_cast<float>(data.col) * ts + static_cast<float>(shift),
+                                     static_cast<float>(data.row) * ts,
                                      static_cast<int>(static_cast<float>(width) * ts), mode, data.range * ts,
                                      data.period, data.speed);
         }
@@ -1023,6 +1052,10 @@ void Game::processEvents() {
         if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.scancode == SDL_SCANCODE_RETURN &&
             (event.key.keysym.mod & KMOD_ALT)) {
             toggleFullscreen();
+            continue;
+        }
+        if (netGame_ && !finalWaiting_) {
+            handleNetGameEvent(event);
             continue;
         }
         if (isMenuState()) {
@@ -1256,7 +1289,7 @@ BlockItem Game::rollSuitFlower(BlockItem item) const {
     // de una flor de fuego sale una de traje con 10% cada una.
     if (item != BlockItem::FireFlower || !campaign_) return item;
     const float roll = randomRange(0.0f, 1.0f);
-    const auto active = [this](const char* id) { return settings_.extraOwned(id) && settings_.extraEnabled(id); };
+    const auto active = [this](const char* id) { return extraActive(id); };
     if (active("level_hammer_flower") && roll < 0.1f) return BlockItem::HammerFlower;
     if (active("level_boomerang_flower") && roll >= 0.1f && roll < 0.2f) return BlockItem::BoomerangFlower;
     return item;
@@ -1523,8 +1556,10 @@ void Game::checkCoinPickup(Mario& character) {
 }
 
 void Game::applyContactDamage(Mario& character) {
+    if (flagpoleSequence()) return;   // en la secuencia del asta, invulnerables
+    if (character.isFrozen()) return;  // el que espera mientras cae el puente
     if (character.size() == MarioSize::Small) {
-        if (character.startDeath()) audio_.play(Sfx::Death);
+        if (character.startDeath()) { audio_.play(Sfx::Death); stopMusicIfAllDying(); }
     } else if (character.takeDamage()) {
         audio_.play(Sfx::PowerDown);
     }
@@ -2410,6 +2445,12 @@ void Game::checkAxeCollision(Mario& character, Axe& axe) {
     levelEnding_ = true;
     levelFinisher_ = scorer_;
     castleMessage_ = true;
+    // De a 2: el otro queda congelado e inmune hasta que termina el corte
+    // del puente; despues aparece al lado del hacha (bringPartnerToAxe).
+    if (twoPlayerMode_) {
+        Mario& partner = &character == &mario_ ? luigi_ : mario_;
+        if (inPlay(partner)) partner.setFrozen(true);
+    }
     if (level_.hasAnyBridge()) {
         // Ya lo derrotaron con fuego: el hacha no corta el puente (no hace
         // falta y en 2 a la vez tiraba a la lava al que seguia arriba).
@@ -2636,7 +2677,7 @@ void Game::updatePipeAnim(float dt) {
             // 2 a la vez: el companero sale despues, por este mismo cano
             // (hasta entonces no se dibuja; queda abajo del tope).
             Mario& partner = &character == &mario_ ? luigi_ : mario_;
-            if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+            if (twoPlayerMode_ && inPlay(partner)) {
                 pipePartner_ = &partner;
                 partner.spawn(character.x(), pipeTop + static_cast<float>(ts));
             }
@@ -2734,7 +2775,7 @@ void Game::performWarp(Mario& character, const PipeWarp& warp) {
     // tendria pantalla que los contenga a los dos): aparece al lado, del
     // primer costado que no quede metido en una pared.
     Mario& partner = &character == &mario_ ? luigi_ : mario_;
-    if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+    if (twoPlayerMode_ && inPlay(partner)) {
         const float ts = static_cast<float>(level_.tileSize());
         float partnerX = warp.destX;
         for (const float offset : {-ts, ts}) {
@@ -2790,6 +2831,7 @@ void Game::collectTopCoinIfAny(int col, int row) {
                     (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f;
     const float y = static_cast<float>(row * ts) - static_cast<float>(BlockCoin::kHeight);
     blockCoin_.spawn(x, y);
+    blockCoinSource_ = SDL_Point{col, row};
     audio_.play(Sfx::Coin);
 }
 
@@ -3017,6 +3059,7 @@ void Game::spawnItemFromQuestionBlock(int col, int row, bool movingRight, bool h
         collectCoin();
         blockCoin_.spawn(blockX + (static_cast<float>(ts) - static_cast<float>(BlockCoin::kWidth)) / 2.0f,
                           blockTopY);
+        blockCoinSource_ = SDL_Point{col, row};
         audio_.play(Sfx::Coin);
         return;
     }
@@ -3307,6 +3350,12 @@ void Game::updateCamera(float dt) {
         const float step = kCameraCatchUpSpeed * dt;
         cameraX_ += std::clamp(targetX - cameraX_, -step, step);
     }
+    // Castillo: despues del puente la pantalla avanza hasta el Toad, hasta
+    // que el puente ya no se ve (el borde izquierdo pasa el hacha).
+    if (castleMessage_ && retainer_.x >= 0 && !bridgeCollapsing_ && !axe_.isAlive() && axe_.x() > 0.0f) {
+        const float wanted = std::min(maxCameraX, axe_.x() + static_cast<float>(axe_.width()));
+        if (cameraX_ < wanted) cameraX_ = std::min(wanted, cameraX_ + kCameraCatchUpSpeed * 0.5f * dt);
+    }
     cameraSnapPending_ = false;
     cameraFocusPrevX_ = focusX;
     // Ver el comentario de cameraScrollSpeed_ en Game.h (equivalente a
@@ -3372,6 +3421,7 @@ void Game::update(float dt) {
     // pantallas negras entre niveles; la pausa y los menus no cuentan.
     if (campaign_ && (appState_ == AppState::Playing || appState_ == AppState::LevelIntro)) campaignTime_ += dt;
     if (appState_ == AppState::LevelIntro || appState_ == AppState::GameOver) {
+        if (appState_ == AppState::GameOver && tryTurnLifeSteal()) return;
         appStateTimer_ -= dt;
         if (appStateTimer_ > 0.0f) return;
         if (appState_ == AppState::LevelIntro) {
@@ -3398,6 +3448,10 @@ void Game::update(float dt) {
                     Settings::SaveSlot& slot = settings_.saves[static_cast<size_t>(currentSlot_)];
                     slot.scoreMario = 0;
                     slot.scoreLuigi = 0;
+                    slot.livesMario = -1;
+                    slot.livesLuigi = -1;
+                    slot.coinsMario = 0;
+                    slot.coinsLuigi = 0;
                     settings_.save();
                 }
                 // Si el puntaje entra en la tabla: el nombre y la tabla (sin
@@ -3419,9 +3473,17 @@ void Game::update(float dt) {
         // LUIGI DE LOST LEVELS: el que se ve como Luigi (mario_ en 1 jugador
         // con Luigi o en su turno, luigi_ de a 2), en las partidas.
         const bool lostLevels =
-            campaign_ && settings_.extraOwned("luigi_lost_levels") && settings_.extraEnabled("luigi_lost_levels");
+            campaign_ && extraActive("luigi_lost_levels");
         mario_.setLostLevelsPhysics(lostLevels && appearanceSwapped_);
         luigi_.setLostLevelsPhysics(lostLevels && !appearanceSwapped_);
+        // Y su paleta (luigi_ll_*.png, la de Luigi_moderno.png).
+        Mario& lookingLuigi = appearanceSwapped_ ? mario_ : luigi_;
+        if (lookingLuigi.lostLevelsLook() != lostLevels) {
+            const std::string base = lostLevels ? "assets/sprites/luigi_ll_" : "assets/sprites/luigi_";
+            lookingLuigi.reloadBaseSprites(renderer_, base + "small.png", base + "big.png", base + "fire.png",
+                                           lostLevels);
+            introLuigiSprite_.loadFromFile(renderer_, base + "small.png", 16, 16);
+        }
     }
     if (campaign_) {
         // Resumen del final: una muerte por cada vez que alguno arranca su
@@ -3511,6 +3573,7 @@ void Game::update(float dt) {
     const float marioPrevY = mario_.y();
     const float luigiPrevY = luigi_.y();
 
+    updateLifeSteal();
     mario_.update(dt, input1_, level_);
     checkBrickBlockHit(mario_);
     checkQuestionBlockHit(mario_);
@@ -4087,37 +4150,44 @@ void Game::render() {
     // Los bloques (ladrillos, ?, monedas sueltas y la sacudida): despues de
     // los items que emergen (el bloque los tapa) y antes de enemigos y
     // personajes, que quedan por delante (son sprites, como en el original).
+    // Un bloque golpeado (o el de la moneda que salta), con su sacudida.
+    auto drawBumpedBlock = [&](int col, int row) {
+        // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
+        // pi): 0 al arrancar y al terminar, maximo a la mitad.
+        int offsetY = 0;
+        for (const BlockBump& bump : blockBumps_) {
+            if (!bump.active || bump.col != col || bump.row != row) continue;
+            const float progress = 1.0f - bump.timer / kBumpDuration;
+            offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
+        }
+        // Mismo pool para ladrillo y bloque de interrogacion (ver
+        // startBlockBump): hay que fijarse cual de los dos es esta celda
+        // para dibujarla con el sprite/frame que corresponde, en vez de
+        // asumir siempre ladrillo.
+        if (level_.isQuestionTile(col, row)) {
+            const int frame = level_.isQuestionUsed(col, row) ? Tilemap::kQuestionUsedFrame
+                                                              : questionBlockAnimFrame_;
+            questionBlockSprite_.draw(renderer_, worldRow, frame, col * level_.tileSize() - camOffset,
+                                       row * level_.tileSize() + offsetY, false);
+        } else if (level_.isDispenserTile(col, row) && level_.isDispenserUsed(col, row)) {
+            // Mismo frame "vacio" que un bloque de interrogacion usado (ver
+            // el comentario de Tilemap::renderBlocks) -- se marca usado
+            // antes de que arranque esta sacudida (checkQuestionBlockHit),
+            // asi que se ve asi durante todo el salto, no solo al terminar.
+            questionBlockSprite_.draw(renderer_, worldRow, Tilemap::kQuestionUsedFrame,
+                                       col * level_.tileSize() - camOffset,
+                                       row * level_.tileSize() + offsetY, false);
+        } else {
+            brickBlockSprite_.draw(renderer_, worldRow, level_.brickFrame(col, row),
+                                   col * level_.tileSize() - camOffset,
+                               row * level_.tileSize() + offsetY, false);
+        }
+    };
     auto drawBlocks = [&]() {
         level_.renderBlocks(renderer_, brickBlockSprite_, worldRow, cameraX_, bumpingTiles, &questionBlockSprite_,
                             questionBlockAnimFrame_, &coinSprite_, brickCoinAnimFrame_);
         for (const BlockBump& bump : blockBumps_) {
-            if (!bump.active) continue;
-            // Sube y vuelve a bajar en el mismo lapso (seno completo entre 0 y
-            // pi): 0 al arrancar y al terminar, maximo a la mitad.
-            const float progress = 1.0f - bump.timer / kBumpDuration;
-            const int offsetY = -static_cast<int>(std::lround(std::sin(progress * 3.14159265f) * kBumpHeight));
-            // Mismo pool para ladrillo y bloque de interrogacion (ver
-            // startBlockBump): hay que fijarse cual de los dos es esta celda
-            // para dibujarla con el sprite/frame que corresponde, en vez de
-            // asumir siempre ladrillo.
-            if (level_.isQuestionTile(bump.col, bump.row)) {
-                const int frame = level_.isQuestionUsed(bump.col, bump.row) ? Tilemap::kQuestionUsedFrame
-                                                                              : questionBlockAnimFrame_;
-                questionBlockSprite_.draw(renderer_, worldRow, frame, bump.col * level_.tileSize() - camOffset,
-                                           bump.row * level_.tileSize() + offsetY, false);
-            } else if (level_.isDispenserTile(bump.col, bump.row) && level_.isDispenserUsed(bump.col, bump.row)) {
-                // Mismo frame "vacio" que un bloque de interrogacion usado (ver
-                // el comentario de Tilemap::renderBlocks) -- se marca usado
-                // antes de que arranque esta sacudida (checkQuestionBlockHit),
-                // asi que se ve asi durante todo el salto, no solo al terminar.
-                questionBlockSprite_.draw(renderer_, worldRow, Tilemap::kQuestionUsedFrame,
-                                           bump.col * level_.tileSize() - camOffset,
-                                           bump.row * level_.tileSize() + offsetY, false);
-            } else {
-                brickBlockSprite_.draw(renderer_, worldRow, level_.brickFrame(bump.col, bump.row),
-                                       bump.col * level_.tileSize() - camOffset,
-                                        bump.row * level_.tileSize() + offsetY, false);
-            }
+            if (bump.active) drawBumpedBlock(bump.col, bump.row);
         }
     };
     drawBlocks();
@@ -4234,6 +4304,11 @@ void Game::render() {
     // La moneda que salta de un bloque, adelante de todo (que nada la tape).
     // Una sola paleta (ver el comentario de BlockCoin.h): sin worldRow.
     blockCoin_.render(renderer_, blockCoinSprite_, cameraX_);
+    // ...salvo su propio bloque, que la tapa (sale de adentro y vuelve a
+    // caer adentro), si sigue ahi.
+    if (blockCoin_.isAlive() && blockCoinSource_.x >= 0 && level_.isSolidTile(blockCoinSource_.x, blockCoinSource_.y)) {
+        drawBumpedBlock(blockCoinSource_.x, blockCoinSource_.y);
+    }
 
     for (const ScorePopup& popup : scorePopups_) popup.render(renderer_, cameraX_);
 
@@ -4243,7 +4318,7 @@ void Game::render() {
         // Castillo: el Toad (o la princesa, en el ultimo) mientras se cuenta
         // el tiempo que sobro.
         const SDL_Color white{255, 255, 255, 255};
-        drawCentered(70, tr(playAsLuigi_ ? Txt::ThankYouLuigi : Txt::ThankYouMario), 2, white);
+        drawCentered(70, tr(castleHeroIsLuigi() ? Txt::ThankYouLuigi : Txt::ThankYouMario), 2, white);
         if (finalEnding_) {
             // Los renglones del final, de a uno (mismas filas relativas que
             // el original: 13, 15, 18 y 20 con THANK YOU en la 10).
@@ -4301,6 +4376,7 @@ void Game::render() {
     }
 
     if (appState_ == AppState::Paused) renderPauseMenu();
+    renderNetGameOverlay();
     renderUnlockToast();
     SDL_RenderPresent(renderer_);
 }
@@ -4340,6 +4416,7 @@ void Game::moveMenuSelection(int delta) {
 }
 
 void Game::run() {
+    if (settings_.autoUpdate) checkForUpdates(false);   // en segundo plano, no frena el juego
     Uint64 prevCounter = SDL_GetPerformanceCounter();
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
     double accumulator = 0.0;
@@ -4356,12 +4433,22 @@ void Game::run() {
         }
         accumulator += frameTime;
 
-        input1_.beginFrame();
-        input2_.beginFrame();
+        // En red los botones del juego llegan por la sala (beginNetFrame en
+        // cada cuadro de la simulacion), no del teclado de esta PC.
+        if (!netGame_) {
+            input1_.beginFrame();
+            input2_.beginFrame();
+        }
         processEvents();
+        updateUpdater();
 
         while (accumulator >= kFixedDt) {
-            update(kFixedDt);
+            if (netGame_) {
+                stepNet();
+            } else {
+                if (lan_ || !netAutoHost_.empty() || !netAutoJoin_.empty()) updateNetLobby();
+                update(kFixedDt);
+            }
             accumulator -= kFixedDt;
         }
 
@@ -4412,6 +4499,8 @@ void Game::shutdown() {
         editor_->shutdownEmbedded();
         editor_.reset();
     }
+    if (toastTexture_) SDL_DestroyTexture(toastTexture_);
+    toastTexture_ = nullptr;
     if (chooserPreview_) SDL_DestroyTexture(chooserPreview_);
     chooserPreview_ = nullptr;
     for (SDL_Texture*& preview : slotPreviews_) {
@@ -4443,11 +4532,23 @@ void Game::checkFlagpoleGrab(Mario& character) {
     if (campaign_ && ratio >= 0.9f) completeAchievement("flag_top");
     spawnScorePopup(flagpole_.poleCenterX() + 4.0f, character.y(), points);
 
-    // La puerta del castillo: 5 tiles despues del mastil, sin pasarse del
-    // final del nivel (todavia no hay castillo dibujado, ver Flagpole.h).
+    // La puerta del castillo que sigue al mastil (centrada debajo de la
+    // torre de arriba): ahi frena y se funde a negro. Sin castillo, 5 tiles
+    // despues del mastil, sin pasarse del final del nivel.
     const float ts = static_cast<float>(level_.tileSize());
-    const float exitX = std::min(flagpole_.poleCenterX() + 5.0f * ts,
-                                 static_cast<float>(level_.widthPixels()) - ts);
+    float exitX = std::min(flagpole_.poleCenterX() + 5.0f * ts, static_cast<float>(level_.widthPixels()) - ts);
+    {
+        float castleX = -1.0f;
+        float doorOffset = 0.0f;
+        for (const LevelDecoration& decoration : level_.decorations()) {
+            if (decoration.type != "castle_small" && decoration.type != "castle_big") continue;
+            const float x = static_cast<float>(decoration.col) * ts;
+            if (x < flagpole_.poleCenterX() || (castleX >= 0.0f && x >= castleX)) continue;
+            castleX = x;
+            doorOffset = (decoration.type == "castle_big" ? 4.5f : 2.5f) * ts;
+        }
+        if (castleX >= 0.0f) exitX = castleX + doorOffset - static_cast<float>(character.width()) / 2.0f;
+    }
     character.startFlagpoleGrab(flagpole_.poleCenterX(), flagpole_.bottomY(), exitX);
     if (!levelEnding_) levelFinisher_ = scorer_;  // el primero que la agarra
     levelEnding_ = true;
@@ -4457,8 +4558,39 @@ void Game::checkFlagpoleGrab(Mario& character) {
     }
 }
 
+void Game::clearEnemiesForFlagpole() {
+    const float left = cameraX_ - 16.0f;
+    const float right = cameraX_ + static_cast<float>(gLogicalWidth) + 16.0f;
+    const auto inView = [&](float x) { return x > left && x < right; };
+    const auto kill = [&](auto& enemy) {
+        if (enemy.isAlive() && enemy.isDangerous() && inView(enemy.x())) killEnemyFalling(enemy, enemy.x() >= mario_.x());
+    };
+    for (Goomba& goomba : goombas_) kill(goomba);
+    for (Koopa& koopa : levelKoopas_) kill(koopa);
+    for (Koopa* koopa : {&koopaA_, &koopaB_, &koopaJumping_, &koopaRed_, &koopaRedFlying_}) kill(*koopa);
+    for (BuzzyBeetle& buzzy : buzzyBeetles_) kill(buzzy);
+    for (HammerBro& bro : hammerBros_) kill(bro);
+    for (Spiny& spiny : spinies_) kill(spiny);
+    for (Blooper& blooper : bloopers_) kill(blooper);
+    for (CheepCheep& cheep : levelCheeps_) kill(cheep);
+    for (CheepCheep& cheep : cheepCheepJumps_) kill(cheep);
+    kill(lakitu_);
+    for (PiranhaPlant& plant : piranhaPlants_) {
+        if (!plant.isDangerous() || !inView(plant.x())) continue;
+        plant.kill();
+        awardEnemyPoints(plant.x(), plant.y(), 200);
+    }
+    // Proyectiles: se van sin mas.
+    for (Hammer& hammer : hammers_) hammer.reset();
+    for (BulletBill& bullet : bulletBills_) bullet.reset();
+    for (BowserFire& fire : bowserFires_) fire.reset();
+    for (Podoboo& podoboo : podoboos_) podoboo.reset();
+    frenzies_.clear();
+}
+
 void Game::updateFlagpoleSequence(float dt) {
     if (!flagpole_.isActive()) return;
+    if (flagpoleSequence()) clearEnemiesForFlagpole();
     flagpole_.update(dt);
     if (flagpole_.isFlagDown()) {
         if (mario_.isWaitingAtFlagpoleBottom()) mario_.releaseFromFlagpole();
@@ -4502,18 +4634,52 @@ void Game::finishFinalEnding() {
     openTitle();
 }
 
+void Game::keepAwayFromRetainer(bool walking) {
+    // A 2 bloques del Toad (o la princesa), estricto: el de adelante frena
+    // ahi y, de a 2, el de atras un cuerpo antes. Llegando, frena en seco
+    // (sin patinar) y su control queda quieto.
+    if (retainer_.x < 0) return;
+    const float ts = static_cast<float>(level_.tileSize());
+    const float stopRight = static_cast<float>(retainer_.x) * ts - 2.0f * ts;
+    std::vector<Mario*> players;
+    for (Mario* character : {&mario_, &luigi_}) {
+        if (character == &luigi_ && !twoPlayerMode_) continue;
+        if (inPlay(*character)) players.push_back(character);
+    }
+    if (!castleStopsSet_ || walking) {
+        std::sort(players.begin(), players.end(), [](const Mario* a, const Mario* b) { return a->x() > b->x(); });
+        float limit = stopRight;
+        for (Mario* character : players) {
+            castleStopRight_[character == &mario_ ? 0 : 1] = limit;
+            limit -= static_cast<float>(character->width()) + 6.0f;
+        }
+        castleStopsSet_ = true;
+    }
+    for (Mario* character : players) {
+        const float limit = castleStopRight_[character == &mario_ ? 0 : 1];
+        const float right = character->x() + static_cast<float>(character->width());
+        if (right < limit) continue;
+        character->nudgeX(limit - right);
+        if (character->velocityX() > 0.0f) character->setVelocityX(0.0f);
+        (character == &mario_ ? input1_ : input2_).setScripted(true);
+    }
+}
+
 void Game::updateLevelClear(float dt) {
     if (retainer_.x >= 0 && castleMessage_) {
         // Final de castillo con Toad / princesa.
         if (castleClearTimer_ > 0.0f) castleClearTimer_ = std::max(0.0f, castleClearTimer_ - dt);
-        const float ts = static_cast<float>(level_.tileSize());
-        const float stopX = static_cast<float>(retainer_.x) * ts - 1.5f * ts;
         if (castleWalk_) {
-            if (mario_.x() + static_cast<float>(mario_.width()) >= stopX) {
+            keepAwayFromRetainer(true);
+            bool allStopped = true;
+            for (Mario* character : {&mario_, &luigi_}) {
+                if (character == &luigi_ && !twoPlayerMode_) continue;
+                if (!inPlay(*character)) continue;
+                const size_t index = character == &mario_ ? 0 : 1;
+                if (character->x() + static_cast<float>(character->width()) < castleStopRight_[index]) allStopped = false;
+            }
+            if (allStopped) {
                 castleWalk_ = false;
-                // Frena en seco frente al Toad (sin patinar encima de el).
-                mario_.setVelocityX(0.0f);
-                luigi_.setVelocityX(0.0f);
                 input1_.setScripted(true);
                 input2_.setScripted(true);
                 castleLines_ = 1;
@@ -4524,6 +4690,7 @@ void Game::updateLevelClear(float dt) {
             }
             return;
         }
+        keepAwayFromRetainer(false);
         if (finalEnding_ && finalWaiting_) return;
         if (finalEnding_ && castleLines_ > 0 && castleLines_ < 3) {
             // Un mensaje cada 64 cuadros (SecondaryMsgCounter += 4).
@@ -4808,7 +4975,7 @@ void Game::resetLevelTimer() {
 void Game::updateLevelTimer(float dt) {
     if (timeRemaining_ <= 0.0f || levelEnding_ || cutscene_) return;
     // TIEMPO INFINITO (comprado y activado): en las partidas el reloj no baja.
-    if (campaign_ && settings_.extraOwned("infinite_time") && settings_.extraEnabled("infinite_time")) return;
+    if (campaign_ && extraActive("infinite_time")) return;
     timeRemaining_ = std::max(0.0f, timeRemaining_ - dt / kTimeUnitSeconds);
     if (!hurryUpPlayed_ && timeRemaining_ <= kHurryUpThreshold) {
         hurryUpPlayed_ = true;
@@ -4817,8 +4984,8 @@ void Game::updateLevelTimer(float dt) {
     }
     if (timeRemaining_ <= 0.0f) {
         // Se acabo el tiempo: mueren todos, sin importar tamano/estrella.
-        if (mario_.killInstantly()) audio_.play(Sfx::Death);
-        if (twoPlayerMode_ && luigi_.killInstantly()) audio_.play(Sfx::Death);
+        if (mario_.killInstantly()) { audio_.play(Sfx::Death); stopMusicIfAllDying(); }
+        if (twoPlayerMode_ && luigi_.killInstantly()) { audio_.play(Sfx::Death); stopMusicIfAllDying(); }
     }
 }
 
@@ -4865,14 +5032,17 @@ void Game::renderHud() {
         // El que se quedo sin vidas: GAME OVER debajo de su puntaje, en lugar
         // de sus monedas (al lado del nombre no entra en la pantalla 4:3).
         drawPlayer(marioX, "MARIO", marioRed, playerScore_[0]);
+        const bool stealBlink = (SDL_GetTicks() / 800) % 2 == 1;
         if (mario_.isBenched()) {
-            DebugFont::drawTextOutlined(renderer_, marioX, kCoinsY, "GAME OVER", 2, white);
+            const bool hint = stealBlink && canStealLife(mario_);
+            DebugFont::drawTextOutlined(renderer_, marioX, kCoinsY, hint ? tr(Txt::StealLifeHud) : "GAME OVER", 2, white);
         } else {
             drawCoins(marioX, kCoinsY, playerCoins_[0]);
         }
         drawPlayer(luigiX, "LUIGI", luigiGreen, playerScore_[1]);
         if (luigi_.isBenched()) {
-            DebugFont::drawTextOutlined(renderer_, luigiX, kCoinsY, "GAME OVER", 2, white);
+            const bool hint = stealBlink && canStealLife(luigi_);
+            DebugFont::drawTextOutlined(renderer_, luigiX, kCoinsY, hint ? tr(Txt::StealLifeHud) : "GAME OVER", 2, white);
         } else {
             drawCoins(luigiX, kCoinsY, playerCoins_[1]);
         }
@@ -4949,6 +5119,46 @@ bool Game::passTurn() {
     return true;
 }
 
+bool Game::canStealLife(const Mario& out) const {
+    if (!coopLives() || !out.isBenched()) return false;
+    const Mario& partner = &out == &mario_ ? luigi_ : mario_;
+    const int partnerLives = &partner == &luigi_ ? luigiLives_ : livesCount_;
+    return inPlay(partner) && partnerLives >= 2;
+}
+
+void Game::updateLifeSteal() {
+    if (!coopLives()) return;
+    // No en medio de una escena (bandera, puente, entrada por enredadera).
+    const bool busy = levelEnding_ || bridgeCollapsing_ || castleClearTimer_ > 0.0f ||
+                      vineEntry_.phase != VineEntry::Phase::None || cutscene_ || pipeTransitionTimer_ > 0.0f;
+    for (Mario* out : {&mario_, &luigi_}) {
+        Input& input = out == &mario_ ? input1_ : input2_;
+        if (!out->isBenched()) continue;
+        if (!input.consumePress(Action::Jump) || busy || !canStealLife(*out)) continue;
+        Mario& partner = out == &mario_ ? luigi_ : mario_;
+        --livesOf(partner);
+        out->setBenched(false);
+        livesOf(*out) = 1;
+        out->setSize(MarioSize::Small);
+        bringToPartner(*out, partner);
+        audio_.play(Sfx::OneUp);
+    }
+}
+
+bool Game::tryTurnLifeSteal() {
+    // Por turnos, en la pantalla de GAME OVER del que se quedo sin vidas.
+    if (!turnMode_ || livesCount_ > 0) return false;
+    TurnState& other = turnStates_[static_cast<size_t>(1 - turnPlayer_)];
+    if (other.lives < 2 || !input1_.consumePress(Action::Jump)) return false;
+    --other.lives;
+    livesCount_ = 1;
+    saveTurnState();
+    audio_.stopMusic();
+    audio_.play(Sfx::OneUp);
+    loadScenario(TestScenario::CustomLevel);
+    return true;
+}
+
 void Game::onCoopPlayerDied(Mario& character) {
     int& lives = livesOf(character);
     if (!infiniteLives()) --lives;
@@ -4958,6 +5168,7 @@ void Game::onCoopPlayerDied(Mario& character) {
     }
     lives = 0;
     character.setBenched(true);   // GAME OVER de este: mira hasta el proximo nivel
+    (&character == &mario_ ? input1_ : input2_).clearPresses();
 }
 
 void Game::onAllPlayersDied() {
@@ -4988,7 +5199,9 @@ void Game::onAllPlayersDied() {
         saveTurnState();
         turnStates_[static_cast<size_t>(turnPlayer_)].size = MarioSize::Small;
         if (livesCount_ <= 0) {
-            // GAME OVER de este jugador; despues sigue el otro si le quedan.
+            // GAME OVER de este jugador; despues sigue el otro si le quedan
+            // (o le roba una vida, ver tryTurnLifeSteal).
+            input1_.clearPresses();
             saveTopScore();
             appState_ = AppState::GameOver;
             appStateTimer_ = kGameOverDuration;
@@ -5023,7 +5236,7 @@ void Game::updateCheckpoints() {
 }
 
 void Game::checkPitDeath(Mario& character) {
-    if (character.isInDeathSequence()) return;
+    if (character.isInDeathSequence() || character.isFrozen()) return;
     // Colgado de una enredadera (esperando abajo de la pantalla para subir
     // a otra area) no es caerse a un pozo.
     if (character.isClimbing()) return;
@@ -5041,7 +5254,7 @@ void Game::checkPitDeath(Mario& character) {
         performWarp(character, warp);
         return;
     }
-    if (character.killInstantly(false)) audio_.play(Sfx::Death);
+    if (character.killInstantly(false)) { audio_.play(Sfx::Death); stopMusicIfAllDying(); }
 }
 
 void Game::renderLevelIntro() {
@@ -5083,6 +5296,10 @@ void Game::renderLevelIntro() {
 
 void Game::renderGameOver() {
     DebugFont::drawText(renderer_, (gLogicalWidth - 9 * 8) / 2, 112, "GAME OVER", 2, SDL_Color{255, 255, 255, 255});
+    // Por turnos: si al otro le quedan 2 o mas, se le puede robar una.
+    if (turnMode_ && livesCount_ <= 0 && turnStates_[static_cast<size_t>(1 - turnPlayer_)].lives >= 2) {
+        drawCenteredFit(144, tr(Txt::StealLifeHint), SDL_Color{252, 216, 88, 255});
+    }
 }
 
 void Game::awardIndexedPoints(float x, float y, int index) {
@@ -5191,6 +5408,9 @@ void Game::loadLevelData() {
     warpZoneLocks_.clear();
     retainer_ = SDL_Point{-1, -1};
     castleWalk_ = false;
+    castleStopsSet_ = false;
+    mario_.setFrozen(false);
+    luigi_.setFrozen(false);
     castleLines_ = 0;
     castleMessageTimer_ = 0.0f;
     finalEnding_ = false;
@@ -5201,6 +5421,7 @@ void Game::loadLevelData() {
     vineEntry_ = VineEntry{};
     loopChecks_.clear();
     loopPassCount_ = 0;
+    lastGroundFeet_ = {-1.0f, -1.0f};
     loopCorrectCount_ = 0;
     cheepJumpZones_.clear();
     lakituEndX_ = -1.0f;
@@ -5282,8 +5503,8 @@ void Game::updateSpawnScreen() {
     const float areaLeft = static_cast<float>(area.startCol) * ts;
     const float areaRight = static_cast<float>(area.endCol + 1) * ts;
     float focusX = mario_.x();
-    if (twoPlayerMode_ && !luigi_.isInDeathSequence()) {
-        focusX = mario_.isInDeathSequence() ? luigi_.x() : (mario_.x() + luigi_.x()) / 2.0f;
+    if (twoPlayerMode_ && inPlay(luigi_)) {
+        focusX = inPlay(mario_) ? (mario_.x() + luigi_.x()) / 2.0f : luigi_.x();
     }
     // 1P: la mueve updateCamera (ScrollHandler del original); aca solo
     // por si todavia no la inicio para esta area.
@@ -5564,9 +5785,13 @@ void Game::updateLoopChecks() {
     // jugador en x=112 de una pantalla de 256, unos 144 px antes.
     constexpr float kLookAhead = 144.0f;
     Mario* leader = &mario_;
-    if (twoPlayerMode_ && !luigi_.isInDeathSequence() &&
-        (mario_.isInDeathSequence() || luigi_.x() > mario_.x())) {
+    if (twoPlayerMode_ && inPlay(luigi_) && (!inPlay(mario_) || luigi_.x() > mario_.x())) {
         leader = &luigi_;
+    }
+    for (Mario* character : {&mario_, &luigi_}) {
+        if (character->isGrounded() && inPlay(*character)) {
+            lastGroundFeet_[character == &mario_ ? 0 : 1] = character->y() + static_cast<float>(character->height());
+        }
     }
     if (leader->isInDeathSequence()) return;
     const float reach = leader->x() + kLookAhead;
@@ -5580,15 +5805,18 @@ void Game::updateLoopChecks() {
         check.armed = false;
         // Solo al cruzarlo (no si se aparece mas adelante, en un checkpoint).
         if (reach > check.triggerX + 32.0f) continue;
-        // 1 jugador: como el original, parado justo a esa altura. 2 a la vez:
-        // alcanza con que uno de los dos vaya por el camino correcto (parado
-        // o saltando dentro de ese pasillo); el otro, si venia por otro
-        // camino, aparece al lado del que acerto (no quedan separados).
-        const auto onPath = [&](const Mario& character, bool lenient) {
+        // Va por el camino correcto: parado a esa altura, o en el aire si el
+        // ultimo piso que piso fue ese (saltando un hueco del mismo pasillo;
+        // el original pide estar apoyado justo en ese cuadro y un salto en
+        // mal momento lo hacia volver aunque se fuera bien). De a 2 alcanza
+        // con uno; el otro, si venia por otro camino, aparece al lado del
+        // que acerto (no quedan separados).
+        const auto onPath = [&](const Mario& character, bool /*lenient*/) {
             if (check.feetY < 0.0f || character.isInDeathSequence() || character.isBenched()) return false;
             const float feet = character.y() + static_cast<float>(character.height());
             if (character.isGrounded()) return std::abs(feet - check.feetY) < 2.0f;
-            return lenient && feet <= check.feetY + 2.0f && feet >= check.feetY - 40.0f;
+            const float last = lastGroundFeet_[&character == &mario_ ? 0 : 1];
+            return std::abs(last - check.feetY) < 2.0f && feet <= check.feetY + 2.0f;
         };
         bool correct = onPath(*leader, twoPlayerMode_);
         if (twoPlayerMode_) {
@@ -6120,11 +6348,35 @@ void Game::landOnAxeGround() {
     }
 }
 
+void Game::bringPartnerToAxe() {
+    for (Mario* waiting : {&mario_, &luigi_}) {
+        if (!waiting->isFrozen()) continue;
+        waiting->setFrozen(false);
+        const Mario& toucher = waiting == &mario_ ? luigi_ : mario_;
+        // Al lado del que toco el hacha, adelante (atras ya no hay puente),
+        // parado en el mismo piso y titilando.
+        const float ts = static_cast<float>(level_.tileSize());
+        const float y = toucher.y() + static_cast<float>(toucher.height() - waiting->height());
+        float x = toucher.x();
+        for (const float offset : {ts, 2.0f * ts}) {
+            if (isAreaFree(toucher.x() + offset, y, waiting->width(), waiting->height())) {
+                x = toucher.x() + offset;
+                break;
+            }
+        }
+        waiting->spawn(x, y);
+        waiting->setFacingRight(true);
+        grantRespawnInvincibilityForWorld(*waiting);
+    }
+}
+
 void Game::finishCastleFight() {
+    bringPartnerToAxe();
     castleClearTimer_ = kCastleClearDelay;
     if (retainer_.x >= 0) {
         // Camina solo hasta el Toad / la princesa (sin control del jugador).
         castleWalk_ = true;
+        castleStopsSet_ = false;
         castleLines_ = 0;
         input1_.setScripted(true, {Action::MoveRight});
         input2_.setScripted(true, {Action::MoveRight});
@@ -6144,7 +6396,7 @@ void Game::resetCastleSequence() {
 }
 
 void Game::checkLavaDeath(Mario& character) {
-    if (character.isInDeathSequence()) return;
+    if (character.isInDeathSequence() || character.isFrozen()) return;
     // Unos px adentro de la lava (no al rozar la superficie con los pies).
     constexpr float kSinkPx = 4.0f;
     const float ts = static_cast<float>(level_.tileSize());
@@ -6153,7 +6405,7 @@ void Game::checkLavaDeath(Mario& character) {
     const int col1 = static_cast<int>(std::floor((character.x() + character.width() - 1.0f) / ts));
     for (int col = col0; col <= col1; ++col) {
         if (!level_.isLavaTile(col, row)) continue;
-        if (character.killInstantly(false)) audio_.play(Sfx::Death);
+        if (character.killInstantly(false)) { audio_.play(Sfx::Death); stopMusicIfAllDying(); }
         return;
     }
 }
@@ -6339,7 +6591,9 @@ void Game::checkVineWarp(Mario& character) {
     constexpr float kHiddenBelow = 40.0f;
     character.startVineEntry(vineEntry_.vine, entry.x, levelBottom + kHiddenBelow + 32.0f, true);
     Mario& partner = &character == &mario_ ? luigi_ : mario_;
-    if (twoPlayerMode_ && !partner.isInDeathSequence()) {
+    // (El que quedo afuera por GAME OVER de a 2 no: se quedaba esperandolo
+    // y el otro no podia bajarse de la enredadera.)
+    if (twoPlayerMode_ && inPlay(partner)) {
         partner.startVineEntry(vineEntry_.vine, entry.x, levelBottom + kHiddenBelow + 56.0f, false);
     }
     input1_.setScripted(true);
@@ -6357,8 +6611,13 @@ void Game::updateVineEntry() {
         return;
     }
     const Vine& vine = vines_[static_cast<size_t>(vineEntry_.vine)];
-    std::vector<Mario*> players{&mario_};
-    if (twoPlayerMode_) players.push_back(&luigi_);
+    // Los que estan jugando (de a 2, el que quedo afuera no entra).
+    std::vector<Mario*> players;
+    for (Mario* player : {&mario_, &luigi_}) {
+        if (player == &luigi_ && !twoPlayerMode_) continue;
+        if (player->isBenched() || player->isInDeathSequence()) continue;
+        players.push_back(player);
+    }
     switch (vineEntry_.phase) {
         case VineEntry::Phase::Grow:
             if (vine.top > vine.targetTop) return;
@@ -6377,7 +6636,11 @@ void Game::updateVineEntry() {
             return;
         }
         case VineEntry::Phase::Walk:
-            if (mario_.x() < vineEntry_.walkTargetX && !mario_.isInDeathSequence()) return;
+            // Hasta que llega el primero de los que estan jugando.
+            for (Mario* player : players) {
+                if (player->x() >= vineEntry_.walkTargetX) players.clear();
+            }
+            if (!players.empty()) return;
             input1_.setScripted(false);
             input2_.setScripted(false);
             vineEntry_.phase = VineEntry::Phase::None;

@@ -129,6 +129,39 @@ void Input::beginFrame() {
     }
 }
 
+uint8_t Input::sampleButtons() const {
+    ActionState state{};
+    readKeyboard(state);
+    readController(state);
+    const auto on = [&state](Action action) { return state[static_cast<size_t>(action)]; };
+    uint8_t buttons = 0;
+    if (on(Action::MoveLeft)) buttons |= kNetLeft;
+    if (on(Action::MoveRight)) buttons |= kNetRight;
+    if (on(Action::Jump)) buttons |= kNetJump;
+    if (on(Action::Run)) buttons |= kNetRun;
+    if (on(Action::Down)) buttons |= kNetDown;
+    if (on(Action::Up)) buttons |= kNetUp;
+    return buttons;
+}
+
+void Input::beginNetFrame(uint8_t buttons) {
+    prevState_ = currState_;
+    currState_.fill(false);
+    if (scripted_) {
+        currState_ = scriptedState_;
+    } else {
+        currState_[static_cast<size_t>(Action::MoveLeft)] = (buttons & kNetLeft) != 0;
+        currState_[static_cast<size_t>(Action::MoveRight)] = (buttons & kNetRight) != 0;
+        currState_[static_cast<size_t>(Action::Jump)] = (buttons & kNetJump) != 0;
+        currState_[static_cast<size_t>(Action::Run)] = (buttons & kNetRun) != 0;
+        currState_[static_cast<size_t>(Action::Down)] = (buttons & kNetDown) != 0;
+        currState_[static_cast<size_t>(Action::Up)] = (buttons & kNetUp) != 0;
+    }
+    for (size_t i = 0; i < currState_.size(); ++i) {
+        if (currState_[i] && !prevState_[i]) latchedPress_[i] = true;
+    }
+}
+
 void Input::readKeyboard(ActionState& state) const {
     const Uint8* keyboard = SDL_GetKeyboardState(nullptr);
     for (size_t i = 0; i < state.size(); ++i) {

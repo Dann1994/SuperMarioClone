@@ -1,3 +1,4 @@
+#include "core/SimRandom.h"
 #include "Blooper.h"
 
 #include <algorithm>
@@ -58,7 +59,7 @@ void Blooper::runFrame(float targetX, float targetFeetY, bool targetMovingRight,
     // modo dificil): los de lugar impar copian la direccion del jugador,
     // los de lugar par van hacia el.
     const int mask = gSecondaryHardMode ? 3 : 63;
-    if ((std::rand() & mask) == 0) {
+    if ((sim::random15() & mask) == 0) {
         if (slot & 1) {
             movingRight_ = targetMovingRight;
         } else {

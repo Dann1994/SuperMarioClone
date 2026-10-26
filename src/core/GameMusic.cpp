@@ -69,6 +69,19 @@ void Game::startHurryMusic() {
     audio_.stopMusic();
 }
 
+bool Game::allPlayersDying() const {
+    // De a 2, el que ya quedo sin vidas (en el banco) cuenta como muerto.
+    const auto down = [](const Mario& m) { return m.isInDeathSequence() || m.isBenched(); };
+    return mario_.isInDeathSequence() ? (!twoPlayerMode_ || down(luigi_))
+                                      : (twoPlayerMode_ && luigi_.isInDeathSequence() && down(mario_));
+}
+
+void Game::stopMusicIfAllDying() {
+    // Al sonar la muerte, si no queda nadie vivo se corta la musica en el
+    // acto (no espera a updateMusic, que durante el congelado no corre).
+    if (allPlayersDying()) audio_.stopMusic();
+}
+
 void Game::updateMusic(float dt) {
     // Intro: silencio mientras camina; el jingle de la tuberia lo arranca
     // checkSideWarp y no hay que cortarlo.
@@ -100,9 +113,7 @@ void Game::updateMusic(float dt) {
         return;
     }
     // Murieron todos: se corta (suena death.wav).
-    const bool everyoneDying =
-        mario_.isInDeathSequence() && (!twoPlayerMode_ || luigi_.isInDeathSequence());
-    if (everyoneDying) {
+    if (allPlayersDying()) {
         audio_.stopMusic();
         return;
     }

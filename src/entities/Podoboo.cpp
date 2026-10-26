@@ -1,3 +1,4 @@
+#include "core/SimRandom.h"
 #include "Podoboo.h"
 
 #include <algorithm>
@@ -35,7 +36,7 @@ void Podoboo::update(float dt) {
         // Volvio a hundirse en la lava: arranca el proximo ciclo.
         y_ = baseY_;
         state_ = PodobooState::Submerged;
-        timer_ = kSubmergedMin + (kSubmergedMax - kSubmergedMin) * static_cast<float>(std::rand()) / RAND_MAX;
+        timer_ = kSubmergedMin + (kSubmergedMax - kSubmergedMin) * sim::random01();
     }
 }
 

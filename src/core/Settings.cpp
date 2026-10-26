@@ -36,6 +36,8 @@ bool Settings::load() {
     english = json.value("language", std::string("es")) == "en";
     vibration = json.value("vibration", vibration);
     playerCollision = json.value("player_collision", playerCollision);
+    playerName = json.value("player_name", playerName);
+    autoUpdate = json.value("auto_update", autoUpdate);
     topScore = json.value("top_score", topScore);
     gameCompleted = json.value("game_completed", gameCompleted);
     playerWorldPalettes = json.value("player_world_palettes", playerWorldPalettes);
@@ -85,6 +87,10 @@ bool Settings::load() {
         slot.scoreMario = entry.value("score_mario", 0);
         slot.scoreLuigi = entry.value("score_luigi", 0);
         slot.onlyLuigi = entry.value("only_luigi", false);
+        slot.livesMario = entry.value("lives_mario", -1);
+        slot.livesLuigi = entry.value("lives_luigi", -1);
+        slot.coinsMario = std::clamp(entry.value("coins_mario", 0), 0, 99);
+        slot.coinsLuigi = std::clamp(entry.value("coins_luigi", 0), 0, 99);
         return slot;
     };
     if (json.contains("saves") && json["saves"].is_array()) {
@@ -142,7 +148,9 @@ nlohmann::json Settings::savesJson() const {
                         {"all_hammer_bros", slot.allHammerBros}, {"play_time", slot.playTime},
                         {"enemies", slot.enemies}, {"deaths_mario", slot.deathsMario},
                         {"deaths_luigi", slot.deathsLuigi}, {"score_mario", slot.scoreMario},
-                        {"score_luigi", slot.scoreLuigi}, {"only_luigi", slot.onlyLuigi}});
+                        {"score_luigi", slot.scoreLuigi}, {"only_luigi", slot.onlyLuigi},
+                        {"lives_mario", slot.livesMario}, {"lives_luigi", slot.livesLuigi},
+                        {"coins_mario", slot.coinsMario}, {"coins_luigi", slot.coinsLuigi}});
     }
     return list;
 }
@@ -159,6 +167,8 @@ bool Settings::save() const {
         {"language", english ? "en" : "es"},
         {"vibration", vibration},
         {"player_collision", playerCollision},
+        {"player_name", playerName},
+        {"auto_update", autoUpdate},
         {"top_score", topScore},
         {"game_completed", gameCompleted},
         {"player_world_palettes", playerWorldPalettes},

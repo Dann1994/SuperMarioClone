@@ -38,6 +38,12 @@ target_link_libraries(mario PRIVATE
     SDL2_ttf::SDL2_ttf
     nlohmann_json::nlohmann_json
 )
+# Modo en red y actualizaciones (src/net, los de Battle City): sockets UDP de
+# Windows, las direcciones de la PC (UPnP / codigo de sala) y WinINet para
+# preguntarle a GitHub por versiones nuevas.
+if(WIN32)
+    target_link_libraries(mario PRIVATE ws2_32 iphlpapi wininet)
+endif()
 
 # Copiar las DLL de tiempo de ejecucion (MinGW) junto al ejecutable para poder correrlo directo.
 if(WIN32 AND MINGW)

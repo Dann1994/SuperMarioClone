@@ -1,3 +1,4 @@
+#include "core/SimRandom.h"
 #include "Bowser.h"
 #include "Difficulty.h"
 
@@ -9,15 +10,7 @@
 #include "BowserFire.h"
 
 namespace {
-float randomRange(float minVal, float maxVal) {
-    static bool seeded = false;
-    if (!seeded) {
-        std::srand(static_cast<unsigned>(std::time(nullptr)));
-        seeded = true;
-    }
-    const float t = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-    return minVal + t * (maxVal - minVal);
-}
+float randomRange(float minVal, float maxVal) { return sim::randomRange(minVal, maxVal); }
 }  // namespace
 
 void Bowser::spawn(float x, float y, bool movingRight) {

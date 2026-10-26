@@ -80,6 +80,7 @@ struct LevelPlatform {       // "platforms": plataformas moviles (ver MovingPlat
     float period = 4.0f;     // s de una ida y vuelta (vertical/horizontal)
     float speed = 50.0f;     // px/s (lift_up/lift_down)
     int ropeRow = 3;         // balance: fila de la polea
+    int shiftX = 0;          // px de corrimiento ("shift_x": balanzas del modo dificil, +8 como el original)
 };
 struct LevelEntity {         // "entities": enemigos del nivel
     std::string type;        // goomba, koopa
@@ -299,10 +300,10 @@ public:
     //  - isPipeTopTile: la fila de mas arriba de un tramo vertical contiguo
     //    (arriba no hay otra 'T') -- ahi es donde Game::checkPipeWarp
     //    detecta que el personaje esta parado para poder entrar.
-    //  - isPipeLeftHalf: existe una 'T' a la derecha (col+1) -- si no, es la
-    //    mitad derecha (existe una 'T' a la izquierda). No da resultados
-    //    utiles en una tuberia mal formada (ancho != 2), el nivel de prueba
-    //    tiene que respetar el par de columnas.
+    //  - isPipeLeftHalf: hay una 'T' a la derecha y es par su posicion en la
+    //    tira de 'T' seguidas de esa fila (tuberias pegadas: cada una ocupa
+    //    2 columnas). No da resultados utiles en una tuberia mal formada
+    //    (ancho != 2), el nivel tiene que respetar el par de columnas.
     bool isPipeTile(int col, int row) const;
     bool isPipeTopTile(int col, int row) const;
     bool isPipeLeftHalf(int col, int row) const;

@@ -1,0 +1,57 @@
+SUPER MARIO CLONE
+=================
+
+Para jugar: abrir mario.exe (o el acceso directo "Super Mario Clone").
+La version portable (el .zip) no necesita instalarse: mario.exe tiene que
+quedar en su carpeta, junto a los .dll y a las carpetas assets y levels.
+
+La configuracion, las partidas guardadas y los niveles propios quedan en
+%APPDATA%\SuperMarioClone\SuperMarioClone (actualizar o desinstalar el juego
+no los borra).
+
+Actualizaciones
+---------------
+Al abrir, el juego busca si hay una version nueva (en GitHub). Si hay, en la
+pantalla de titulo ofrece ACTUALIZAR AHORA: descarga el instalador, el juego
+se cierra, se actualiza y se vuelve a abrir solo. En CONFIGURACION >
+ACTUALIZACIONES se puede apagar la busqueda automatica (izquierda/derecha) o
+buscar en el momento (Enter).
+
+Modo en red
+-----------
+EN RED, en el menu principal: dos PC juegan la misma partida de a 2 a la vez
+(Mario el que crea la sala, Luigi el otro).
+  - CREAR PARTIDA abre la sala. En la misma red local el otro la encuentra
+    con BUSCAR EN LA RED LOCAL, o entra con el CODIGO que muestra la sala.
+  - Por internet: en la sala, INTERNET: ABRIR (abre el puerto del router
+    solo, con UPnP) y pasarle el CODIGO al otro (C lo copia); el otro entra
+    con UNIRSE CON CODIGO (Ctrl+V lo pega).
+  - Las dos PC tienen que tener la misma version del juego.
+  - Durante la partida no hay pausa: ESC abre CONTINUAR / ABANDONAR PARTIDA
+    con el juego andando.
+  - La primera vez, Windows puede preguntar si deja usar la red a mario.exe:
+    hay que permitirlo (redes privadas, y publicas si se juega por internet).
+
+Controles
+---------
+                    Jugador 1             Jugador 2
+Moverse             A / D                 Flechas izquierda / derecha
+Saltar              Espacio o W           Flecha arriba
+Correr / disparar   Shift izquierdo       Shift derecho
+Agacharse           S                     Flecha abajo
+
+Mando (Xbox o compatible): A salta, X corre / dispara, cruceta o stick
+para moverse. Start pausa. En red cada PC juega con los controles del
+jugador 1.
+
+ESC o Enter: pausa.   Alt+Enter: pantalla completa / ventana.
+Las teclas se pueden cambiar en CONFIGURACION.
+
+Teclas de depuracion (jugando, fuera del modo en red)
+-----------------------------------------------------
+F1 / F2     Cambia el tamano / traje de Mario / Luigi (chico, grande, fuego...)
+F3          Muestra u oculta los datos de depuracion (FPS, hitboxes)
+F5 / F6     Invencibilidad de Mario / Luigi (prender y apagar)
+F7          Cambia el tipo de mundo (superficie, subterraneo, castillo, agua)
+F8          Activa o desactiva el choque entre los dos jugadores
+F9 / F10    Le hace dano a Mario / Luigi

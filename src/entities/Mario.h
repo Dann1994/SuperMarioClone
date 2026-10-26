@@ -139,7 +139,9 @@ public:
     // (ver Game::resolveCharacterCollision): empujones/rebotes directos,
     // sin pasar por el input del jugador.
     void setVelocityX(float v) { velX_ = v; }
-    void setVelocityY(float v) { velY_ = v; }
+    // Hacia arriba en el aire (rebote al pisar, empujon del otro jugador):
+    // sigue como un salto desde ahi (con el boton mantenido sube mas).
+    void setVelocityY(float v);
     // Animacion de caminar sin moverse por su cuenta (lo mueve Game: entrar
     // caminando a una tuberia lateral).
     void stepWalkAnimation(float dt);
@@ -147,7 +149,7 @@ public:
     // Trampolin (ChkForLandJumpSpring): sale con la gravedad fuerte
     // (VerticalForce 0x70) aunque se mantenga saltar, hasta empezar a caer.
     void launchFromSpring(float velocityY) {
-        velY_ = velocityY;
+        setVelocityY(velocityY);
         springLaunch_ = true;
     }
     void nudgeX(float dx) { x_ += dx; }
@@ -304,6 +306,16 @@ public:
         }
     }
     bool isBenched() const { return benched_; }
+    // De a 2, el otro toco el hacha: queda quieto donde esta (se ve, no se
+    // mueve) e inmune a todo hasta que termina el corte del puente.
+    void setFrozen(bool frozen) {
+        frozen_ = frozen;
+        if (frozen) {
+            velX_ = 0.0f;
+            velY_ = 0.0f;
+        }
+    }
+    bool isFrozen() const { return frozen_; }
     // Traje de Hammer Bro: su hoja (mario_hammer.png, cuadros de 16x34) y la
     // de la estrella (las 12 paletas, ver gen_mario_hammer.py).
     bool loadHammerSprite(SDL_Renderer* renderer, const std::string& path, const std::string& starPath = "");
@@ -314,11 +326,18 @@ public:
     // LUIGI DE LOST LEVELS (CONTENIDO EXTRA): la fisica de Luigi de Super
     // Mario Bros. 2 japones (ver kLuigi*).
     void setLostLevelsPhysics(bool on) { lostLevels_ = on; }
+    // Sus hojas (chico/grande/fuego) son las de Luigi de Lost Levels
+    // (luigi_ll_*.png): viaja con las hojas en swapAppearance.
+    bool lostLevelsLook() const { return lostLevelsLook_; }
+    // Recarga las hojas chico/grande/fuego (las de la paleta normal).
+    bool reloadBaseSprites(SDL_Renderer* renderer, const std::string& smallPath, const std::string& bigPath,
+                           const std::string& firePath, bool lostLevelsLook);
     // Ya entro al castillo (no se dibuja mas).
     bool hasFinishedLevel() const { return flagpolePhase_ == FlagpolePhase::Done; }
 
 private:
-    enum class FlagpolePhase { None, Slide, Bottom, Flip, Walk, Done };
+    // Enter: parado frente a la puerta del castillo, fundiendose a negro.
+    enum class FlagpolePhase { None, Slide, Bottom, Flip, Walk, Enter, Done };
 
     void updateFlagpole(float dt, const Tilemap& level);
     bool tryGrabVine(const Input& input);
@@ -327,6 +346,11 @@ private:
     void snapToVineSide();
     void updateHorizontal(float dt, const Input& input);
     void updateVertical(float dt, Input& input);
+    // Fisica del original en tierra y aire (PlayerCtrlRoutine,
+    // PlayerMovementSubs, X_Physics, ImposeFriction, ProcJumping,
+    // JumpSwimSub, ImposeGravity), cuadro por cuadro con sus tablas.
+    void updateOriginalPhysics(Input& input);
+    void imposeFriction(int dir, float maxUnits, float friction);
     void moveAndCollide(float dt, const Tilemap& level);
     void updateAnimation(float dt, const Input& input);
     int currentHeight() const;
@@ -472,6 +496,19 @@ private:
     bool swimStrokeSoundRequested_ = false;
     bool inWhirlpool_ = false;
     bool isDucking_ = false;
+    // Estado del original: en el piso, saltando (o rebotando) o cayendo (se
+    // bajo de un borde: sigue con el cuadro de caminar, sin pose de salto).
+    enum class AirState { Ground, Jump, Fall };
+    AirState airState_ = AirState::Ground;
+    int verticalForce_ = 0x70;        // gravedad actual (1/256 px por cuadro^2)
+    int verticalForceDown_ = 0x70;    // la de caer (la del ultimo salto)
+    float jumpOriginY_ = 0.0f;
+    bool prevJumpHeld_ = false;
+    int runningTimer_ = 0;            // cuadros que sigue el tope de correr al soltar B
+    bool runningSpeedFlag_ = false;   // RunningSpeed del original
+    bool movingRight_ = true;         // Player_MovingDir
+    int animTimerSetFrames_ = 7;      // PlayerAnimTimerSet: cuadros por paso de caminar
+    float pendingGravity_ = 0.0f;     // px/s^2 que moveAndCollide suma despues de mover
     bool headBumped_ = false;
     int headBumpRow_ = 0;
     int headBumpCol0_ = 0;
@@ -557,7 +594,10 @@ private:
     static constexpr float kClimbFrameInterval = 0.08f;   // s entre los 2 frames de trepar al bajar
     static constexpr float kFlagpoleFlipDuration = 0.4f;  // s del otro lado del palo antes de bajarse
     static constexpr float kFlagpoleWalkMaxDuration = 4.0f; // s maximos caminando hacia el castillo
+    static constexpr float kCastleFadeDuration = 0.5f;      // s fundiendose a negro en la puerta
     static inline bool sWorldPalettes = false;
     bool benched_ = false;
+    bool frozen_ = false;
     bool lostLevels_ = false;
+    bool lostLevelsLook_ = false;
 };
