@@ -72,10 +72,12 @@ public:
     // sampleButtons lee el teclado y el mando de este jugador ahora (sin
     // tocar el estado del juego); beginNetFrame reemplaza a beginFrame en
     // cada cuadro de la simulacion en red con los botones que llegaron (las
-    // escenas automaticas, setScripted, siguen mandando igual). El bit 0x04
-    // queda libre: la sala lo usa para sus marcas (ver net::Lan::IsMark).
-    static constexpr uint8_t kNetLeft = 0x01, kNetRight = 0x02, kNetJump = 0x08, kNetRun = 0x10, kNetDown = 0x20,
-                             kNetUp = 0x40;
+    // escenas automaticas, setScripted, siguen mandando igual). Los bits 0x04
+    // y 0x08 quedan libres: la sala los usa para sus marcas y el anfitrion se
+    // los borra a los botones del otro (ver net::Lan::IsMark); con el salto
+    // en 0x08 el que se unia no podia saltar.
+    static constexpr uint8_t kNetLeft = 0x01, kNetRight = 0x02, kNetJump = 0x10, kNetRun = 0x20, kNetDown = 0x40,
+                             kNetUp = 0x80;
     uint8_t sampleButtons() const;
     void beginNetFrame(uint8_t buttons);
 
